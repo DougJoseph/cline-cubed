@@ -338,6 +338,7 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		aihubmixBaseUrl: config.aihubmixBaseUrl,
 		aihubmixAppCode: config.aihubmixAppCode,
 		hicapApiKey: config.hicapApiKey,
+		imageModeApiKey: config.imageModeApiKey,
 		hicapModelId: config.hicapModelId,
 
 		// Plan mode configurations
@@ -431,6 +432,12 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		actModeNousResearchModelId: config.actModeNousResearchModelId,
 		actModeVercelAiGatewayModelId: config.actModeVercelAiGatewayModelId,
 		actModeVercelAiGatewayModelInfo: convertModelInfoToProtoOpenRouter(config.actModeVercelAiGatewayModelInfo),
+
+		// Image mode configurations (Cline Cubed — the vision bridge model)
+		imageModeApiProvider: config.imageModeApiProvider,
+		imageModeApiModelId: config.imageModeApiModelId,
+		imageModeApiUri: config.imageModeApiUri,
+		imageModeApiFormat: config.imageModeApiFormat,
 	}
 }
 
@@ -523,6 +530,7 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		hicapModelId: protoConfig.hicapModelId,
 		nousResearchApiKey: protoConfig.nousResearchApiKey,
 		clineApiKey: protoConfig.clineApiKey,
+		imageModeApiKey: protoConfig.imageModeApiKey,
 
 		// Plan mode configurations
 		planModeApiProvider:
@@ -619,5 +627,14 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		actModeNousResearchModelId: protoConfig.actModeNousResearchModelId,
 		actModeVercelAiGatewayModelId: protoConfig.actModeVercelAiGatewayModelId,
 		actModeVercelAiGatewayModelInfo: convertProtoToModelInfo(protoConfig.actModeVercelAiGatewayModelInfo),
+
+		// Image mode configurations (Cline Cubed — the vision bridge model)
+		imageModeApiProvider:
+			protoConfig.imageModeApiProvider !== undefined
+				? convertProtoToApiProvider(protoConfig.imageModeApiProvider)
+				: undefined,
+		imageModeApiModelId: protoConfig.imageModeApiModelId,
+		imageModeApiUri: protoConfig.imageModeApiUri,
+		imageModeApiFormat: protoConfig.imageModeApiFormat,
 	}
 }

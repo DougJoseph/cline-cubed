@@ -9,6 +9,13 @@ import ApiOptions from "../ApiOptions"
 import Section from "../Section"
 import { syncModeConfigurations } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
+import { ImageModeConfig } from "./ImageModeConfig"
+
+/**
+ * The settings tab id. Image mode is the Cline Cubed third channel — a config
+ * concept only, never a runtime task mode (the global `Mode` stays plan/act).
+ */
+type SettingsTab = Mode | "image"
 
 interface ApiConfigurationSectionProps {
 	renderSectionHeader?: (tabId: string) => JSX.Element | null
@@ -17,7 +24,7 @@ interface ApiConfigurationSectionProps {
 
 const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiConfigurationSectionProps) => {
 	const { planActSeparateModelsSetting, mode, apiConfiguration } = useExtensionState()
-	const [currentTab, setCurrentTab] = useState<Mode>(mode)
+	const [currentTab, setCurrentTab] = useState<SettingsTab>(mode)
 	const { handleFieldsChange } = useApiConfigurationHandlers()
 	return (
 		<div>
@@ -47,11 +54,25 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 								}}>
 								Act Mode
 							</TabButton>
+							<TabButton
+								disabled={currentTab === "image"}
+								isActive={currentTab === "image"}
+								onClick={() => setCurrentTab("image")}
+								style={{
+									opacity: 1,
+									cursor: "pointer",
+								}}>
+								Image Mode
+							</TabButton>
 						</div>
 
 						{/* Content container */}
 						<div className="-mb-3">
-							<ApiOptions currentMode={currentTab} initialModelTab={initialModelTab} showModelOptions={true} />
+							{currentTab === "image" ? (
+								<ImageModeConfig />
+							) : (
+								<ApiOptions currentMode={currentTab} initialModelTab={initialModelTab} showModelOptions={true} />
+							)}
 						</div>
 					</div>
 				) : (
@@ -67,7 +88,11 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 							try {
 								// If unchecking the toggle, wait a bit for state to update, then sync configurations
 								if (!checked) {
-									await syncModeConfigurations(apiConfiguration, currentTab, handleFieldsChange)
+									await syncModeConfigurations(
+										apiConfiguration,
+										currentTab === "image" ? mode : currentTab,
+										handleFieldsChange,
+									)
 								}
 								await StateServiceClient.updateSettings(
 									UpdateSettingsRequest.create({

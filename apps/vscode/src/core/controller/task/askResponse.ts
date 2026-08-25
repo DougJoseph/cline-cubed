@@ -2,6 +2,7 @@ import { Empty } from "@shared/proto/cline/common"
 import { AskResponseRequest } from "@shared/proto/cline/task"
 import { Logger } from "@/shared/services/Logger"
 import { ClineAskResponse } from "../../../shared/WebviewMessage"
+import { interceptImagesForNonVisionModel } from "../../bridge/interceptImages"
 import { Controller } from ".."
 
 /**
@@ -35,8 +36,25 @@ export async function askResponse(controller: Controller, request: AskResponseRe
 				return Empty.create()
 		}
 
+		// Cline Cubed: bridge images to text for the active model before the
+		// message reaches it. Any interception failure degrades to the original
+		// passthrough — the image bridge must never break a message send.
+		let intercepted: { text: string; images: string[] } = {
+			text: request.text ?? "",
+			images: request.images ?? [],
+		}
+		try {
+			intercepted = await interceptImagesForNonVisionModel({
+				text: request.text ?? "",
+				images: request.images ?? [],
+				apiConfiguration: controller.stateManager.getApiConfiguration(),
+			})
+		} catch (error) {
+			Logger.warn("Image bridge interception skipped:", error)
+		}
+
 		// Call the task's handler for webview responses
-		await controller.task.handleWebviewAskResponse(responseType, request.text, request.images, request.files)
+		await controller.task.handleWebviewAskResponse(responseType, intercepted.text, intercepted.images, request.files)
 
 		return Empty.create()
 	} catch (error) {

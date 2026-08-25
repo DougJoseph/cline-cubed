@@ -39,6 +39,12 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 				actModeApiProvider: protoApiConfiguration.actModeApiProvider
 					? convertProtoToApiProvider(protoApiConfiguration.actModeApiProvider)
 					: undefined,
+				// Cline Cubed: convert the Image Mode provider enum like the
+				// plan/act providers above (the raw proto spread would otherwise
+				// carry it through as a plain string).
+				imageModeApiProvider: protoApiConfiguration.imageModeApiProvider
+					? convertProtoToApiProvider(protoApiConfiguration.imageModeApiProvider)
+					: undefined,
 				planModeReasoningEffort: protoApiConfiguration.planModeReasoningEffort as OpenaiReasoningEffort | undefined,
 				actModeReasoningEffort: protoApiConfiguration.actModeReasoningEffort as OpenaiReasoningEffort | undefined,
 			}

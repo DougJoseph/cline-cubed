@@ -43,6 +43,13 @@ export async function updateApiConfigurationProto(
 				protoApiConfiguration.actModeApiProvider !== undefined
 					? convertProtoToApiProvider(protoApiConfiguration.actModeApiProvider!)
 					: undefined,
+			// Cline Cubed: convert the Image Mode provider enum like the
+			// plan/act providers above (the raw proto spread would otherwise
+			// carry it through as a plain string).
+			imageModeApiProvider:
+				protoApiConfiguration.imageModeApiProvider !== undefined
+					? convertProtoToApiProvider(protoApiConfiguration.imageModeApiProvider!)
+					: undefined,
 
 			// Convert ModelInfo objects (empty arrays → undefined)
 			// Plan Mode

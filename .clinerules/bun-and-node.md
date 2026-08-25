@@ -18,6 +18,30 @@ The root `bun.lock` is the single lockfile for the whole workspace, including
 `apps/vscode`, `webview-ui`, and `testing-platform`. There are no per-package npm
 lockfiles.
 
+## Native arm64 Bun required on this machine (macOS arm64)
+
+The system `bun` at `/usr/local/bin/bun` is an **x86_64 build running under
+Rosetta** on this arm64 M1 Max. It crashes with `Illegal instruction` /
+`CPU lacks AVX support` whenever a package script runs `bun.mts` (i.e. uses the
+`Bun.build` API) — `bun run build:sdk` failed exactly this way (verified
+2026-08-24).
+
+The native arm64 bun (1.4.0) is installed at `~/.bun/bin/bun` via the official
+installer (`curl -fsSL https://bun.sh/install | bash`). Do NOT use the brew bun —
+brew here installs the Intel/Rosetta build.
+
+**Always build with the native bun on PATH:**
+
+```bash
+PATH="$HOME/.bun/bin:$PATH" bun run build:sdk   # SDK workspace packages
+PATH="$HOME/.bun/bin:$PATH" bun run package     # extension build / vsix
+```
+
+Why this is easy to miss: even if you invoke the arm64 bun by full path
+(`~/.bun/bin/bun ...`), package scripts respawn `bun` from PATH for their child
+commands (e.g. `bun run ./bun.mts`), so the x64 bun still runs unless PATH is
+fixed first. Prepend `~/.bun/bin` — don't rely on the parent shell.
+
 ## Node is the runtime — do NOT rewrite these to bun
 
 The build product runs on Node: the VS Code extension host loads

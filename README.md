@@ -1,3 +1,28 @@
+<div align="center">
+
+# Cline Cubed (image bridge)
+
+A fork of [Cline](https://github.com/cline/cline) that adds a third **Image Mode**
+model channel. When you paste an image into a chat running a non-vision model
+(e.g. DeepSeek Reasoner), your configured Image Mode vision model describes the
+image, and that description is bridged into the chat as a collapsible text block —
+so non-vision models get full image context without ever receiving raw image bytes.
+
+**Fork maintainer:** [Doug Joseph](https://github.com/DougJoseph)
+
+## What's different from Cline
+
+- **Image Mode** — a third model channel in API Configuration, in addition to the
+  standard request/plan channels, used when an image is pasted into a chat.
+- **Image bridge** — images are intercepted at send, described by the Image Mode
+  vision model, and rolled up as text; the reasoning model never sees the bytes.
+
+Everything else is unchanged Cline functionality. Upstream documentation follows.
+
+</div>
+
+---
+
 <p align="center">
   <img src="assets/icons/icon.png" width="80" alt="Cline" />
 </p>

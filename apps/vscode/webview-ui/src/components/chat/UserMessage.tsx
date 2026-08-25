@@ -1,6 +1,8 @@
+import { splitImageBridgeBlock } from "@shared/bridge/constants"
 import { EditMessageAndRegenerateRequest } from "@shared/proto/cline/task"
 import type React from "react"
 import { useMemo, useState } from "react"
+import { CHAT_ROW_EXPANDED_BG_COLOR } from "@/components/common/CodeBlock"
 import Thumbnails from "@/components/common/Thumbnails"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { TaskServiceClient } from "@/services/grpc-client"
@@ -22,7 +24,11 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 	const [editedFiles, setEditedFiles] = useState(files ?? [])
 	const [savingMode, setSavingMode] = useState<"chat" | "workspace" | undefined>()
 	const [errorMessage, setErrorMessage] = useState<string | undefined>()
-	const highlightedText = useMemo(() => highlightText(text), [text])
+	// Cline Cubed: the bridged image description is appended to the user
+	// message text; display it as a rolled-up (collapsible) block.
+	const [bridgeExpanded, setBridgeExpanded] = useState(false)
+	const { userText, bridgeText } = useMemo(() => splitImageBridgeBlock(text ?? ""), [text])
+	const highlightedText = useMemo(() => highlightText(userText), [userText])
 
 	const startEditing = () => {
 		setEditedText(text ?? "")
@@ -176,9 +182,52 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 					</div>
 				</div>
 			) : (
-				<span className="ph-no-capture text-sm" style={{ display: "block" }}>
-					{highlightedText}
-				</span>
+				<>
+					<span className="ph-no-capture text-sm" style={{ display: "block" }}>
+						{highlightedText}
+					</span>
+					{bridgeText && (
+						<div
+							style={{
+								marginTop: "8px",
+								borderRadius: "6px",
+								border: "1px solid var(--vscode-editorGroup-border)",
+								backgroundColor: CHAT_ROW_EXPANDED_BG_COLOR,
+								overflow: "hidden",
+							}}>
+							<button
+								aria-expanded={bridgeExpanded}
+								className="w-full flex items-center gap-1.5 px-2.5 py-1.5 bg-transparent border-0 cursor-pointer text-left text-xs hover:brightness-110"
+								onClick={(event) => {
+									event.stopPropagation()
+									setBridgeExpanded((expanded) => !expanded)
+								}}
+								style={{ color: "var(--vscode-descriptionForeground)" }}
+								type="button">
+								<i className={`codicon ${bridgeExpanded ? "codicon-chevron-down" : "codicon-chevron-right"}`} />
+								<span style={{ fontWeight: 500 }}>Image description (from Image Mode bridge)</span>
+								<span style={{ marginLeft: "auto", fontSize: "11px" }}>
+									{bridgeText.length.toLocaleString()} chars
+								</span>
+							</button>
+							{bridgeExpanded && (
+								<div
+									className="text-xs"
+									style={{
+										padding: "8px 10px",
+										whiteSpace: "pre-wrap",
+										wordBreak: "break-word",
+										maxHeight: "40vh",
+										overflowY: "auto",
+										borderTop: "1px solid var(--vscode-editorGroup-border)",
+										color: "var(--vscode-foreground)",
+									}}>
+									{bridgeText}
+								</div>
+							)}
+						</div>
+					)}
+				</>
 			)}
 			{!isEditing && ((images && images.length > 0) || (files && files.length > 0)) && (
 				<Thumbnails files={files ?? []} images={images ?? []} style={{ marginTop: "8px" }} />

@@ -1,3 +1,4 @@
+import { splitImageBridgeBlock } from "@shared/bridge/constants"
 import { ClineMessage } from "@shared/ExtensionMessage"
 import React, { memo, useCallback } from "react"
 import { cn } from "@/lib/utils"
@@ -39,10 +40,14 @@ export const StickyUserMessage: React.FC<StickyUserMessageProps> = memo(
 		}
 
 		const messageText = lastUserMessage.text.trim()
+		// Cline Cubed: hide the bridged image description in the compact sticky
+		// header — the full block stays visible in the message row itself.
+		const { userText } = splitImageBridgeBlock(messageText)
+		const displayText = userText.trim()
 
 		return (
 			<div
-				aria-label={`Scroll to your message: ${messageText}`}
+				aria-label={`Scroll to your message: ${displayText}`}
 				className={cn(
 					"relative flex items-center px-2.5 pt-2 pb-2 cursor-pointer select-none",
 					"backdrop-blur-sm",
@@ -64,7 +69,7 @@ export const StickyUserMessage: React.FC<StickyUserMessageProps> = memo(
 						"overflow-hidden text-ellipsis whitespace-nowrap",
 						"ph-no-capture",
 					)}>
-					{highlightText(messageText, false)}
+					{highlightText(displayText, false)}
 				</div>
 			</div>
 		)

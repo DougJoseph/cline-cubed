@@ -394,6 +394,7 @@ message ModelsApiSecrets {
   optional string oca_refresh_token = 37;
   optional string minimax_api_key = 38;
   optional string aihubmix_api_key = 39;
+  optional string image_mode_api_key = 40;
 }
 
 // API configuration options (non-secret settings)
@@ -525,6 +526,14 @@ message ModelsApiOptions {
   optional OpenRouterModelInfo act_mode_cline_model_info = 236;
   optional string act_mode_cline_pass_model_id = 237;
   optional OpenRouterModelInfo act_mode_cline_pass_model_info = 238;
+
+  // Cline Cubed (image bridge): the third-model "Image Mode" configuration —
+  // a vision-capable model that reads images and feeds text-only descriptions
+  // to a non-vision reasoning model (e.g. DeepSeek Reasoner).
+  optional string image_mode_api_provider = 239;
+  optional string image_mode_api_model_id = 240;
+  optional string image_mode_api_uri = 241;
+  optional string image_mode_api_format = 242;
 }
 
 // Request for updating API configuration (legacy - uses combined configuration)
@@ -848,4 +857,11 @@ message ModelsApiConfiguration {
   optional OpenRouterModelInfo act_mode_cline_model_info = 241;
   optional string act_mode_cline_pass_model_id = 242;
   optional OpenRouterModelInfo act_mode_cline_pass_model_info = 243;
+
+  // Cline Cubed (image bridge): the third-model "Image Mode" configuration.
+  optional string image_mode_api_provider = 244;
+  optional string image_mode_api_model_id = 245;
+  optional string image_mode_api_uri = 246;
+  optional string image_mode_api_format = 247;
+  optional string image_mode_api_key = 248;
 }

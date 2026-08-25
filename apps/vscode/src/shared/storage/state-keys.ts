@@ -251,6 +251,16 @@ const API_HANDLER_SETTINGS_FIELDS = {
 		transform: (v: any) => (typeof v === "string" ? toLegacyApiProvider(v) : v),
 	},
 
+	// Image mode configurations (Cline Cubed — the vision bridge model)
+	imageModeApiProvider: {
+		default: DEFAULT_API_PROVIDER as ApiProvider,
+		transform: (v: any) => (typeof v === "string" ? toLegacyApiProvider(v) : v),
+	},
+	imageModeApiModelId: { default: undefined as string | undefined },
+	imageModeApiUri: { default: undefined as string | undefined },
+	imageModeApiFormat: { default: undefined as string | undefined },
+	imageModeApiKey: { default: undefined as string | undefined },
+
 	// Deprecated model settings
 	hicapModelId: { default: undefined as string | undefined },
 	lmStudioModelId: { default: undefined as string | undefined },
@@ -344,6 +354,7 @@ const SECRETS_KEYS = [
 	"sapAiCoreClientSecret",
 	"groqApiKey",
 	"huaweiCloudMaasApiKey",
+	"imageModeApiKey",
 	"basetenApiKey",
 	"vercelAiGatewayApiKey",
 	"difyApiKey",

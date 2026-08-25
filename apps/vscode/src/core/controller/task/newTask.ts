@@ -3,7 +3,9 @@ import { PlanActMode } from "@shared/proto/cline/state"
 import { NewTaskRequest } from "@shared/proto/cline/task"
 import { Settings } from "@shared/storage/state-keys"
 import { convertProtoToApiProvider } from "@/shared/proto-conversions/models/api-configuration-conversion"
+import { Logger } from "@/shared/services/Logger"
 import { DEFAULT_BROWSER_SETTINGS } from "../../../shared/BrowserSettings"
+import { interceptImagesForNonVisionModel } from "../../bridge/interceptImages"
 import { Controller } from ".."
 import { normalizeOpenaiReasoningEffort } from "../state/reasoningEffort"
 
@@ -69,6 +71,23 @@ export async function newTask(controller: Controller, request: NewTaskRequest): 
 		}).filter(([_, value]) => value !== undefined),
 	)
 
-	const taskId = await controller.initTask(request.text, request.images, request.files, undefined, filteredTaskSettings)
+	// Cline Cubed: bridge images to text before the message reaches the model.
+	// Any interception failure degrades to the original passthrough — the
+	// image bridge must never break task creation.
+	let intercepted: { text: string; images: string[] } = {
+		text: request.text,
+		images: request.images,
+	}
+	try {
+		intercepted = await interceptImagesForNonVisionModel({
+			text: request.text,
+			images: request.images,
+			apiConfiguration: controller.stateManager.getApiConfiguration(),
+		})
+	} catch (error) {
+		Logger.warn("Image bridge interception skipped:", error)
+	}
+
+	const taskId = await controller.initTask(intercepted.text, intercepted.images, request.files, undefined, filteredTaskSettings)
 	return String.create({ value: taskId || "" })
 }

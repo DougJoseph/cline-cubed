@@ -48,6 +48,9 @@ export async function askResponse(controller: Controller, request: AskResponseRe
 				text: request.text ?? "",
 				images: request.images ?? [],
 				apiConfiguration: controller.stateManager.getApiConfiguration(),
+				providerConfigStore: controller.getProviderConfigStore(),
+				mode: controller.stateManager.getGlobalSettingsKey("mode"),
+				debugEnabled: controller.stateManager.getGlobalSettingsKey("imageBridgeDebugEnabled"),
 			})
 		} catch (error) {
 			Logger.warn("Image bridge interception skipped:", error)

@@ -51,7 +51,7 @@ export async function resolveHooksDirectory(
 	globalHooksDirOverride?: string,
 ): Promise<string> {
 	if (isGlobal) {
-		return globalHooksDirOverride || path.join(os.homedir(), "Documents", "Cline", "Hooks")
+		return globalHooksDirOverride || path.join(os.homedir(), "Documents", "Webwork", "cline-cubed", "Cline", "Hooks")
 	}
 
 	// For workspace hooks, find the correct workspace

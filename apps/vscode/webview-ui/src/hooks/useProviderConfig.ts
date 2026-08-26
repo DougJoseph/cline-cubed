@@ -11,6 +11,7 @@ import {
 	type ProviderModelOverrides,
 	toProtobufModelOverrides as toProtobufProviderModelOverrides,
 } from "@shared/proto-conversions/models/modelOverrides"
+import type { Mode } from "@shared/storage/types"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ProviderId } from "@/context/ExtensionStateContext"
 import { ModelsServiceClient } from "@/services/grpc-client"
@@ -109,7 +110,7 @@ export function useProviderConfig(providerId: ProviderId) {
 	)
 
 	const commitSelection = useCallback(
-		async (mode: "plan" | "act", selection: ProviderModelSelection) => {
+		async (mode: Mode, selection: ProviderModelSelection) => {
 			if (selection.providerId !== providerId) {
 				throw new Error(`selection providerId ${selection.providerId} does not match hook providerId ${providerId}`)
 			}

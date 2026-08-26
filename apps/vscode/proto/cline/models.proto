@@ -251,6 +251,7 @@ message ProviderConfigResponse {
   optional string account_id = 9;
   optional CommittedModelSelection plan_selection = 10;
   optional CommittedModelSelection act_selection = 11;
+  optional CommittedModelSelection image_selection = 15;
   optional AwsProviderConfig aws = 12;
   optional GcpProviderConfig gcp = 13;
   // Provider-level context window (providers.json `contextWindow`). Used by
@@ -864,4 +865,6 @@ message ModelsApiConfiguration {
   optional string image_mode_api_uri = 246;
   optional string image_mode_api_format = 247;
   optional string image_mode_api_key = 248;
+  optional OpenRouterModelInfo image_mode_api_model_info = 249;
+  optional string image_mode_api_reasoning_effort = 250;
 }

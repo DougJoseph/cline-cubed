@@ -50,6 +50,12 @@ export async function updateApiConfigurationProto(
 				protoApiConfiguration.imageModeApiProvider !== undefined
 					? convertProtoToApiProvider(protoApiConfiguration.imageModeApiProvider!)
 					: undefined,
+			// Cline Cubed: convert the Image Mode model info (the raw proto spread
+			// would carry it as a proto object, not a ModelInfo).
+			imageModeApiModelInfo: protoApiConfiguration.imageModeApiModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.imageModeApiModelInfo)
+				: undefined,
+			imageModeReasoningEffort: protoApiConfiguration.imageModeApiReasoningEffort as OpenaiReasoningEffort | undefined,
 
 			// Convert ModelInfo objects (empty arrays → undefined)
 			// Plan Mode

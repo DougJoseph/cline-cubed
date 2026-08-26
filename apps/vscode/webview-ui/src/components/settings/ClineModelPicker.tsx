@@ -101,7 +101,8 @@ const ClineModelPicker: React.FC<ClineModelPickerProps> = ({ isPopup, currentMod
 	const { config, write: writeProviderConfig, commitSelection } = useProviderConfig("cline")
 	const modeFields = getModeSpecificFields(apiConfiguration, currentMode)
 	const effectiveClineModels = catalogClineModels
-	const committedSelection = currentMode === "plan" ? config?.planSelection : config?.actSelection
+	const committedSelection =
+		currentMode === "plan" ? config?.planSelection : currentMode === "image" ? config?.imageSelection : config?.actSelection
 	const committedModelInfo = committedSelection?.modelInfo ? fromProtobufModelInfo(committedSelection.modelInfo) : undefined
 	const currentClineModelId =
 		committedSelection?.modelId ||

@@ -19,7 +19,7 @@ const AboutSection = ({ version, extensionVariant, renderSectionHeader }: AboutS
 			<Section>
 				<div className="flex px-4 flex-col gap-2">
 					<h2 className="text-lg font-semibold">
-						Cline v{version}
+						Cline Cubed v{version}
 						{extensionVariant && (
 							<span className="ml-2 text-sm font-normal text-description">
 								({VARIANT_LABELS[extensionVariant]})
@@ -27,37 +27,21 @@ const AboutSection = ({ version, extensionVariant, renderSectionHeader }: AboutS
 						)}
 					</h2>
 					<p>
-						An AI assistant that can use your CLI and Editor. Cline can handle complex software development tasks
-						step-by-step with tools that let him create & edit files, explore large projects, use the browser, and
-						execute terminal commands (after you grant permission).
-					</p>
-
-					<h3 className="text-md font-semibold">Community & Support</h3>
-					<p>
-						<VSCodeLink href="https://x.com/cline">X</VSCodeLink>
-						{" • "}
-						<VSCodeLink href="https://discord.gg/cline">Discord</VSCodeLink>
-						{" • "}
-						<VSCodeLink href="https://www.reddit.com/r/cline/"> r/cline</VSCodeLink>
+						Cline Cubed is a fork of Cline with three working modes — Plan, Act, and Image. Image Mode adds a
+						dedicated image-aware channel: when your Plan or Act model is text-only, the bridge routes images to the
+						Image Mode model so you can still work from screenshots and designs.
 					</p>
 
 					<h3 className="text-md font-semibold">Development</h3>
 					<p>
-						<VSCodeLink href="https://github.com/cline/cline">GitHub</VSCodeLink>
+						<VSCodeLink href="https://github.com/DougJoseph/cline-cubed">GitHub</VSCodeLink>
 						{" • "}
-						<VSCodeLink href="https://github.com/cline/cline/issues"> Issues</VSCodeLink>
-						{" • "}
-						<VSCodeLink href="https://github.com/cline/cline/discussions/categories/feature-requests?discussions_q=is%3Aopen+category%3A%22Feature+Requests%22+sort%3Atop">
-							{" "}
-							Feature Requests
-						</VSCodeLink>
+						<VSCodeLink href="https://github.com/DougJoseph/cline-cubed/issues"> Issues</VSCodeLink>
 					</p>
 
 					<h3 className="text-md font-semibold">Resources</h3>
 					<p>
 						<VSCodeLink href="https://docs.cline.bot/">Documentation</VSCodeLink>
-						{" • "}
-						<VSCodeLink href="https://cline.bot/">https://cline.bot</VSCodeLink>
 					</p>
 				</div>
 			</Section>

@@ -257,6 +257,8 @@ const API_HANDLER_SETTINGS_FIELDS = {
 		transform: (v: any) => (typeof v === "string" ? toLegacyApiProvider(v) : v),
 	},
 	imageModeApiModelId: { default: undefined as string | undefined },
+	imageModeApiModelInfo: { default: undefined as ModelInfo | undefined },
+	imageModeReasoningEffort: { default: undefined as string | undefined },
 	imageModeApiUri: { default: undefined as string | undefined },
 	imageModeApiFormat: { default: undefined as string | undefined },
 	imageModeApiKey: { default: undefined as string | undefined },
@@ -293,6 +295,9 @@ const USER_SETTINGS_FIELDS = {
 	backgroundEditEnabled: { default: false as boolean },
 	optOutOfRemoteConfig: { default: false as boolean },
 	showFeatureTips: { default: false as boolean },
+	// Cline Cubed: gate the image-bridge debug log lines in the output channel
+	// (the in-memory buffer always records; only the channel log is gated).
+	imageBridgeDebugEnabled: { default: false as boolean },
 
 	// OpenTelemetry configuration
 	openTelemetryEnabled: { default: true as boolean },

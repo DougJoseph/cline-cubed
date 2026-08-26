@@ -12,10 +12,41 @@ so non-vision models get full image context without ever receiving raw image byt
 
 ## What's different from Cline
 
-- **Image Mode** — a third model channel in API Configuration, in addition to the
-  standard request/plan channels, used when an image is pasted into a chat.
+- **Three model channels — Plan, Act, and Image Mode.** Each tab in API
+  Configuration keeps its own provider, model, API key, and reasoning effort.
+  Image Mode is the vision channel used when an image is pasted into a chat.
 - **Image bridge** — images are intercepted at send, described by the Image Mode
-  vision model, and rolled up as text; the reasoning model never sees the bytes.
+  vision model, and rolled up as a selectable/copyable text block; the reasoning
+  model never sees the raw image bytes.
+- **Capability-aware** — the bridge runs only when the active Plan/Act model is
+  non-vision (or its capability is unknown); a vision-capable Plan/Act model
+  receives the raw image as usual.
+- **Image bridge debug logging** — a Settings toggle records each bridge call
+  (provider, model, URL, image type/size, auth, status) to the VS Code output
+  channel and shows the most recent calls inline under failed bridge blocks, with
+  a one-click toggle right in the chat. On failure the panel appears even when
+  the toggle is off.
+- **Fork identity** — the About panel, extension manifest, and marketplace README
+  are the fork's own: `DougJoseph.cline-cubed`, "Cline Cubed (image bridge)".
+
+## Install
+
+Install the built `.vsix` in VS Code: Extensions → ⋯ menu → **Install from
+VSIX…** → pick `cline-cubed-<ver>.vsix`. It installs alongside stock Cline as a
+distinct extension (`DougJoseph.cline-cubed`); the two coexist.
+
+## Build
+
+From `apps/vscode/` (native arm64 bun first in PATH — the fork's MUST-KNOW build
+rule):
+
+```sh
+PATH="$HOME/.bun/bin:$PATH" bun run package          # typecheck + webview + lint + esbuild
+PATH="$HOME/.bun/bin:$PATH" bunx @vscode/vsce package --no-dependencies --allow-package-secrets sendgrid --out cline-cubed-<ver>.vsix
+```
+
+The canonical release path is the README swap-in → `vsce package` → README
+restore sequence in `.github/workflows/ext-vscode-publish-stable.yml`.
 
 Everything else is unchanged Cline functionality. Upstream documentation follows.
 

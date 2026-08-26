@@ -47,4 +47,28 @@ describe("withPendingUserMessage", () => {
 
 		expect(withPendingUserMessage([task], { afterTs: 1, message: followup })).toEqual([task, followup])
 	})
+
+	it("confirms an optimistic image bubble against the bridge-transformed echo (description appended, images stripped)", () => {
+		const optimistic: ClineMessage = {
+			ts: 20,
+			type: "say",
+			say: "user_feedback",
+			text: "look at this",
+			images: ["data:image/png;base64,AAA"],
+			partial: false,
+		}
+		const bridged: ClineMessage = {
+			ts: 21,
+			type: "say",
+			say: "user_feedback",
+			text: "look at this\n\n[Image description (from the image bridge):]\ndesc",
+			images: [],
+			partial: false,
+		}
+
+		// Without the bridge-aware match this returned [bridged, optimistic] —
+		// a duplicate user message with the image bubble left orphaned below the
+		// bridge-text message (the "wrong message" placement).
+		expect(withPendingUserMessage([bridged], { afterTs: 19, message: optimistic })).toEqual([bridged])
+	})
 })

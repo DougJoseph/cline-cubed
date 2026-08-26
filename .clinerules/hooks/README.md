@@ -3,7 +3,7 @@
 ## Overview
 
 Cline hooks allow you to execute custom scripts at specific points in the agentic workflow. Hooks can be placed in either:
-- **Global hooks directory**: `~/Documents/Cline/Hooks/` (applies to all workspaces)
+- **Global hooks directory**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/` (applies to all workspaces)
 - **Workspace hooks directory**: `.clinerules/hooks/` (applies to the workspace the repo is part of)
 
 Hooks run automatically when enabled.
@@ -20,50 +20,50 @@ Hooks run automatically when enabled.
 ### TaskStart Hook
 - **When**: Runs when a NEW task is started (not when resuming)
 - **Purpose**: Initialize task context, validate task requirements, set up environment
-- **Global Location**: `~/Documents/Cline/Hooks/TaskStart`
+- **Global Location**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/TaskStart`
 - **Workspace Location**: `.clinerules/hooks/TaskStart`
 
 ### TaskResume Hook
 - **When**: Runs when an EXISTING task is resumed (after user clicks resume button)
 - **Purpose**: Validate resumed task state, restore context, check for changes since last run
-- **Global Location**: `~/Documents/Cline/Hooks/TaskResume`
+- **Global Location**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/TaskResume`
 - **Workspace Location**: `.clinerules/hooks/TaskResume`
 
 ### TaskCancel Hook
 - **When**: Runs when a task is cancelled or a hook is aborted by the user (only if there's actual active work or work was started)
 - **Purpose**: Clean up resources, log cancellation, save state
-- **Global Location**: `~/Documents/Cline/Hooks/TaskCancel`
+- **Global Location**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/TaskCancel`
 - **Workspace Location**: `.clinerules/hooks/TaskCancel`
 - **Note**: This hook is NOT cancellable
 
 ### TaskComplete Hook (coming soon!)
 - **When**: Runs when a task is marked as complete
 - **Purpose**: Log completion status, perform final cleanup, generate reports
-- **Global Location**: `~/Documents/Cline/Hooks/TaskComplete`
+- **Global Location**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/TaskComplete`
 - **Workspace Location**: `.clinerules/hooks/TaskComplete`
 
 ### UserPromptSubmit Hook
 - **When**: Runs when the user submits a prompt/message (initial task, resume, or feedback)
 - **Purpose**: Validate user input, preprocess prompts, add context to user messages
-- **Global Location**: `~/Documents/Cline/Hooks/UserPromptSubmit`
+- **Global Location**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/UserPromptSubmit`
 - **Workspace Location**: `.clinerules/hooks/UserPromptSubmit`
 
 ### PreToolUse Hook
 - **When**: Runs BEFORE a tool is executed
 - **Purpose**: Validate parameters, block execution, or add context
-- **Global Location**: `~/Documents/Cline/Hooks/PreToolUse`
+- **Global Location**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/PreToolUse`
 - **Workspace Location**: `.clinerules/hooks/PreToolUse`
 
 ### PostToolUse Hook
 - **When**: Runs AFTER a tool completes
 - **Purpose**: Observe results, track patterns, or add context
-- **Global Location**: `~/Documents/Cline/Hooks/PostToolUse`
+- **Global Location**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/PostToolUse`
 - **Workspace Location**: `.clinerules/hooks/PostToolUse`
 
 ### PreCompact Hook (coming soon!)
 - **When**: Runs BEFORE the conversation context is compacted/truncated
 - **Purpose**: Observe compaction events, log context management, track token usage
-- **Global Location**: `~/Documents/Cline/Hooks/PreCompact`
+- **Global Location**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/PreCompact`
 - **Workspace Location**: `.clinerules/hooks/PreCompact`
 
 ## Cross-Platform Hook Format
@@ -91,10 +91,10 @@ This means:
 **On Unix/Linux/macOS:**
 ```bash
 # Create hook file
-nano ~/Documents/Cline/Hooks/PreToolUse
+nano ~/Documents/Webwork/cline-cubed/Cline/Hooks/PreToolUse
 
 # Make executable
-chmod +x ~/Documents/Cline/Hooks/PreToolUse
+chmod +x ~/Documents/Webwork/cline-cubed/Cline/Hooks/PreToolUse
 ```
 
 ## Context Injection Timing
@@ -300,7 +300,7 @@ echo '{"cancel": false}'
 Cline supports two levels of hooks:
 
 ### Global Hooks
-- **Location**: `~/Documents/Cline/Hooks/` (macOS/Linux)
+- **Location**: `~/Documents/Webwork/cline-cubed/Cline/Hooks/` (macOS/Linux)
 - **Scope**: Apply to ALL workspaces and projects
 - **Use Case**: Organization-wide policies, personal preferences, universal validations
 - **Priority**: Order not guaranteed when combined with workspace hooks
@@ -327,13 +327,13 @@ When multiple hooks exist (global and/or workspace):
 ### Setting Up Global Hooks
 
 1. The global hooks directory is automatically created at:
-   - macOS/Linux: `~/Documents/Cline/Hooks/`
+   - macOS/Linux: `~/Documents/Webwork/cline-cubed/Cline/Hooks/`
 
 2. Add your hook script:
    ```bash
    # Unix/Linux/macOS
-   nano ~/Documents/Cline/Hooks/PreToolUse
-   chmod +x ~/Documents/Cline/Hooks/PreToolUse
+   nano ~/Documents/Webwork/cline-cubed/Cline/Hooks/PreToolUse
+   chmod +x ~/Documents/Webwork/cline-cubed/Cline/Hooks/PreToolUse
    ```
 
 3. Enable hooks in Cline settings
@@ -343,7 +343,7 @@ When multiple hooks exist (global and/or workspace):
 **Global Hook** (applies to all projects):
 ```bash
 #!/usr/bin/env bash
-# ~/Documents/Cline/Hooks/PreToolUse
+# ~/Documents/Webwork/cline-cubed/Cline/Hooks/PreToolUse
 # Universal rule: Never delete package.json
 input=$(cat)
 tool_name=$(echo "$input" | jq -r '.preToolUse.toolName')

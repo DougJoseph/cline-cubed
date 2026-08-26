@@ -9,7 +9,6 @@ import ApiOptions from "../ApiOptions"
 import Section from "../Section"
 import { syncModeConfigurations } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
-import { ImageModeConfig } from "./ImageModeConfig"
 
 /**
  * The settings tab id. Image mode is the Cline Cubed third channel — a config
@@ -23,7 +22,7 @@ interface ApiConfigurationSectionProps {
 }
 
 const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiConfigurationSectionProps) => {
-	const { planActSeparateModelsSetting, mode, apiConfiguration } = useExtensionState()
+	const { planActSeparateModelsSetting, mode, apiConfiguration, imageBridgeDebugEnabled } = useExtensionState()
 	const [currentTab, setCurrentTab] = useState<SettingsTab>(mode)
 	const { handleFieldsChange } = useApiConfigurationHandlers()
 	return (
@@ -69,7 +68,31 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 						{/* Content container */}
 						<div className="-mb-3">
 							{currentTab === "image" ? (
-								<ImageModeConfig />
+								<>
+									<ApiOptions currentMode="image" initialModelTab={initialModelTab} showModelOptions={true} />
+									<div className="mt-3">
+										<VSCodeCheckbox
+											checked={imageBridgeDebugEnabled === true}
+											onChange={async (e: any) => {
+												try {
+													await StateServiceClient.updateSettings(
+														UpdateSettingsRequest.create({
+															imageBridgeDebugEnabled: e.target.checked === true,
+														}),
+													)
+												} catch (error) {
+													console.error("Failed to update image bridge debug setting:", error)
+												}
+											}}>
+											Image bridge debug logging
+										</VSCodeCheckbox>
+										<p className="text-xs mt-[5px] text-(--vscode-descriptionForeground)">
+											Records each image-bridge call (provider, model, URL, image type/size, auth, status)
+											to the output channel and shows the most recent calls inline under failed bridge
+											blocks. Full log: <code>View → Output → Cline Cubed</code>.
+										</p>
+									</div>
+								</>
 							) : (
 								<ApiOptions currentMode={currentTab} initialModelTab={initialModelTab} showModelOptions={true} />
 							)}

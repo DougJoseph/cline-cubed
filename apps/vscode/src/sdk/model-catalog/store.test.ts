@@ -250,6 +250,26 @@ describe("createProviderConfigStore", () => {
 		expect(mocks.getModelsFile().providers.litellm?.models?.[modelId]).toBeUndefined()
 	})
 
+	it("persists image-mode selection metadata to imageModeApiModelInfo so a custom vision model survives reload", async () => {
+		const { createProviderConfigStore } = await import("./store")
+		const store = createProviderConfigStore()
+		const providerId = parseProviderId("deepseek")
+		const modelId = "deepseek-v4-flash-vision-exp"
+		const liveModelInfo: ModelInfo = {
+			name: "deepseek-v4-flash-vision-exp",
+			supportsImages: true,
+			supportsPromptCache: false,
+		}
+
+		store.commitSelection(providerId, "image", { providerId, modelId }, liveModelInfo)
+
+		expect(mocks.getApiConfiguration().imageModeApiModelId).toBe(modelId)
+		expect(mocks.getApiConfiguration().imageModeApiModelInfo).toEqual(liveModelInfo)
+		const selection = store.readSelection(providerId, "image")
+		expect(selection?.modelId).toBe(modelId)
+		expect(selection?.modelInfo.supportsImages).toBe(true)
+	})
+
 	it.each([
 		["litellm", "actModeLiteLlmModelInfo"],
 		["baseten", "actModeBasetenModelInfo"],

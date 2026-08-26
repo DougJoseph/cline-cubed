@@ -80,7 +80,8 @@ export const OpenAICompatibleProvider = ({
 		apiConfiguration,
 		currentMode,
 	)
-	const committedSelection = currentMode === "plan" ? config?.planSelection : config?.actSelection
+	const committedSelection =
+		currentMode === "plan" ? config?.planSelection : currentMode === "image" ? config?.imageSelection : config?.actSelection
 	const selectedModelId = committedSelection?.modelId ?? legacySelectedModelId
 	const selectedModelInfo = committedSelection?.modelInfo
 		? fromProtobufModelInfo(committedSelection.modelInfo)
@@ -99,11 +100,12 @@ export const OpenAICompatibleProvider = ({
 	const selectedModelOverridesRef = useRef<Record<Mode, PendingModelSelection>>({
 		plan: { modelId: undefined, overrides: {} },
 		act: { modelId: undefined, overrides: {} },
+		image: { modelId: undefined, overrides: {} },
 	})
 
 	// Counts commits whose commit+read-back round-trip has not finished yet,
 	// per mode.
-	const pendingCommitsRef = useRef<Record<Mode, number>>({ plan: 0, act: 0 })
+	const pendingCommitsRef = useRef<Record<Mode, number>>({ plan: 0, act: 0, image: 0 })
 
 	useEffect(() => {
 		// Do not reseed the pending-override accumulator from server state

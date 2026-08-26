@@ -22,7 +22,8 @@ export const VSCodeLmProvider = ({ currentMode }: VSCodeLmProviderProps) => {
 	const { config, commitSelection } = useProviderConfig("vscode-lm")
 
 	const { vsCodeLmModelSelector } = getModeSpecificFields(apiConfiguration, currentMode)
-	const committedSelection = currentMode === "plan" ? config?.planSelection : config?.actSelection
+	const committedSelection =
+		currentMode === "plan" ? config?.planSelection : currentMode === "image" ? config?.imageSelection : config?.actSelection
 	const selectedModelId = vsCodeLmModelSelector
 		? stringifyVsCodeLmModelSelector(vsCodeLmModelSelector)
 		: (committedSelection?.modelId ?? "")

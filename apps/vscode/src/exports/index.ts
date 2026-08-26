@@ -14,6 +14,9 @@ export function createClineAPI(sidebarController: Controller): ClineAPI {
 				text: message,
 				images,
 				apiConfiguration: sidebarController.stateManager.getApiConfiguration(),
+				providerConfigStore: sidebarController.getProviderConfigStore(),
+				mode: sidebarController.stateManager.getGlobalSettingsKey("mode"),
+				debugEnabled: sidebarController.stateManager.getGlobalSettingsKey("imageBridgeDebugEnabled"),
 			})
 		} catch (error) {
 			Logger.warn("Image bridge interception skipped:", error)

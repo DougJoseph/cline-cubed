@@ -650,7 +650,7 @@ class StdioHookRunner<Name extends HookName> extends HookRunner<Name> {
 /**
  * Combines multiple hook runners and executes them in parallel.
  *
- * Used in multi-root workspaces where both global hooks (from ~/Documents/Cline/Hooks/)
+ * Used in multi-root workspaces where both global hooks (from ~/Documents/Webwork/cline-cubed/Cline/Hooks/)
  * and workspace-specific hooks (from each workspace's .clinerules/hooks/) exist for the
  * same hook type.
  *
@@ -892,7 +892,7 @@ export class HookFactory {
 	/**
 	 * Determines the working directory for a hook script based on its location.
 	 *
-	 * - Global hooks (from ~/Documents/Cline/Hooks/): run from the primary workspace root
+	 * - Global hooks (from ~/Documents/Webwork/cline-cubed/Cline/Hooks/): run from the primary workspace root
 	 * - Workspace hooks (from workspaceRoot/.clinerules/hooks/): run from that specific workspace root
 	 *
 	 * This ensures workspace-specific hooks can use relative paths that are meaningful
@@ -927,7 +927,7 @@ export class HookFactory {
 
 	/**
 	 * Categorizes hook scripts by their location (global vs workspace).
-	 * Global hooks are located in ~/Documents/Cline/Hooks/
+	 * Global hooks are located in ~/Documents/Webwork/cline-cubed/Cline/Hooks/
 	 * Workspace hooks are located in workspace .clinerules/hooks/ directories
 	 *
 	 * @param scripts Array of hook script paths

@@ -125,14 +125,14 @@ describe("buildDisabledWorkflowNames", () => {
 	it("disables records whose file toggle is off, by exact command name", () => {
 		const disabled = buildDisabledWorkflowNames({
 			records: [
-				{ name: "Release", filePath: "/home/user/Documents/Cline/Workflows/Release.md" },
-				{ name: "notes", filePath: "/home/user/Documents/Cline/Workflows/notes.txt" },
-				{ name: "keep", filePath: "/home/user/Documents/Cline/Workflows/keep.md" },
+				{ name: "Release", filePath: "/home/user/Documents/Webwork/cline-cubed/Cline/Workflows/Release.md" },
+				{ name: "notes", filePath: "/home/user/Documents/Webwork/cline-cubed/Cline/Workflows/notes.txt" },
+				{ name: "keep", filePath: "/home/user/Documents/Webwork/cline-cubed/Cline/Workflows/keep.md" },
 			],
 			globalToggles: {
-				"/home/user/Documents/Cline/Workflows/Release.md": false,
-				"/home/user/Documents/Cline/Workflows/notes.txt": false,
-				"/home/user/Documents/Cline/Workflows/keep.md": true,
+				"/home/user/Documents/Webwork/cline-cubed/Cline/Workflows/Release.md": false,
+				"/home/user/Documents/Webwork/cline-cubed/Cline/Workflows/notes.txt": false,
+				"/home/user/Documents/Webwork/cline-cubed/Cline/Workflows/keep.md": true,
 			},
 		})
 		expect(disabled).toEqual(new Set(["Release", "notes"]))

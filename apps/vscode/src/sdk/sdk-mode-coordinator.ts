@@ -99,7 +99,12 @@ export class SdkModeCoordinator {
 	}
 
 	private recordModeSwitchNotice(sessionId: string, from: Mode | undefined, to: Mode): void {
+		// Plan/Act mode switches only — image mode is an independent channel and
+		// never participates in the plan↔act rebuild/notice flow.
 		if (from !== "plan" && from !== "act") {
+			return
+		}
+		if (to !== "plan" && to !== "act") {
 			return
 		}
 		if (this.modeSwitchNoticeSessionId !== sessionId) {

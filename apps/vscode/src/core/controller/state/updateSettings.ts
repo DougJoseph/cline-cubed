@@ -176,6 +176,11 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 			setModelToolEnabledGlobally("web_search", !!request.webSearchEnabled)
 		}
 
+		// Cline Cubed: gate the image-bridge debug log lines in the output channel.
+		if (request.imageBridgeDebugEnabled !== undefined) {
+			controller.stateManager.setGlobalState("imageBridgeDebugEnabled", !!request.imageBridgeDebugEnabled)
+		}
+
 		if (request.compactionStrategy !== undefined) {
 			const strategy = request.compactionStrategy
 			if (strategy !== "basic" && strategy !== "agentic") {

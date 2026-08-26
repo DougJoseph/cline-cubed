@@ -71,6 +71,14 @@ export interface ImageBridgeParams {
 	apiUri?: string
 	/** The Image Mode API format. "openai" (OpenAI-compatible) is supported. */
 	apiFormat?: string
+	/** Reasoning effort for reasoning-capable image models (forwarded as `reasoning_effort`). */
+	reasoningEffort?: string
+	/**
+	 * Optional debug recorder: invoked once per request with the human-readable
+	 * log line (used by the in-memory bridge debug buffer; the output channel
+	 * gating is handled by the caller via `recordBridgeDebug`).
+	 */
+	recordDebug?: (line: string, failed?: boolean) => void
 	/**
 	 * Optional 8x8 grid region to zoom into (e.g. "C2-D3") for a second,
 	 * maximal-detail bridge pass — the reasoner's "second look".
@@ -90,6 +98,13 @@ export async function bridgeImage(params: ImageBridgeParams): Promise<string> {
 		throw new Error("Image Mode model is not configured — set one in Settings → API Configuration → Image Mode")
 	}
 
+	// OpenRouter names models "provider/model-id" (e.g. deepseek/deepseek-v4-flash-vision-exp).
+	// Native provider endpoints (deepseek, openai, gemini, ...) use BARE ids, so a model id
+	// copied from an OpenRouter listing into a native provider's Image Mode field must have the
+	// provider prefix stripped — otherwise the native endpoint answers from a text-only fallback
+	// (the "I cannot see an image" symptom) or 404s. OpenRouter keeps its prefix.
+	const effectiveModelId = provider === "openrouter" ? modelId : modelId.replace(/^[^/]+\//, "")
+
 	const format = (params.apiFormat ?? "openai").toLowerCase()
 	if (format !== "openai") {
 		throw new Error(`Image Mode API format "${format}" is not supported yet — use "openai" (OpenAI-compatible) for now.`)
@@ -101,8 +116,8 @@ export async function bridgeImage(params: ImageBridgeParams): Promise<string> {
 	}
 
 	const url = `${baseUrl}/chat/completions`
-	const body = {
-		model: modelId,
+	const body: Record<string, unknown> = {
+		model: effectiveModelId,
 		messages: [
 			{
 				role: "user",
@@ -117,6 +132,12 @@ export async function bridgeImage(params: ImageBridgeParams): Promise<string> {
 		],
 		max_tokens: 4096,
 	}
+	// Only forward reasoning effort when the caller knows the model supports it
+	// (resolved from catalog metadata); unknown/unset effort stays omitted so
+	// non-reasoning vision models never receive an unsupported parameter.
+	if (params.reasoningEffort) {
+		body.reasoning_effort = params.reasoningEffort
+	}
 
 	const headers: Record<string, string> = { "Content-Type": "application/json" }
 	if (params.apiKey) {
@@ -128,8 +149,23 @@ export async function bridgeImage(params: ImageBridgeParams): Promise<string> {
 		headers,
 		body: JSON.stringify(body),
 	})
+	const debugLine =
+		`${provider} ${effectiveModelId} -> ${url} (image ${mediaType}, base64 ${base64.length} chars, ` +
+		`auth ${params.apiKey ? "yes" : "no"}, status ${response.status})`
+	params.recordDebug?.(debugLine, !response.ok)
 	if (!response.ok) {
 		const detail = await response.text().catch(() => "")
+		// OpenRouter returns 404 with a guardrail/data-policy message when the
+		// account's privacy settings block the model endpoint — the request and
+		// auth worked, so the fix is account-side. Surface that clearly instead
+		// of a bare 404.
+		if (response.status === 404 && provider === "openrouter" && detail.includes("guardrail")) {
+			throw new Error(
+				`OpenRouter blocked this model under your account's privacy/guardrail settings — allow it at ` +
+					`https://openrouter.ai/settings/privacy (the model id may also need its provider prefix, ` +
+					`e.g. "deepseek/deepseek-v4-flash-vision-exp"). Raw response: ${detail.slice(0, 400)}`,
+			)
+		}
 		throw new Error(`Image bridge request failed (${response.status}): ${detail.slice(0, 500)}`)
 	}
 

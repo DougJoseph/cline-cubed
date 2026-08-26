@@ -60,6 +60,28 @@ export const useApiConfigurationHandlers = () => {
 		value: ApiConfiguration[PlanK] & ApiConfiguration[ActK], // Intersection ensures value is compatible with both field types
 		currentMode: Mode,
 	) => {
+		if (currentMode === "image") {
+			// Image mode is a single channel — no plan/act split. Route each
+			// field pair to its image-mode equivalent: the provider pair →
+			// `imageModeApiProvider`, any `*ModelId` pair → `imageModeApiModelId`,
+			// the reasoning-effort pair → `imageModeReasoningEffort`, and
+			// everything else (model info, budgets) has no image-mode home —
+			// no-op. Model commits also flow through the provider config
+			// store's `commitSelection(..., "image")`.
+			if (fieldPair.plan === "planModeApiProvider" || fieldPair.act === "actModeApiProvider") {
+				await handleFieldChange("imageModeApiProvider", value as any)
+				return
+			}
+			if (String(fieldPair.plan).endsWith("ModelId") || String(fieldPair.act).endsWith("ModelId")) {
+				await handleFieldChange("imageModeApiModelId", value as any)
+				return
+			}
+			if (fieldPair.plan === "planModeReasoningEffort" || fieldPair.act === "actModeReasoningEffort") {
+				await handleFieldChange("imageModeReasoningEffort", value as any)
+				return
+			}
+			return
+		}
 		if (planActSeparateModelsSetting) {
 			const targetField = fieldPair[currentMode]
 			await handleFieldChange(targetField, value)
@@ -86,6 +108,26 @@ export const useApiConfigurationHandlers = () => {
 		values: T,
 		currentMode: Mode,
 	) => {
+		if (currentMode === "image") {
+			// Image mode: no plan/act field pairs. Map each pair's `*ModelId`
+			// entries to the single `imageModeApiModelId` slot; provider pairs to
+			// `imageModeApiProvider`; the reasoning-effort pair to
+			// `imageModeReasoningEffort`; everything else has no image-mode home.
+			const updates: Partial<ApiConfiguration> = {}
+			for (const [key, pair] of Object.entries(fieldPairs)) {
+				if (pair.plan === "planModeApiProvider" || pair.act === "actModeApiProvider") {
+					updates.imageModeApiProvider = values[key] as any
+				} else if (String(pair.plan).endsWith("ModelId") || String(pair.act).endsWith("ModelId")) {
+					updates.imageModeApiModelId = values[key] as any
+				} else if (pair.plan === "planModeReasoningEffort" || pair.act === "actModeReasoningEffort") {
+					updates.imageModeReasoningEffort = values[key] as any
+				}
+			}
+			if (Object.keys(updates).length > 0) {
+				await handleFieldsChange(updates)
+			}
+			return
+		}
 		if (planActSeparateModelsSetting) {
 			// Update only the current mode's fields
 			const updates: Partial<ApiConfiguration> = {}

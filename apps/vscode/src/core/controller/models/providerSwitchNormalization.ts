@@ -20,6 +20,10 @@ const modeFields = {
 	},
 } as const
 
+// Image mode is an independent channel — the plan/act provider-switch
+// normalization must never touch its fields. Only plan/act iterate here.
+const planActModes = ["plan", "act"] as const
+
 function toProviderId(provider: ApiProvider | string | undefined): ProviderId | undefined {
 	const trimmed = provider?.trim()
 	return trimmed ? parseProviderId(trimmed) : undefined
@@ -65,7 +69,8 @@ export function normalizeProviderSwitchModel<T extends ProviderSwitchConfig>(
 ): T {
 	const normalized: ProviderSwitchConfig = { ...next }
 
-	for (const [mode, fields] of Object.entries(modeFields) as [Mode, (typeof modeFields)[Mode]][]) {
+	for (const mode of planActModes) {
+		const fields = modeFields[mode]
 		const previousProvider = previous[fields.provider]
 		const nextProvider = (normalized[fields.provider] ?? previousProvider) as ApiProvider | undefined
 		if (!nextProvider || nextProvider === previousProvider) {

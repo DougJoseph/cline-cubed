@@ -30,7 +30,7 @@ export async function getWorktreeDefaults(_controller: Controller, _request: Emp
 	// Generate suggested branch name
 	const suggestedBranch = `worktree/cline-${suffix}`
 
-	// Generate suggested path in Documents/Cline/Worktrees/<project-name>-<suffix>
+	// Generate suggested path in Documents/Webwork/cline-cubed/Cline/Worktrees/<project-name>-<suffix>
 	const documentsPath = await getDocumentsPath()
 	const cwd = await getWorkspacePath()
 
@@ -40,7 +40,7 @@ export async function getWorktreeDefaults(_controller: Controller, _request: Emp
 		projectName = path.basename(cwd)
 	}
 
-	const suggestedPath = path.join(documentsPath, "Cline", "Worktrees", `${projectName}-${suffix}`)
+	const suggestedPath = path.join(documentsPath, "Webwork", "cline-cubed", "Cline", "Worktrees", `${projectName}-${suffix}`)
 
 	return WorktreeDefaults.create({
 		suggestedBranch,

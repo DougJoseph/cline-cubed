@@ -59,6 +59,7 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 		checkpointRestoreInput,
 		queuedPrompts,
 		turnState,
+		apiConfiguration,
 	} = useExtensionState()
 	const isProdHostedApp = userInfo?.apiBaseUrl === "https://app.cline.bot"
 	const shouldShowQuickWins = isProdHostedApp && (!taskHistory || taskHistory.length < QUICK_WINS_HISTORY_THRESHOLD)
@@ -219,11 +220,17 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 
 	const { selectedModelInfo } = useNormalizedApiConfiguration(mode)
 
+	// Cline Cubed: allow image selection when Image Mode has a configured
+	// model — the bridge describes images for a text-only Plan/Act model — OR
+	// when the active Plan/Act model itself supports images.
+	const imagesAllowedByImageMode = Boolean(apiConfiguration?.imageModeApiModelId)
+	const imagesAllowed = imagesAllowedByImageMode || selectedModelInfo.supportsImages
+
 	const selectFilesAndImages = useCallback(async () => {
 		try {
 			const response = await FileServiceClient.selectFiles(
 				BooleanRequest.create({
-					value: selectedModelInfo.supportsImages,
+					value: imagesAllowed,
 				}),
 			)
 			if (
@@ -252,7 +259,7 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 		} catch (error) {
 			console.error("Error selecting images & files:", error)
 		}
-	}, [selectedModelInfo.supportsImages])
+	}, [imagesAllowed])
 
 	const shouldDisableFilesAndImages = selectedImages.length + selectedFiles.length >= MAX_IMAGES_AND_FILES_PER_MESSAGE
 

@@ -148,8 +148,10 @@ function memoryKey(providerId: ProviderId, mode: Mode): string {
 	return `${providerId}:${mode}`
 }
 
-function modePair<T>(mode: Mode, plan: T, act: T): T {
-	return mode === "plan" ? plan : act
+function modePair<T>(mode: Mode, plan: T, act: T, image?: T): T {
+	if (mode === "plan") return plan
+	if (mode === "image") return image as T
+	return act
 }
 
 function patchValue<T>(value: T | null | undefined): T | undefined {
@@ -667,11 +669,22 @@ function getModelIdKey(providerId: ProviderId, mode: Mode): keyof ApiConfigurati
 }
 
 function getModelInfoKey(providerId: ProviderId, mode: Mode): (keyof ApiConfiguration & SettingsKey) | undefined {
+	// Image mode uses a SINGLE durable generic ModelInfo key (`imageModeApiModelInfo`)
+	// carrying the committed image model's metadata, so a custom vision model
+	// survives a reload instead of degrading to fallback (supportsImages:false).
+	if (mode === "image") {
+		return "imageModeApiModelInfo"
+	}
 	const keys = modelInfoKeysByProvider[providerKey(providerId)]
 	return keys ? modePair(mode, keys.plan, keys.act) : undefined
 }
 
 function syncedModes(mode: Mode): Mode[] {
+	// Image mode is an independent channel — it NEVER syncs with plan/act,
+	// and plan/act syncs never touch image fields.
+	if (mode === "image") {
+		return ["image"]
+	}
 	return StateManager.get().getGlobalSettingsKey("planActSeparateModelsSetting") ? [mode] : ["plan", "act"]
 }
 
@@ -870,7 +883,12 @@ function readSelectionFromState(providerId: ProviderId, mode: Mode): ResolvedMod
 	}
 
 	const providerSettingsSelection = readSelectionFromProviderSettings(providerId)
-	const activeProvider = mode === "plan" ? apiConfiguration.planModeApiProvider : apiConfiguration.actModeApiProvider
+	const activeProvider =
+		mode === "plan"
+			? apiConfiguration.planModeApiProvider
+			: mode === "image"
+				? apiConfiguration.imageModeApiProvider
+				: apiConfiguration.actModeApiProvider
 	const provider = providerForStorage(providerId)
 	if (activeProvider !== provider) {
 		return rememberedSelection ?? providerSettingsSelection
@@ -884,10 +902,16 @@ function readSelectionFromState(providerId: ProviderId, mode: Mode): ResolvedMod
 		return rememberedSelection ?? providerSettingsSelection
 	}
 
-	if (!rememberedSelection || rememberedSelection.modelId !== modelId) {
-		return providerSettingsSelection
+	// The mode-specific state field is authoritative for this mode. providers.json
+	// carries ONE provider-level model shared by every mode, so a commit on any
+	// mode overwrites it; falling back to it here would bleed that mode's model
+	// into this one (e.g. choosing an Image-mode model also changed the Plan tab).
+	// Reaching this point means `modelId` is a known catalog id (guarded above),
+	// so resolving from state yields real metadata, not fabrication.
+	if (rememberedSelection && rememberedSelection.modelId === modelId) {
+		return rememberedSelection
 	}
-	return rememberedSelection
+	return resolveSelection({ providerId, modelId })
 }
 
 /**

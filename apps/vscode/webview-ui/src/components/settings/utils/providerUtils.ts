@@ -29,6 +29,68 @@ export interface NormalizedApiConfig {
  * @returns Object containing mode-specific field values for clean destructuring
  */
 export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undefined, mode: Mode) {
+	// Image mode is the Cline Cubed third channel. It keeps a SINGLE generic
+	// model slot (`imageModeApiModelId`) for every provider — per-provider
+	// model ids/infos ride the provider config store's selection envelope,
+	// matching the DeepSeek/Gemini/generic pattern. So every provider-specific
+	// field here is intentionally undefined for image mode.
+	if (mode === "image") {
+		return {
+			// Core fields
+			apiProvider: apiConfiguration?.imageModeApiProvider,
+			apiModelId: apiConfiguration?.imageModeApiModelId,
+
+			// Provider-specific model IDs
+			togetherModelId: undefined,
+			fireworksModelId: undefined,
+			lmStudioModelId: undefined,
+			ollamaModelId: undefined,
+			liteLlmModelId: undefined,
+			requestyModelId: undefined,
+			openAiModelId: undefined,
+			openRouterModelId: undefined,
+			clineModelId: undefined,
+			clinePassModelId: undefined,
+			groqModelId: undefined,
+			basetenModelId: undefined,
+			huggingFaceModelId: undefined,
+			huaweiCloudMaasModelId: undefined,
+			ocaModelId: undefined,
+			hicapModelId: undefined,
+			aihubmixModelId: undefined,
+			nousResearchModelId: undefined,
+			vercelAiGatewayModelId: undefined,
+
+			// Model info objects
+			openAiModelInfo: undefined,
+			liteLlmModelInfo: undefined,
+			openRouterModelInfo: undefined,
+			clineModelInfo: undefined,
+			clinePassModelInfo: undefined,
+			requestyModelInfo: undefined,
+			groqModelInfo: undefined,
+			basetenModelInfo: undefined,
+			huggingFaceModelInfo: undefined,
+			vsCodeLmModelSelector: undefined,
+			hicapModelInfo: undefined,
+			aihubmixModelInfo: undefined,
+			vercelAiGatewayModelInfo: undefined,
+
+			// AWS Bedrock fields
+			awsBedrockCustomSelected: undefined,
+			awsBedrockCustomModelBaseId: undefined,
+
+			// Huawei Cloud Maas Model Info
+			huaweiCloudMaasModelInfo: undefined,
+
+			// Other mode-specific fields
+			thinkingBudgetTokens: undefined,
+			reasoningEffort: apiConfiguration?.imageModeReasoningEffort,
+			// Oracle Code Assist
+			ocaModelInfo: undefined,
+		}
+	}
+
 	if (!apiConfiguration) {
 		return {
 			// Core fields
@@ -179,6 +241,13 @@ export async function syncModeConfigurations(
 	handleFieldsChange: (updates: Partial<ApiConfiguration>) => Promise<void>,
 ): Promise<void> {
 	if (!apiConfiguration) {
+		return
+	}
+
+	// Image mode is an independent channel — never sync its fields to/from
+	// plan/act. This function only ever writes plan/act keys, and image-mode
+	// config must never be the SOURCE of a plan/act sync either.
+	if (sourceMode === "image") {
 		return
 	}
 

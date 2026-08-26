@@ -436,6 +436,8 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		// Image mode configurations (Cline Cubed — the vision bridge model)
 		imageModeApiProvider: config.imageModeApiProvider,
 		imageModeApiModelId: config.imageModeApiModelId,
+		imageModeApiModelInfo: convertModelInfoToProtoOpenRouter(config.imageModeApiModelInfo),
+		imageModeApiReasoningEffort: config.imageModeReasoningEffort,
 		imageModeApiUri: config.imageModeApiUri,
 		imageModeApiFormat: config.imageModeApiFormat,
 	}
@@ -634,6 +636,8 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 				? convertProtoToApiProvider(protoConfig.imageModeApiProvider)
 				: undefined,
 		imageModeApiModelId: protoConfig.imageModeApiModelId,
+		imageModeApiModelInfo: convertProtoToModelInfo(protoConfig.imageModeApiModelInfo),
+		imageModeReasoningEffort: protoConfig.imageModeApiReasoningEffort,
 		imageModeApiUri: protoConfig.imageModeApiUri,
 		imageModeApiFormat: protoConfig.imageModeApiFormat,
 	}

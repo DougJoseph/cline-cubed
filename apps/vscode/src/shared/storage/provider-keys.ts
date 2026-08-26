@@ -2,6 +2,7 @@
 
 import { getProviderCollectionSync } from "@cline/llms"
 import { SettingsKey } from "@shared/storage/state-keys"
+import { Mode } from "@shared/storage/types"
 import { toSdkProviderId } from "@/sdk/model-catalog/sdk-provider-id"
 import { toLegacyApiProvider } from "@/shared/model-catalog/provider-helpers"
 import {
@@ -65,8 +66,18 @@ const NON_SDK_PROVIDER_DEFAULTS: Partial<Record<ApiProvider, string>> = {
 /**
  * Get the provider-specific model ID key for a given provider and mode.
  * Different providers store their model IDs in different state keys.
+ *
+ * Image mode is the Cline Cubed third channel: it uses the generic
+ * `imageModeApiModelId` slot for every provider (the store's in-memory
+ * selection envelope carries the per-provider ModelInfo, matching the
+ * DeepSeek/Gemini/generic pattern), so `"image"` always maps to that
+ * generic key rather than a per-provider `imageMode{Provider}ModelId`.
  */
-export function getProviderModelIdKey(provider: ApiProvider | string, mode: "act" | "plan"): SettingsKey {
+export function getProviderModelIdKey(provider: ApiProvider | string, mode: Mode): SettingsKey {
+	if (mode === "image") {
+		return "imageModeApiModelId"
+	}
+
 	const legacyProvider = toLegacyApiProvider(provider)
 	const keySuffix = ProviderKeyMap[legacyProvider]
 	if (keySuffix) {

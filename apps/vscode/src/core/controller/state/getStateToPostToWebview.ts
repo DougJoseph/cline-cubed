@@ -5,6 +5,7 @@
 // without inheriting the entire classic Controller implementation.
 
 import { isModelToolEnabledGlobally, readCompactionStrategyGlobally } from "@cline/core"
+import { getBridgeDebugLines, isLastBridgeCallFailed } from "@core/bridge/bridgeDebug"
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import type { ExtensionState, Platform } from "@shared/ExtensionMessage"
 import { ClineEnv } from "@/config"
@@ -53,6 +54,9 @@ export async function getStateToPostToWebview(controller: {
 	const telemetrySetting = stateManager.getGlobalSettingsKey("telemetrySetting")
 	const planActSeparateModelsSetting = stateManager.getGlobalSettingsKey("planActSeparateModelsSetting")
 	const enableCheckpointsSetting = stateManager.getGlobalSettingsKey("enableCheckpointsSetting")
+	// Cline Cubed: image-bridge debug toggle + recent bridge call lines (the
+	// in-memory buffer; the webview shows them inline next to the bridge block).
+	const imageBridgeDebugEnabled = stateManager.getGlobalSettingsKey("imageBridgeDebugEnabled")
 	const globalClineRulesToggles = stateManager.getGlobalStateKey("globalClineRulesToggles")
 	const globalWorkflowToggles = stateManager.getGlobalStateKey("globalWorkflowToggles")
 	const globalSkillsToggles = stateManager.getGlobalStateKey("globalSkillsToggles")
@@ -131,6 +135,9 @@ export async function getStateToPostToWebview(controller: {
 		telemetrySetting,
 		planActSeparateModelsSetting,
 		enableCheckpointsSetting: enableCheckpointsSetting ?? true,
+		// Cline Cubed: image-bridge debug state for the inline debug panel.
+		imageBridgeDebugEnabled,
+		imageBridgeDebug: { lines: getBridgeDebugLines(), lastFailed: isLastBridgeCallFailed() },
 		platform,
 		environment,
 		distinctId,

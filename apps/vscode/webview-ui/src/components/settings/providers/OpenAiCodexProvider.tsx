@@ -38,7 +38,8 @@ export const OpenAiCodexProvider = ({ showModelOptions, isPopup, currentMode }: 
 		selectedModelInfo: legacySelectedModelInfo,
 		hideUsageCost,
 	} = useStaticProviderSelection(OPENAI_CODEX_PROVIDER_ID, apiConfiguration, currentMode)
-	const committedSelection = currentMode === "plan" ? config?.planSelection : config?.actSelection
+	const committedSelection =
+		currentMode === "plan" ? config?.planSelection : currentMode === "image" ? config?.imageSelection : config?.actSelection
 	const selectedModelId = committedSelection?.modelId ?? legacySelectedModelId
 	const selectedModelInfo = committedSelection?.modelInfo
 		? fromProtobufModelInfo(committedSelection.modelInfo)

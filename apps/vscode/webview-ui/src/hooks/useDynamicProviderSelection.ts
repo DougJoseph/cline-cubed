@@ -56,6 +56,15 @@ export function useDynamicProviderSelection(
 			hideUsageCost,
 		})
 
+		// Image mode keeps a SINGLE generic model slot for every provider; the
+		// provider-store selection envelope carries the committed ModelInfo. Read
+		// that generic id so dynamic-list pickers show the committed image model
+		// instead of an empty selection (all per-provider fields are undefined for
+		// image in getModeSpecificFields).
+		if (mode === "image") {
+			return resolve(fields.apiModelId, undefined)
+		}
+
 		switch (providerId) {
 			case "openrouter":
 				return resolve(fields.openRouterModelId, fields.openRouterModelInfo)

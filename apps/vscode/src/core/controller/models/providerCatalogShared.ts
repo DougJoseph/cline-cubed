@@ -79,10 +79,10 @@ export function parseProviderIdRequest(rawProviderId: string | undefined, fieldN
 }
 
 export function parseModeRequest(rawMode: string | undefined): Mode {
-	if (rawMode === "plan" || rawMode === "act") {
+	if (rawMode === "plan" || rawMode === "act" || rawMode === "image") {
 		return rawMode
 	}
-	throw new Error('mode must be "plan" or "act"')
+	throw new Error('mode must be "plan", "act", or "image"')
 }
 
 export function toProviderListingProto(listing: ProviderListing): ProviderListingProto {
@@ -239,6 +239,7 @@ export function toRedactedProviderConfigResponse(
 		accountId: config.auth?.accountId,
 		planSelection: toCommittedModelSelectionProto(store?.readSelection(config.providerId, "plan")),
 		actSelection: toCommittedModelSelectionProto(store?.readSelection(config.providerId, "act")),
+		imageSelection: toCommittedModelSelectionProto(store?.readSelection(config.providerId, "image")),
 		aws: toRedactedAwsProviderConfigProto(config.aws),
 		gcp: toRedactedGcpProviderConfigProto(config.gcp),
 		contextWindow: config.contextWindow,

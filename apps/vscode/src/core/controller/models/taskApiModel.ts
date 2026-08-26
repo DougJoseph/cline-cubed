@@ -12,8 +12,10 @@ function readString(config: ApiConfiguration, key: keyof ApiConfiguration): stri
 }
 
 export function resolveActiveModelIdFromApiConfiguration(config: ApiConfiguration, mode: Mode): string {
-	const provider = mode === "plan" ? config.planModeApiProvider : config.actModeApiProvider
-	const genericModelKey = mode === "plan" ? "planModeApiModelId" : "actModeApiModelId"
+	const provider =
+		mode === "plan" ? config.planModeApiProvider : mode === "image" ? config.imageModeApiProvider : config.actModeApiProvider
+	const genericModelKey =
+		mode === "plan" ? "planModeApiModelId" : mode === "image" ? "imageModeApiModelId" : "actModeApiModelId"
 
 	if (provider) {
 		const providerModelKey = getProviderModelIdKey(provider as ApiProvider, mode) as keyof ApiConfiguration

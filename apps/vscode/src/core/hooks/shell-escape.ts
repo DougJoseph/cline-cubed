@@ -50,7 +50,7 @@ function escapeUnixShellPath(path: string): string {
  * may contain spaces or special characters.
  *
  * Use cases:
- * - Global hooks directory: ~/Documents/Cline/Hooks/
+ * - Global hooks directory: ~/Documents/Webwork/cline-cubed/Cline/Hooks/
  * - Workspace hooks: /path/to/My Project/.clinerules/hooks/
  * - Multi-root workspaces: each root's .clinerules/hooks/
  *

@@ -83,6 +83,9 @@ export async function newTask(controller: Controller, request: NewTaskRequest): 
 			text: request.text,
 			images: request.images,
 			apiConfiguration: controller.stateManager.getApiConfiguration(),
+			providerConfigStore: controller.getProviderConfigStore(),
+			mode: controller.stateManager.getGlobalSettingsKey("mode"),
+			debugEnabled: controller.stateManager.getGlobalSettingsKey("imageBridgeDebugEnabled"),
 		})
 	} catch (error) {
 		Logger.warn("Image bridge interception skipped:", error)

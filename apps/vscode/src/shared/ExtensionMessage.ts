@@ -82,6 +82,13 @@ export interface ExtensionState {
 	mcpDisplayMode: McpDisplayMode
 	planActSeparateModelsSetting: boolean
 	enableCheckpointsSetting?: boolean
+	/** Cline Cubed: gate the image-bridge debug log lines in the output channel. */
+	imageBridgeDebugEnabled?: boolean
+	/** Cline Cubed: recent image-bridge call lines + whether the last call failed (inline debug panel). */
+	imageBridgeDebug?: {
+		lines: string[]
+		lastFailed: boolean
+	}
 	platform: Platform
 	environment?: Environment
 	shouldShowAnnouncement: boolean

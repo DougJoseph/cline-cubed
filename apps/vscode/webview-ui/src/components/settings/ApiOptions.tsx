@@ -7,6 +7,7 @@ import styled from "styled-components"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PLATFORM_CONFIG, PlatformType } from "@/config/platform.config"
 import { useExtensionState } from "@/context/ExtensionStateContext"
+import { useNormalizedApiConfiguration } from "@/hooks/useNormalizedApiConfiguration"
 import { useProviderListings } from "@/hooks/useProviderListings"
 import { OPENROUTER_MODEL_PICKER_Z_INDEX } from "./OpenRouterModelPicker"
 import { AIhubmixProvider } from "./providers/AihubmixProvider"
@@ -92,8 +93,17 @@ const ApiOptions = ({
 	// Use full context state for immediate save payload
 	const { apiConfiguration, remoteConfigSettings } = useExtensionState()
 
+	// Resolve the current mode's active model so the Image Mode tab can warn
+	// when its committed model cannot accept images. Plan/Act tabs don't use
+	// the resolved info for anything.
+	const { selectedModelInfo: activeModeModelInfo } = useNormalizedApiConfiguration(currentMode)
+
 	const selectedProvider =
-		(currentMode === "plan" ? apiConfiguration?.planModeApiProvider : apiConfiguration?.actModeApiProvider) || "anthropic"
+		(currentMode === "plan"
+			? apiConfiguration?.planModeApiProvider
+			: currentMode === "image"
+				? apiConfiguration?.imageModeApiProvider
+				: apiConfiguration?.actModeApiProvider) || "anthropic"
 	const { providers: catalogProviderListings } = useProviderListings()
 	const catalogProviderListing = useMemo(
 		() => catalogProviderListings.find((provider) => provider.id === selectedProvider),
@@ -481,6 +491,17 @@ const ApiOptions = ({
 				/>
 			)}
 
+			{currentMode === "image" && activeModeModelInfo.supportsImages === false && (
+				<p
+					style={{
+						margin: "-10px 0 4px 0",
+						fontSize: 12,
+						color: "var(--vscode-errorForeground)",
+					}}>
+					The selected Image Mode model does not support image input. Images sent while Image Mode is active may be
+					rejected by the provider.
+				</p>
+			)}
 			{apiErrorMessage && (
 				<p
 					style={{

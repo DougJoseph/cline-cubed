@@ -8,7 +8,7 @@ import * as path from "path"
 import { z } from "zod"
 import { buildSubagentToolName } from "./SubagentToolName"
 
-/** Default Directory for agent configurations: ~/Documents/Cline/Agents */
+/** Default Directory for agent configurations: ~/Documents/Webwork/cline-cubed/Cline/Agents */
 const AGENTS_CONFIG_DIRECTORY_NAME = "Agents"
 const SUBAGENT_DYNAMIC_TOOL_NAMESPACE = "subagent"
 
@@ -103,7 +103,7 @@ function parseAgentConfigFromYaml(content: string): AgentBaseConfig {
 }
 
 function getAgentsConfigPath(homeDir = os.homedir()): string {
-	return path.join(homeDir, "Documents", "Cline", AGENTS_CONFIG_DIRECTORY_NAME)
+	return path.join(homeDir, "Documents", "Webwork", "cline-cubed", "Cline", AGENTS_CONFIG_DIRECTORY_NAME)
 }
 
 function normalizeAgentName(name: string): string {

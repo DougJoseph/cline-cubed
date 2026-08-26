@@ -46,14 +46,21 @@ export async function resolveModelInfo(
 	// catalog/state base and no user overrides) must not shadow the live
 	// catalog below; it is kept only as a last resort before "unknown".
 	let fallbackSelection: ReturnType<typeof store.readSelection>
+	// Image mode resolves a committed vision model that the SDK catalog may not
+	// know (custom ids). If its metadata is fallback-grade, surface "unknown" so
+	// the webview treats it as "no data" instead of assuming it is non-vision
+	// (which would falsely warn on a user-supplied vision model id). Known
+	// catalog models still resolve with authoritative `supportedImages`.
+	let fallbackSelectionIsImage = false
 	if (requestedModelId) {
-		for (const mode of ["act", "plan"] as const) {
+		for (const mode of ["act", "plan", "image"] as const) {
 			const selection = store.readSelection(providerId, mode)
 			if (selection?.modelId !== requestedModelId) {
 				continue
 			}
 			if (selection.modelInfoSource === "fallback" && !selection.overrides) {
 				fallbackSelection ??= selection
+				fallbackSelectionIsImage ||= mode === "image"
 				continue
 			}
 			return ResolveModelInfoResponse.create({
@@ -78,7 +85,7 @@ export async function resolveModelInfo(
 		// when the asking mode has no committed state field, and in that state
 		// readSelection falls through to the single provider-level entry in
 		// providers.json — the same answer for both modes.
-		for (const mode of ["act", "plan"] as const) {
+		for (const mode of ["act", "plan", "image"] as const) {
 			const selection = store.readSelection(providerId, mode)
 			if (selection) {
 				return ResolveModelInfoResponse.create({
@@ -136,7 +143,11 @@ export async function resolveModelInfo(
 			providerId,
 			modelId: fallbackSelection.modelId,
 			modelInfo: toProtobufModelInfo(fallbackSelection.modelInfo),
-			source: "committed-selection",
+			// Fallback-grade metadata for an image-mode selection is not
+			// authoritative (custom model ids): surface "unknown" so the webview
+			// does not assume the model is non-vision. Plan/Act fallback
+			// selections keep their existing committed-selection source.
+			source: fallbackSelectionIsImage ? "unknown" : "committed-selection",
 		})
 	}
 

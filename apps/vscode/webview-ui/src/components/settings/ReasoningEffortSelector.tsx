@@ -26,6 +26,12 @@ const ReasoningEffortSelector = ({
 }: ReasoningEffortSelectorProps) => {
 	const { apiConfiguration } = useExtensionState()
 	const { handleModeFieldChange } = useApiConfigurationHandlers()
+
+	// Image mode (Cline Cubed) has its OWN reasoning slot (`imageModeReasoningEffort`),
+	// routed by handleModeFieldChange and read by getModeSpecificFields. The
+	// `onEffortChange` callback (provider-store `providers.json` reasoning) is
+	// intentionally SKIPPED for image mode — that slot is shared with Plan/Act
+	// and writing it here would silently change the other modes' runtime.
 	const modeFields = getModeSpecificFields(apiConfiguration, currentMode)
 	const selectedEffort =
 		isOpenaiReasoningEffort(modeFields.reasoningEffort) && allowedEfforts.includes(modeFields.reasoningEffort)
@@ -38,7 +44,10 @@ const ReasoningEffortSelector = ({
 			<Select
 				onValueChange={(value) => {
 					handleModeFieldChange({ plan: "planModeReasoningEffort", act: "actModeReasoningEffort" }, value, currentMode)
-					if (onEffortChange && isOpenaiReasoningEffort(value)) {
+					// Image mode uses its own `imageModeReasoningEffort` slot and
+					// must NOT write the provider-scoped store reasoning (that
+					// slot is shared with Plan/Act).
+					if (onEffortChange && isOpenaiReasoningEffort(value) && currentMode !== "image") {
 						onEffortChange(value)
 					}
 				}}

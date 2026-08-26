@@ -42,7 +42,7 @@ export const GlobalFileNames = {
  * - Linux: /home/username/.cline
  * - Windows: C:\Users\username\.cline
  *
- * This is intended to eventually replace ~/Documents/Cline as the global config location.
+ * This is intended to eventually replace the Documents/Webwork/cline-cubed/Cline folder as the global config location.
  */
 function getClineHomePath(): string {
 	return path.join(os.homedir(), ".cline")
@@ -54,44 +54,44 @@ export async function ensureTaskDirectoryExists(taskId: string): Promise<string>
 
 export async function ensureRulesDirectoryExists(): Promise<string> {
 	const userDocumentsPath = await getDocumentsPath()
-	const clineRulesDir = path.join(userDocumentsPath, "Cline", "Rules")
+	const clineRulesDir = path.join(userDocumentsPath, "Webwork", "cline-cubed", "Cline", "Rules")
 	try {
 		await fs.mkdir(clineRulesDir, { recursive: true })
 	} catch (_error) {
-		return path.join(os.homedir(), "Documents", "Cline", "Rules") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
+		return path.join(os.homedir(), "Documents", "Webwork", "cline-cubed", "Cline", "Rules") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
 	}
 	return clineRulesDir
 }
 
 export async function ensureWorkflowsDirectoryExists(): Promise<string> {
 	const userDocumentsPath = await getDocumentsPath()
-	const clineWorkflowsDir = path.join(userDocumentsPath, "Cline", "Workflows")
+	const clineWorkflowsDir = path.join(userDocumentsPath, "Webwork", "cline-cubed", "Cline", "Workflows")
 	try {
 		await fs.mkdir(clineWorkflowsDir, { recursive: true })
 	} catch (_error) {
-		return path.join(os.homedir(), "Documents", "Cline", "Workflows") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
+		return path.join(os.homedir(), "Documents", "Webwork", "cline-cubed", "Cline", "Workflows") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
 	}
 	return clineWorkflowsDir
 }
 
 export async function ensureMcpServersDirectoryExists(): Promise<string> {
 	const userDocumentsPath = await getDocumentsPath()
-	const mcpServersDir = path.join(userDocumentsPath, "Cline", "MCP")
+	const mcpServersDir = path.join(userDocumentsPath, "Webwork", "cline-cubed", "Cline", "MCP")
 	try {
 		await fs.mkdir(mcpServersDir, { recursive: true })
 	} catch (_error) {
-		return path.join(os.homedir(), "Documents", "Cline", "MCP") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine since this path is only ever used in the system prompt
+		return path.join(os.homedir(), "Documents", "Webwork", "cline-cubed", "Cline", "MCP") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine since this path is only ever used in the system prompt
 	}
 	return mcpServersDir
 }
 
 export async function ensureHooksDirectoryExists(): Promise<string> {
 	const userDocumentsPath = await getDocumentsPath()
-	const clineHooksDir = path.join(userDocumentsPath, "Cline", "Hooks")
+	const clineHooksDir = path.join(userDocumentsPath, "Webwork", "cline-cubed", "Cline", "Hooks")
 	try {
 		await fs.mkdir(clineHooksDir, { recursive: true })
 	} catch (_error) {
-		return path.join(os.homedir(), "Documents", "Cline", "Hooks") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
+		return path.join(os.homedir(), "Documents", "Webwork", "cline-cubed", "Cline", "Hooks") // in case creating a directory in documents fails for whatever reason (e.g. permissions) - this is fine because we will fail gracefully with a path that does not exist
 	}
 	return clineHooksDir
 }

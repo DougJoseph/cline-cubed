@@ -3,6 +3,14 @@ import { Mode } from "@shared/storage/types"
 import { getModeSpecificFields } from "@/components/settings/utils/providerUtils"
 
 export function validateApiConfiguration(currentMode: Mode, apiConfiguration?: ApiConfiguration): string | undefined {
+	// Image mode: the bridge needs a model to call. Provider/API-key/base-url
+	// follow the per-provider stock validation below once a provider is set.
+	if (currentMode === "image") {
+		if (!apiConfiguration?.imageModeApiModelId) {
+			return "You must provide a valid Image Mode model ID."
+		}
+		return undefined
+	}
 	if (apiConfiguration) {
 		const { apiProvider, openAiModelId, togetherModelId, ollamaModelId, lmStudioModelId, vsCodeLmModelSelector } =
 			getModeSpecificFields(apiConfiguration, currentMode)

@@ -1,11 +1,13 @@
 import { splitImageBridgeBlock } from "@shared/bridge/constants"
+import { UpdateSettingsRequest } from "@shared/proto/cline/state"
 import { EditMessageAndRegenerateRequest } from "@shared/proto/cline/task"
 import type React from "react"
 import { useMemo, useState } from "react"
 import { CHAT_ROW_EXPANDED_BG_COLOR } from "@/components/common/CodeBlock"
 import Thumbnails from "@/components/common/Thumbnails"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { TaskServiceClient } from "@/services/grpc-client"
+import { useExtensionState } from "@/context/ExtensionStateContext"
+import { StateServiceClient, TaskServiceClient } from "@/services/grpc-client"
 import { highlightText } from "./task-header/Highlights"
 
 interface UserMessageProps {
@@ -27,6 +29,10 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 	// Cline Cubed: the bridged image description is appended to the user
 	// message text; display it as a rolled-up (collapsible) block.
 	const [bridgeExpanded, setBridgeExpanded] = useState(false)
+	// Cline Cubed: bridged-description copy feedback (resets after 1.5s).
+	const [bridgeCopied, setBridgeCopied] = useState(false)
+	// Cline Cubed: image-bridge debug toggle + recent call lines from webview state.
+	const { imageBridgeDebugEnabled, imageBridgeDebug } = useExtensionState()
 	const { userText, bridgeText } = useMemo(() => splitImageBridgeBlock(text ?? ""), [text])
 	const highlightedText = useMemo(() => highlightText(userText), [userText])
 
@@ -188,6 +194,7 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 					</span>
 					{bridgeText && (
 						<div
+							onClick={(event) => event.stopPropagation()}
 							style={{
 								marginTop: "8px",
 								borderRadius: "6px",
@@ -206,23 +213,101 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 								type="button">
 								<i className={`codicon ${bridgeExpanded ? "codicon-chevron-down" : "codicon-chevron-right"}`} />
 								<span style={{ fontWeight: 500 }}>Image description (from Image Mode bridge)</span>
-								<span style={{ marginLeft: "auto", fontSize: "11px" }}>
-									{bridgeText.length.toLocaleString()} chars
+								<span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
+									<span style={{ fontSize: "11px" }}>{bridgeText.length.toLocaleString()} chars</span>
+									<span
+										className="inline-flex items-center gap-1 cursor-pointer hover:brightness-110"
+										onClick={(event) => {
+											// Copy the description without triggering the row's
+											// edit-mode handler or the collapse toggle.
+											event.stopPropagation()
+											void navigator.clipboard
+												.writeText(bridgeText)
+												.then(() => {
+													setBridgeCopied(true)
+													setTimeout(() => setBridgeCopied(false), 1500)
+												})
+												.catch(() => {})
+										}}
+										role="button"
+										tabIndex={0}
+										title="Copy description">
+										<i className={`codicon ${bridgeCopied ? "codicon-check" : "codicon-copy"}`} />
+										{bridgeCopied && <span>Copied</span>}
+									</span>
 								</span>
 							</button>
 							{bridgeExpanded && (
 								<div
 									className="text-xs"
+									onClick={(event) => event.stopPropagation()}
 									style={{
 										padding: "8px 10px",
 										whiteSpace: "pre-wrap",
 										wordBreak: "break-word",
 										maxHeight: "40vh",
 										overflowY: "auto",
+										userSelect: "text",
 										borderTop: "1px solid var(--vscode-editorGroup-border)",
 										color: "var(--vscode-foreground)",
 									}}>
 									{bridgeText}
+								</div>
+							)}
+							{(imageBridgeDebugEnabled === true || bridgeText.includes("[Image bridge failed")) && (
+								<div
+									onClick={(event) => event.stopPropagation()}
+									style={{
+										borderTop: "1px solid var(--vscode-editorGroup-border)",
+										padding: "8px 10px",
+										fontSize: "11px",
+										color: "var(--vscode-descriptionForeground)",
+									}}>
+									<div style={{ fontWeight: 600, marginBottom: "4px" }}>
+										<i className="codicon codicon-debug" style={{ marginRight: 4 }} />
+										Image bridge debug
+									</div>
+									{(imageBridgeDebug?.lines ?? []).slice(-3).map((line, index) => (
+										<div
+											key={index}
+											style={{
+												fontFamily: "var(--vscode-editor-font-family)",
+												whiteSpace: "pre-wrap",
+												wordBreak: "break-word",
+												margin: "2px 0",
+											}}>
+											{line}
+										</div>
+									))}
+									<div style={{ marginTop: "4px" }}>
+										Full log: <code>View → Output → Cline Cubed</code>
+										{" · "}
+										<span
+											className="cursor-pointer hover:brightness-110"
+											onClick={(event) => {
+												event.stopPropagation()
+												void StateServiceClient.updateSettings(
+													UpdateSettingsRequest.create({
+														imageBridgeDebugEnabled: imageBridgeDebugEnabled !== true,
+													}),
+												)
+											}}
+											role="button"
+											style={{ textDecoration: "underline" }}
+											tabIndex={0}
+											title="Toggle image-bridge debug logging in Settings">
+											Debug logging:{" "}
+											{imageBridgeDebugEnabled === true
+												? "on — click to turn off"
+												: "off — click to turn on"}
+										</span>
+									</div>
+									{bridgeText.includes("[Image bridge failed") && (
+										<div style={{ marginTop: "2px" }}>
+											If you ever need this log again, enable it in Settings → API Configuration → Image
+											tab.
+										</div>
+									)}
 								</div>
 							)}
 						</div>

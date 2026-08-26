@@ -62,7 +62,8 @@ export const VertexProvider = ({ showModelOptions, isPopup, currentMode }: Verte
 	const modeFields = getModeSpecificFields(apiConfiguration, currentMode)
 	const vertexProjectId = config?.gcp?.projectId ?? apiConfiguration?.vertexProjectId ?? ""
 	const vertexRegion = config?.gcp?.region ?? config?.region ?? apiConfiguration?.vertexRegion ?? ""
-	const committedSelection = currentMode === "plan" ? config?.planSelection : config?.actSelection
+	const committedSelection =
+		currentMode === "plan" ? config?.planSelection : currentMode === "image" ? config?.imageSelection : config?.actSelection
 	const committedOverrides = fromProtobufProviderModelOverrides(committedSelection?.overrides)
 	const hasCommittedOverrides = committedOverrides !== undefined
 	// The catalog hydrates asynchronously; while it loads (or failed) the map

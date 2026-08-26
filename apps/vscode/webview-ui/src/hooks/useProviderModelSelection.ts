@@ -18,7 +18,7 @@ interface UseProviderModelSelectionOptions {
 	models: Record<string, ModelInfo>
 	defaultModelId?: string
 	config?: ProviderConfigResponse
-	commitSelection: (mode: "plan" | "act", selection: ProviderModelSelection) => Promise<unknown>
+	commitSelection: (mode: Mode, selection: ProviderModelSelection) => Promise<unknown>
 	fallbackModelInfo?: ModelInfo
 	customModelInfo?: (modelId: string) => ModelInfo
 }
@@ -35,7 +35,8 @@ export function useProviderModelSelection(
 		customModelInfo,
 	}: UseProviderModelSelectionOptions,
 ) {
-	const committedSelection = currentMode === "plan" ? config?.planSelection : config?.actSelection
+	const committedSelection =
+		currentMode === "plan" ? config?.planSelection : currentMode === "image" ? config?.imageSelection : config?.actSelection
 	const fallbackModelId = defaultModelId || Object.keys(models)[0] || ""
 	const selectedModelId = committedSelection?.modelId ?? fallbackModelId
 	const selectedModelInfo = committedSelection?.modelInfo

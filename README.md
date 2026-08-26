@@ -37,13 +37,16 @@ distinct extension (`DougJoseph.cline-cubed`); the two coexist.
 
 ## Build
 
-From `apps/vscode/` (native arm64 bun first in PATH — the fork's MUST-KNOW build
-rule):
+From `apps/vscode/`:
 
 ```sh
-PATH="$HOME/.bun/bin:$PATH" bun run package          # typecheck + webview + lint + esbuild
-PATH="$HOME/.bun/bin:$PATH" bunx @vscode/vsce package --no-dependencies --allow-package-secrets sendgrid --out cline-cubed-<ver>.vsix
+bun run package
+bunx @vscode/vsce package --no-dependencies --allow-package-secrets sendgrid --out cline-cubed-<ver>.vsix
 ```
+
+Note: if your `bun` is an Intel (x86_64) build running under Rosetta on an
+arm64 Mac, it can crash during the build — install the native arm64 `bun` and
+put it first in PATH.
 
 The canonical release path is the README swap-in → `vsce package` → README
 restore sequence in `.github/workflows/ext-vscode-publish-stable.yml`.

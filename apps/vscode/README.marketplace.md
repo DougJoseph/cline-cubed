@@ -1,5 +1,9 @@
 # Cline Cubed (image bridge)
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/DougJoseph/cline-cubed/main/assets/icons/icon.png" width="128" alt="Cline Cubed (image bridge)" />
+</p>
+
 A fork of [Cline](https://github.com/cline/cline) that adds a third **Image Mode**
 model channel. When you paste an image into a chat running a non-vision model
 (e.g. DeepSeek Reasoner), your configured Image Mode vision model describes the

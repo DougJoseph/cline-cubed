@@ -1,5 +1,9 @@
 <div align="center">
 
+<p align="center">
+  <img src="assets/icons/icon.png" width="96" alt="Cline Cubed (image bridge)" />
+</p>
+
 # Cline Cubed (image bridge)
 
 A fork of [Cline](https://github.com/cline/cline) that adds a third **Image Mode**
@@ -58,7 +62,7 @@ Everything else is unchanged Cline functionality. Upstream documentation follows
 ---
 
 <p align="center">
-  <img src="assets/icons/icon.png" width="80" alt="Cline" />
+  <img src="assets/icons/icon.png" width="80" alt="Cline Cubed" />
 </p>
 
 <h1 align="center">Cline</h1>

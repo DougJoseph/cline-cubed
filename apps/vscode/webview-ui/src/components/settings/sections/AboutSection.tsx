@@ -1,4 +1,5 @@
 import { VSCodeLink } from "@vscode/webview-ui-toolkit/react"
+import iconUrl from "../../../assets/icon.svg"
 import Section from "../Section"
 
 interface AboutSectionProps {
@@ -18,6 +19,7 @@ const AboutSection = ({ version, extensionVariant, renderSectionHeader }: AboutS
 			{renderSectionHeader("about")}
 			<Section>
 				<div className="flex px-4 flex-col gap-2">
+					<img alt="Cline Cubed" height={64} src={iconUrl} width={64} />
 					<h2 className="text-lg font-semibold">
 						Cline Cubed v{version}
 						{extensionVariant && (

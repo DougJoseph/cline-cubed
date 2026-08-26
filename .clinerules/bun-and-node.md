@@ -18,29 +18,35 @@ The root `bun.lock` is the single lockfile for the whole workspace, including
 `apps/vscode`, `webview-ui`, and `testing-platform`. There are no per-package npm
 lockfiles.
 
-## Native arm64 Bun required on this machine (macOS arm64)
+## Bun on this machine (macOS arm64) — fixed 2026-08-25
 
-The system `bun` at `/usr/local/bin/bun` is an **x86_64 build running under
-Rosetta** on this arm64 M1 Max. It crashes with `Illegal instruction` /
-`CPU lacks AVX support` whenever a package script runs `bun.mts` (i.e. uses the
-`Bun.build` API) — `bun run build:sdk` failed exactly this way (verified
-2026-08-24).
+The machine is an arm64 M1 Max. Until 2026-08-25 the system `bun` at
+`/usr/local/bin/bun` was an **x86_64 Homebrew build running under Rosetta** that
+crashed with `Illegal instruction` / `CPU lacks AVX support` whenever a package
+script ran `bun.mts` (i.e. used the `Bun.build` API). That broken bun was
+REMOVED (`brew uninstall bun`, 2026-08-25).
 
-The native arm64 bun (1.4.0) is installed at `~/.bun/bin/bun` via the official
-installer (`curl -fsSL https://bun.sh/install | bash`). Do NOT use the brew bun —
-brew here installs the Intel/Rosetta build.
+The native arm64 bun (1.4.0) at `~/.bun/bin/bun` is now the default:
+`~/.zshrc` puts `~/.bun/bin` first in PATH
+(`export PATH="$HOME/.bun/bin:$PATH"`). `bunx` is a symlink to `bun` inside
+`~/.bun/bin` (restored 2026-08-25 — the `~/.bun` install was missing it, and
+Homebrew used to provide it).
 
-**Always build with the native bun on PATH:**
+**Build with plain commands — no PATH prefix needed:**
 
 ```bash
-PATH="$HOME/.bun/bin:$PATH" bun run build:sdk   # SDK workspace packages
-PATH="$HOME/.bun/bin:$PATH" bun run package     # extension build / vsix
+bun run build:sdk   # SDK workspace packages
+bun run package     # extension build / vsix
 ```
 
-Why this is easy to miss: even if you invoke the arm64 bun by full path
-(`~/.bun/bin/bun ...`), package scripts respawn `bun` from PATH for their child
-commands (e.g. `bun run ./bun.mts`), so the x64 bun still runs unless PATH is
-fixed first. Prepend `~/.bun/bin` — don't rely on the parent shell.
+Notes:
+
+- Hooks that call `bunx` (e.g. the `.husky/pre-commit` lint-staged step) work
+  from a normal login shell. From a non-login shell (some automation), prefix
+  PATH as needed: `PATH="$HOME/.bun/bin:$PATH" bun ...`.
+- If this ever regresses (an Intel/Rosetta bun shows up in PATH again), the
+  failure signature is `Illegal instruction` / `CPU lacks AVX support` during
+  the esbuild step — put the native arm64 bun first in PATH to fix.
 
 ## Node is the runtime — do NOT rewrite these to bun
 

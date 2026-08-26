@@ -2,7 +2,7 @@
 	"name": "cline-cubed",
 	"displayName": "Cline Cubed (image bridge)",
 	"description": "Autonomous coding agent right in your IDE, capable of creating/editing files, running commands, using the browser, and more with your permission every step of the way.",
-	"version": "4.1.17",
+	"version": "4.1.18",
 	"icon": "assets/icons/icon.png",
 	"engines": {
 		"vscode": "^1.101.0"
@@ -132,6 +132,10 @@
 				"command": "cline.plusButtonClicked",
 				"title": "New Task",
 				"icon": "$(add)"
+			},
+			{
+				"command": "cline.newChatPane",
+				"title": "Cline Cubed: New Chat Pane"
 			},
 			{
 				"command": "cline.mcpButtonClicked",

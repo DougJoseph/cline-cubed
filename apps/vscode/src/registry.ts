@@ -11,6 +11,7 @@ const prefix = name === "claude-dev" || name === "cline-cubed" ? "cline" : name
  */
 const ClineCommands = {
 	PlusButton: prefix + ".plusButtonClicked",
+	NewChatPane: prefix + ".newChatPane",
 	McpButton: prefix + ".mcpButtonClicked",
 	MarketplaceButton: prefix + ".marketplaceButtonClicked",
 	SettingsButton: prefix + ".settingsButtonClicked",
@@ -38,6 +39,7 @@ const ClineCommands = {
  */
 const ClineViewIds = {
 	Sidebar: name + ".SidebarProvider",
+	ActivityBar: name + "-ActivityBar",
 }
 
 /**

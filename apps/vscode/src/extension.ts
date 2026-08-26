@@ -122,12 +122,29 @@ export async function activate(context: vscode.ExtensionContext) {
 	)
 
 	// NOTE: Commands must be added to the internal registry before registering them with VSCode
-	const { commands } = ExtensionRegistryInfo
+	const { commands, views } = ExtensionRegistryInfo
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand(commands.PlusButton, async () => {
 			const sidebarInstance = WebviewProvider.getInstance()
 			telemetryService.captureNewTaskClicked("activity_bar_plus", !!sidebarInstance.controller.task)
+			await sidebarInstance.controller.clearTask()
+			await sidebarInstance.controller.postStateToWebview()
+			await sendChatButtonClickedEvent()
+		}),
+	)
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.NewChatPane, async () => {
+			// Reveal the Cline Cubed activity-bar container even if it was hidden
+			await vscode.commands.executeCommand(`workbench.view.extension.${views.ActivityBar}`)
+
+			// Show + focus the chat webview
+			const sidebarInstance = WebviewProvider.getInstance() as VscodeWebviewProvider
+			const webviewView = sidebarInstance.getWebview()
+			webviewView?.show(true)
+			sendShowWebviewEvent(false)
+
+			// Start a fresh chat
 			await sidebarInstance.controller.clearTask()
 			await sidebarInstance.controller.postStateToWebview()
 			await sendChatButtonClickedEvent()

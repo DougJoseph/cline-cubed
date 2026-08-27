@@ -22,6 +22,31 @@ raw image bytes.
   most recent calls inline under failed bridge blocks, with a one-click toggle
   right in the chat.
 
+## Chat layout (mirrors Claude Code)
+
+Three buttons are always visible — nothing is gated by settings:
+
+- **Button #1 — the Cline Cubed icon in the left activity bar** opens/creates a chat **in
+  the location chosen in Settings** (Primary sidebar, Secondary sidebar, or Editor area).
+- **Button #2 — the Cline Cubed icon at the top of the Editor** opens a chat in the editor.
+- **Button #3 — the Cline Cubed icon at the top of the Secondary sidebar chat** opens a
+  chat there.
+
+Every button behaves the same way: with **no current chat**, it shows the **"What can I do
+for you?"** home — a chat whose default is also the history chooser (recent chats, plus the
+prompt input at the bottom to start a new task). With a **current chat**, it creates a
+**new, independent chat** in that location. The panel can hold **more than one chat**, and
+each chat is fully independent — starting or streaming in one never disturbs another.
+
+New chat sessions open in the location picked by the **"Where new chat sessions open"**
+setting (Settings → General, or the chooser right on the chat home):
+
+- **Primary sidebar** (typically left)
+- **Secondary sidebar** (typically right) — the default
+- **Editor area** (new tab)
+
+A gear button in the chat input row opens Settings quickly.
+
 ## Setup
 
 1. Open Settings → **API Configuration** and pick the **Image Mode** tab.

@@ -14,13 +14,23 @@ import { HistoryItem } from "./HistoryItem"
 import { McpDisplayMode } from "./McpDisplayMode"
 import { ClineMessageModelInfo } from "./messages"
 import { OnboardingModelGroup } from "./proto/cline/state"
-import { Mode } from "./storage/types"
+import { Mode, NewChatLocation } from "./storage/types"
 import { TelemetrySetting } from "./TelemetrySetting"
 import { UserInfo } from "./UserInfo"
 // webview will hold state
 export interface ExtensionMessage {
-	type: "grpc_response" // New type for gRPC responses
+	/**
+	 * Discriminator. The gRPC bridge always uses "grpc_response". Cline Cubed (V4.2) adds two
+	 * TARGETED host→webview messages (posted to ONE chat webview only, never broadcast):
+	 * - "showNewChatHome" — this webview enters New Chat home mode (clears its displayed task;
+	 *   every other surface's conversation is untouched).
+	 * - "bindTask" — this webview adopts broadcasts whose currentTaskItem.id matches `taskId`
+	 *   (sent after selecting a session in the sessions chooser / in-chat history).
+	 */
+	type: "grpc_response" | "showNewChatHome" | "bindTask"
 	grpc_response?: GrpcResponse
+	/** Cline Cubed (V4.2): task id carried by the targeted `bindTask` host→webview message. */
+	taskId?: string
 }
 
 export type GrpcResponse = {
@@ -39,12 +49,17 @@ export const COMMAND_CANCEL_TOKEN = "__cline_command_cancel__"
 export interface ExtensionState {
 	isNewUser: boolean
 	welcomeViewCompleted: boolean
+	/** Cline Cubed: the "Cline Cubed: Get Started" re-view flag — shows the onboarding page
+	 * WITHOUT lying about welcomeViewCompleted. Dismissed/completed clears it. */
+	clineCubedShowOnboarding: boolean
 	onboardingModels: OnboardingModelGroup | undefined
 	apiConfiguration?: ApiConfiguration
 	autoApprovalSettings: AutoApprovalSettings
 	browserSettings: BrowserSettings
 	remoteBrowserHost?: string
 	preferredLanguage?: string
+	/** Cline Cubed: where a new chat session opens ("secondarySidebar" | "editor"). */
+	newChatLocation?: NewChatLocation
 	mode: Mode
 	clineMessages: ClineMessage[]
 	checkpointRestoreInput?: {
@@ -78,6 +93,10 @@ export interface ExtensionState {
 	 */
 	epoch?: number
 	currentTaskItem?: HistoryItem
+	/** Cline Cubed (V5): the controller's LIVE task/session id when a task is active. Always
+	 *  present in a broadcast for an active task (unlike `currentTaskItem`, which lags until
+	 *  the task lands in the persisted taskHistory file). Undefined when no task is active. */
+	activeTaskId?: string
 	mcpMarketplaceEnabled?: boolean
 	mcpDisplayMode: McpDisplayMode
 	planActSeparateModelsSetting: boolean

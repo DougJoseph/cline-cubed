@@ -1,6 +1,6 @@
 import { DEFAULT_AUTO_APPROVAL_SETTINGS } from "@shared/AutoApprovalSettings"
 import { DEFAULT_BROWSER_SETTINGS } from "@shared/BrowserSettings"
-import { DEFAULT_PLATFORM, type ExtensionState } from "@shared/ExtensionMessage"
+import { type ClineMessage, DEFAULT_PLATFORM, type ExtensionState } from "@shared/ExtensionMessage"
 import { DEFAULT_MCP_DISPLAY_MODE } from "@shared/McpDisplayMode"
 import type { UserInfo } from "@shared/proto/cline/account"
 import { EmptyRequest } from "@shared/proto/cline/common"
@@ -137,6 +137,19 @@ export interface ExtensionStateContextType extends ExtensionState {
 
 	// Event callbacks
 	onRelinquishControl: (callback: () => void) => () => void
+
+	// Cline Cubed (V4.2): per-surface task binding
+	/** The task THIS webview displays. undefined = never bound (stock behavior);
+	 *  null = New Chat home (ignores other surfaces' tasks); <id> = bound to that task. */
+	surfaceBoundTaskId: string | null | undefined
+	/** Bind this surface to a task (or to none / New Chat home). Writing the binding also
+	 *  applies the cached snapshot if it was already broadcast (covers the RPC race). */
+	setSurfaceBoundTaskId: (taskId: string | null | undefined) => void
+	/** Current binding (ref-backed — stable across renders). */
+	getSurfaceBoundTaskId: () => string | null | undefined
+	/** The controller's active task id from the LAST broadcast (pre-binding gate). Used by the
+	 *  message-send guard so a message never lands in another surface's conversation. */
+	getLatestActiveTaskId: () => string | undefined
 }
 
 export const ExtensionStateContext = createContext<ExtensionStateContextType | undefined>(undefined)
@@ -295,6 +308,7 @@ export const ExtensionStateContextProvider: React.FC<{
 		defaultTerminalProfile: "default",
 		isNewUser: false,
 		welcomeViewCompleted: false,
+		clineCubedShowOnboarding: false,
 		onboardingModels: undefined,
 		mcpResponsesCollapsed: false, // Default value (expanded), will be overwritten by extension state
 		useAutoCondense: true,
@@ -329,6 +343,46 @@ export const ExtensionStateContextProvider: React.FC<{
 
 	const [showWelcome, setShowWelcome] = useState(false)
 	const [onboardingModels, setOnboardingModels] = useState<OnboardingModelGroup | undefined>(undefined)
+
+	// Cline Cubed (V4.2): per-surface task binding. undefined = never bound (stock behavior);
+	// null = New Chat home; <id> = bound to that task. A new editor "New Chat" panel boots
+	// bound to null via the HTML flag so it never adopts the current task.
+	const initialBoundTaskId: string | null | undefined = window.__CLINE_CUBED_WEBVIEW_NEW_CHAT__ ? null : undefined
+	const [surfaceBoundTaskId, setSurfaceBoundTaskIdState] = useState<string | null | undefined>(initialBoundTaskId)
+	const surfaceBoundTaskIdRef = useRef<string | null | undefined>(initialBoundTaskId)
+	/** The controller's active task id from the last broadcast (pre-binding gate). */
+	const latestActiveTaskIdRef = useRef<string | undefined>(undefined)
+	/** Last raw broadcast's conversation fields, cached so a surface that binds to the task it
+	 *  just ignored can render it without waiting for the next broadcast. */
+	const lastRawConversationRef = useRef<{
+		currentTaskItem?: ExtensionState["currentTaskItem"]
+		activeTaskId?: string
+		clineMessages: ClineMessage[]
+		turnState?: ExtensionState["turnState"]
+	}>({ clineMessages: [] })
+
+	const setSurfaceBoundTaskId = useCallback(
+		(taskId: string | null | undefined) => {
+			surfaceBoundTaskIdRef.current = taskId
+			setSurfaceBoundTaskIdState(taskId)
+			// If we just bound to the task whose broadcast we were ignoring (race: the broadcast
+			// can beat the newTask RPC response), render that snapshot now.
+			if (typeof taskId === "string") {
+				const cached = lastRawConversationRef.current
+				if ((cached?.activeTaskId ?? cached?.currentTaskItem?.id) === taskId) {
+					setState((prev) => ({
+						...prev,
+						clineMessages: cached.clineMessages,
+						currentTaskItem: cached.currentTaskItem,
+						turnState: cached.turnState,
+					}))
+				}
+			}
+		},
+		[setState],
+	)
+	const getSurfaceBoundTaskId = useCallback(() => surfaceBoundTaskIdRef.current, [])
+	const getLatestActiveTaskId = useCallback(() => latestActiveTaskIdRef.current, [])
 
 	const [openRouterModels, setOpenRouterModels] = useState<Record<string, ModelInfo>>({
 		[openRouterDefaultModelId]: openRouterDefaultModelInfo,
@@ -450,28 +504,58 @@ export const ExtensionStateContextProvider: React.FC<{
 					try {
 						const stateData = JSON.parse(response.stateJson) as ExtensionState
 						setState((prevState) => {
+							// Cline Cubed (V4.2/V5): per-surface task binding. A broadcast whose task
+							// does not match THIS surface's binding must not replace this surface's
+							// displayed conversation — only the non-conversation state applies below.
+							// V5: key on `activeTaskId` (the controller's LIVE task id), NOT
+							// `currentTaskItem` — currentTaskItem lags until the task lands in the
+							// persisted taskHistory file, so it is undefined for new/streaming tasks
+							// and would collapse the gate (every surface adopting every broadcast).
+							const broadcastTaskId = stateData.activeTaskId ?? stateData.currentTaskItem?.id
+							latestActiveTaskIdRef.current = broadcastTaskId
+							lastRawConversationRef.current = {
+								currentTaskItem: stateData.currentTaskItem,
+								activeTaskId: stateData.activeTaskId,
+								clineMessages: stateData.clineMessages ?? [],
+								turnState: stateData.turnState,
+							}
+							const binding = surfaceBoundTaskIdRef.current
+							const shouldAdoptConversation =
+								binding === undefined ||
+								(binding === null && broadcastTaskId === undefined) ||
+								(typeof binding === "string" && (broadcastTaskId === undefined || broadcastTaskId === binding))
+
+							if (!shouldAdoptConversation) {
+								// Keep this surface's own conversation (its bound task).
+								stateData.clineMessages = prevState.clineMessages ?? []
+								stateData.currentTaskItem = prevState.currentTaskItem
+								stateData.turnState = prevState.turnState
+							}
+
 							// Versioning logic for autoApprovalSettings
 							const incomingVersion = stateData.autoApprovalSettings?.version ?? 1
 							const currentVersion = prevState.autoApprovalSettings?.version ?? 1
 							const shouldUpdateAutoApproval = incomingVersion > currentVersion
 
-							// Route the snapshot's transcript through the convergent-replica reducer:
-							// merge by ts/seq within the same epoch (never truncate), replace on a
-							// newer epoch, ignore stale/older snapshots. Unstamped (classic/legacy)
-							// state defaults to epoch 0 / version 0, which merges.
-							replicaRef.current = reducerApplyStateSnapshot(
-								replicaRef.current,
-								stateData.clineMessages ?? [],
-								stateData.epoch ?? 0,
-								stateData.stateVersion ?? 0,
-								stateData.turnState,
-							)
-							stateData.clineMessages = replicaRef.current.messages
-							// Use the seq-gated turnState from the replica, NOT the raw snapshot's, so a
-							// late/stale snapshot carrying an older phase (e.g. "idle") cannot revert a
-							// newer phase (e.g. "streaming") and hide the Cancel button. Falls back to
-							// undefined for classic/legacy state.
-							stateData.turnState = replicaRef.current.turnState
+							if (shouldAdoptConversation) {
+								// Route the snapshot's transcript through the convergent-replica reducer:
+								// merge by ts/seq within the same epoch (never truncate), replace on a
+								// newer epoch, ignore stale/older snapshots. Unstamped (classic/legacy)
+								// state defaults to epoch 0 / version 0, which merges.
+								replicaRef.current = reducerApplyStateSnapshot(
+									replicaRef.current,
+									stateData.clineMessages ?? [],
+									stateData.epoch ?? 0,
+									stateData.stateVersion ?? 0,
+									stateData.turnState,
+								)
+								stateData.clineMessages = replicaRef.current.messages
+								// Use the seq-gated turnState from the replica, NOT the raw snapshot's, so a
+								// late/stale snapshot carrying an older phase (e.g. "idle") cannot revert a
+								// newer phase (e.g. "streaming") and hide the Cancel button. Falls back to
+								// undefined for classic/legacy state.
+								stateData.turnState = replicaRef.current.turnState
+							}
 
 							const newState = {
 								...stateData,
@@ -870,6 +954,23 @@ export const ExtensionStateContextProvider: React.FC<{
 		refreshLiteLlmModels,
 	])
 
+	// Cline Cubed (V4.2): targeted host→webview messages (per-surface task binding).
+	useEffect(() => {
+		const onHostMessage = (event: MessageEvent) => {
+			const data = event.data as { type?: string; taskId?: string }
+			if (data?.type === "showNewChatHome") {
+				surfaceBoundTaskIdRef.current = null
+				setSurfaceBoundTaskIdState(null)
+				// Clear THIS surface's displayed conversation so ChatView shows the New Chat home.
+				setState((prev) => ({ ...prev, clineMessages: [], currentTaskItem: undefined, turnState: undefined }))
+			} else if (data?.type === "bindTask" && typeof data.taskId === "string") {
+				setSurfaceBoundTaskId(data.taskId)
+			}
+		}
+		window.addEventListener("message", onHostMessage)
+		return () => window.removeEventListener("message", onHostMessage)
+	}, [setSurfaceBoundTaskId, setState])
+
 	const contextValue: ExtensionStateContextType = {
 		...state,
 		didHydrateState,
@@ -909,6 +1010,12 @@ export const ExtensionStateContextProvider: React.FC<{
 		remoteRulesToggles: state.remoteRulesToggles || {},
 		remoteWorkflowToggles: state.remoteWorkflowToggles || {},
 		enableCheckpointsSetting: state.enableCheckpointsSetting,
+
+		// Cline Cubed (V4.2): per-surface task binding
+		surfaceBoundTaskId,
+		setSurfaceBoundTaskId,
+		getSurfaceBoundTaskId,
+		getLatestActiveTaskId,
 
 		// Navigation functions
 		navigateToMarketplace,

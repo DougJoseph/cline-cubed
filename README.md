@@ -32,6 +32,22 @@ so non-vision models get full image context without ever receiving raw image byt
   the toggle is off.
 - **Fork identity** — the About panel, extension manifest, and marketplace README
   are the fork's own: `DougJoseph.cline-cubed`, "Cline Cubed (image bridge)".
+- **Three chat buttons (mirrors Claude Code), every one a real chat panel** — the left
+  activity-bar icon opens/creates a chat **in the location chosen in Settings**; the editor
+  title-bar icon opens a chat in the editor; the secondary-sidebar icon opens a chat there.
+  With **no current chat** each shows the **"What can I do for you?"** home — a chat whose
+  default is also the history chooser (recent chats, plus the prompt input at the bottom to
+  start a new task). With a **current chat**, it creates a **new, independent chat** in that
+  location.
+- **Multiple chats at once** — each chat is fully independent (typing/streaming in one never
+  leaks into another). Editor = multiple tabs; sidebars = one on screen, many preserved and
+  switchable.
+- **"Where new chat sessions open" setting** — choose where Button #1's chats land: **Primary
+  sidebar** (typically left), **Secondary sidebar** (typically right), or **Editor area** (new
+  tab). Default: **Secondary sidebar (typically right)**. A start-up chooser on the chat home
+  shows the same three options, and a gear button in the chat input row opens Settings.
+- **Gear button in the chat input row** — restores the settings affordance stock Cline
+  removed from the VS Code panel.
 
 ## Install
 

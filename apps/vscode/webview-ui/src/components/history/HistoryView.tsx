@@ -14,7 +14,14 @@ import ViewHeader from "../common/ViewHeader"
 import HistoryViewItem from "./HistoryViewItem"
 
 type HistoryViewProps = {
-	onDone: () => void
+	/** Stock behavior: when present, the header shows a "Done" button calling this, which
+	 *  closes the history section and returns the user to what they were working in (the
+	 *  chat / New Chat home). */
+	onDone?: () => void
+	/** Doug's primary-toolbar rule (2026-08-26): the Done button is hidden when the chooser is
+	 *  shown on the primary toolbar (there is nothing to return to). Everywhere else it stays,
+	 *  with its stock close-and-return function. */
+	hideDone?: boolean
 }
 
 type SortOption = "newest" | "oldest" | "mostExpensive" | "mostTokens" | "mostRelevant"
@@ -37,7 +44,7 @@ const HISTORY_FILTERS = {
 
 const HISTORY_PAGE_SIZE = 50
 
-const HistoryView = ({ onDone }: HistoryViewProps) => {
+const HistoryView = ({ onDone, hideDone }: HistoryViewProps) => {
 	const extensionStateContext = useExtensionState()
 	const { taskHistory, onRelinquishControl, environment } = extensionStateContext
 	const [searchQuery, setSearchQuery] = useState("")
@@ -381,7 +388,7 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 	return (
 		<div className="fixed overflow-hidden inset-0 flex flex-col w-full">
 			{/* HEADER */}
-			<ViewHeader environment={environment} onDone={onDone} title="History" />
+			{onDone && <ViewHeader environment={environment} hideDone={hideDone} onDone={onDone} title="History" />}
 
 			{/* FILTERS */}
 			<div className="flex flex-col gap-3 px-3">

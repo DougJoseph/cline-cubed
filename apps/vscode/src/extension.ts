@@ -37,6 +37,7 @@ import {
 	migrateWorkspaceToGlobalStorage,
 } from "./core/storage/state-migrations"
 import { workspaceResolver } from "./core/workspace"
+import { revealChatSurface } from "./hosts/vscode/chatEditorPanel"
 import { findMatchingNotebookCell, getContextForCommand, showWebview } from "./hosts/vscode/commandUtils"
 import { abortCommitGeneration, generateCommitMsg } from "./hosts/vscode/commit-message-generator"
 import { registerClineOutputChannel } from "./hosts/vscode/hostbridge/env/debugLog"
@@ -46,6 +47,7 @@ import {
 } from "./hosts/vscode/review/VscodeCommentReviewController"
 import { DIFF_VIEW_URI_SCHEME, diffContentProvider } from "./hosts/vscode/VscodeDiffContentProvider"
 import { EDIT_PREVIEW_URI_SCHEME, editPreviewContentProvider, VscodeEditPreview } from "./hosts/vscode/VscodeEditPreview"
+import { VscodeSessionsWebviewProvider } from "./hosts/vscode/VscodeSessionsWebviewProvider"
 import { VscodeWebviewProvider } from "./hosts/vscode/VscodeWebviewProvider"
 import { exportVSCodeStorageToSharedFiles } from "./hosts/vscode/vscode-to-file-migration"
 import { ExtensionRegistryInfo } from "./registry"
@@ -54,6 +56,7 @@ import { telemetryService } from "./services/telemetry"
 import type { RolloutBundleActivation } from "./services/telemetry/rollout-metadata"
 import { LG_TASK_URI_PATH, SharedUriHandler, TASK_URI_PATH } from "./services/uri/SharedUriHandler"
 import { ShowMessageType } from "./shared/proto/host/window"
+import type { NewChatLocation } from "./shared/storage/types"
 import { fileExistsAtPath } from "./utils/fs"
 
 export async function reportRolloutActivation(input: RolloutBundleActivation): Promise<void> {
@@ -84,6 +87,17 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 4. Register services and perform common initialization
 	// IMPORTANT: Must be done after host provider is setup and migrations are complete
 	const webview = (await initialize(storageContext)) as VscodeWebviewProvider
+
+	// Cline Cubed: the "where new chat sessions open" setting applies ONLY to Button 1 (the
+	// sessions panel). The single remaining context gates the left "Chat" view folded into the
+	// sessions container (visible when the setting is "Primary sidebar (left)"); the secondary
+	// chat and the editor button are always-visible entry points independent of the setting.
+	const initialNewChatLocation = webview.controller.stateManager.getGlobalSettingsKey("newChatLocation") ?? "secondarySidebar"
+	await vscode.commands.executeCommand(
+		"setContext",
+		"cline-cubed:chatInPrimarySidebar",
+		initialNewChatLocation === "primarySidebar",
+	)
 
 	// 5. Register services and commands specific to VS Code
 	// Initialize hook discovery cache for performance optimization
@@ -116,38 +130,87 @@ export async function activate(context: vscode.ExtensionContext) {
 	)
 
 	context.subscriptions.push(
-		vscode.window.registerWebviewViewProvider(VscodeWebviewProvider.SIDEBAR_ID, webview, {
+		vscode.window.registerWebviewViewProvider(VscodeWebviewProvider.SIDEBAR_SECONDARY_ID, webview, {
 			webviewOptions: { retainContextWhenHidden: true },
 		}),
 	)
 
+	// Button #1's panel (the primary-bar Sessions container) hosts the CHAT view (kind=chat):
+	// the "What can I do for you?" home (history preview + prompt input) when no chat is open,
+	// and the current chat in the same panel when one is. A SEPARATE provider instance
+	// (delegating to the shared controller) so it coexists with the secondary chat without the
+	// single-provider collision bug. Button #1's open/create-in-Settings-location behavior runs
+	// when this view becomes visible (VscodeSessionsWebviewProvider, V5).
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(
+			VscodeSessionsWebviewProvider.SIDEBAR_CHAT_ID,
+			new VscodeSessionsWebviewProvider(context, "chat"),
+			{
+				webviewOptions: { retainContextWhenHidden: true },
+			},
+		),
+	)
+
 	// NOTE: Commands must be added to the internal registry before registering them with VSCode
-	const { commands, views } = ExtensionRegistryInfo
+	const { commands } = ExtensionRegistryInfo
+
+	// Cline Cubed (V5): a chat button opens/creates a chat in the given target area.
+	// - No current chat → reveal the area showing the "What can I do for you?" home (a chat
+	//   whose default is also the history chooser).
+	// - Current chat exists → reveal the area in New Chat home mode (a fresh, INDEPENDENT chat;
+	//   no other surface's conversation is touched — no global clearTask).
+	const openOrCreateChat = async (targetArea: NewChatLocation): Promise<void> => {
+		const sidebarInstance = WebviewProvider.getInstance() as VscodeWebviewProvider
+		const hasCurrentChat = !!sidebarInstance.controller.task
+		const surface = await revealChatSurface(context, sidebarInstance, targetArea)
+		if (hasCurrentChat) {
+			surface?.postMessage({ type: "showNewChatHome" })
+		}
+	}
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand(commands.PlusButton, async () => {
-			const sidebarInstance = WebviewProvider.getInstance()
+			const sidebarInstance = WebviewProvider.getInstance() as VscodeWebviewProvider
 			telemetryService.captureNewTaskClicked("activity_bar_plus", !!sidebarInstance.controller.task)
-			await sidebarInstance.controller.clearTask()
-			await sidebarInstance.controller.postStateToWebview()
+			await openOrCreateChat(sidebarInstance.controller.stateManager.getGlobalSettingsKey("newChatLocation"))
 			await sendChatButtonClickedEvent()
 		}),
 	)
 	context.subscriptions.push(
 		vscode.commands.registerCommand(commands.NewChatPane, async () => {
-			// Reveal the Cline Cubed activity-bar container even if it was hidden
-			await vscode.commands.executeCommand(`workbench.view.extension.${views.ActivityBar}`)
-
-			// Show + focus the chat webview
 			const sidebarInstance = WebviewProvider.getInstance() as VscodeWebviewProvider
-			const webviewView = sidebarInstance.getWebview()
-			webviewView?.show(true)
+			await openOrCreateChat(sidebarInstance.controller.stateManager.getGlobalSettingsKey("newChatLocation"))
 			sendShowWebviewEvent(false)
-
-			// Start a fresh chat
-			await sidebarInstance.controller.clearTask()
-			await sidebarInstance.controller.postStateToWebview()
 			await sendChatButtonClickedEvent()
+		}),
+	)
+	// Button #2 — the Cline Cubed icon at the top of the Editor area.
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.OpenChatInEditor, async () => {
+			await openOrCreateChat("editor")
+		}),
+	)
+	// Button #3 — the Cline Cubed icon at the top of the Secondary sidebar's chat area.
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.OpenChatInSecondary, async () => {
+			await openOrCreateChat("secondarySidebar")
+		}),
+	)
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.OpenOnboarding, async () => {
+			// Command-palette path back to the Get Started (onboarding) screen — the screen new
+			// users see, which also carries the "Where new chat sessions open" chooser (V4).
+			// A dedicated flag drives it, so we NEVER pretend the user is new (Doug 2026-08-26):
+			// welcomeViewCompleted stays untouched; "Back to chat" or completing the flow clears
+			// the flag.
+			const sidebarInstance = WebviewProvider.getInstance()
+			sidebarInstance.controller.stateManager.setGlobalState("clineCubedShowOnboarding", true)
+			await sidebarInstance.controller.postStateToWebview()
+			await revealChatSurface(
+				context,
+				webview,
+				sidebarInstance.controller.stateManager.getGlobalSettingsKey("newChatLocation"),
+			)
 		}),
 	)
 	context.subscriptions.push(vscode.commands.registerCommand(commands.McpButton, () => sendMcpButtonClickedEvent()))
@@ -624,7 +687,7 @@ async function openClineSidebarForTaskUri(): Promise<void> {
 	const sidebarWaitTimeoutMs = 3000
 	const sidebarWaitIntervalMs = 50
 
-	await vscode.commands.executeCommand(`${ExtensionRegistryInfo.views.Sidebar}.focus`)
+	await vscode.commands.executeCommand(`${ExtensionRegistryInfo.views.SidebarSecondary}.focus`)
 
 	const startedAt = Date.now()
 	while (Date.now() - startedAt < sidebarWaitTimeoutMs) {

@@ -5,7 +5,7 @@ import { PlanActMode, TogglePlanActModeRequest } from "@shared/proto/cline/state
 import { type SlashCommand } from "@shared/slashCommands"
 import { Mode } from "@shared/storage/types"
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react"
-import { AtSignIcon, PlusIcon } from "lucide-react"
+import { AtSignIcon, PlusIcon, SettingsIcon } from "lucide-react"
 import type React from "react"
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import DynamicTextArea from "react-textarea-autosize"
@@ -223,6 +223,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			globalWorkflowToggles,
 			remoteWorkflowToggles,
 			remoteConfigSettings,
+			navigateToSettings,
 			navigateToSettingsModelPicker,
 			mcpServers,
 		} = useExtensionState()
@@ -1637,6 +1638,22 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							<ServersToggleModal />
 
 							<ClineRulesToggleModal />
+
+							<Tooltip>
+								<TooltipContent>Settings</TooltipContent>
+								<TooltipTrigger>
+									<VSCodeButton
+										appearance="icon"
+										aria-label="Settings"
+										className="p-0 m-0 flex items-center"
+										data-testid="settings-button"
+										onClick={() => navigateToSettings()}>
+										<ButtonContainer>
+											<SettingsIcon size={13} />
+										</ButtonContainer>
+									</VSCodeButton>
+								</TooltipTrigger>
+							</Tooltip>
 
 							<ModelContainer>
 								<ModelButtonWrapper>

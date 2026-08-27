@@ -9,6 +9,7 @@ import { openClinePassSubscriptionIfPending } from "./components/onboarding/clin
 import OnboardingView from "./components/onboarding/OnboardingView"
 import SettingsView from "./components/settings/SettingsView"
 import WorktreesView from "./components/worktrees/WorktreesView"
+import { PLATFORM_CONFIG } from "./config/platform.config"
 import { useClineAuth } from "./context/ClineAuthContext"
 import { useExtensionState } from "./context/ExtensionStateContext"
 import { Providers } from "./Providers"
@@ -18,6 +19,7 @@ const AppContent = () => {
 	const {
 		didHydrateState,
 		showWelcome,
+		clineCubedShowOnboarding,
 		shouldShowAnnouncement,
 		showMarketplace,
 		showMcp,
@@ -72,8 +74,16 @@ const AppContent = () => {
 		return null
 	}
 
-	if (showWelcome) {
-		return <OnboardingView />
+	if (showWelcome || clineCubedShowOnboarding) {
+		return (
+			<OnboardingView
+				onDismiss={
+					clineCubedShowOnboarding && !showWelcome
+						? () => PLATFORM_CONFIG.postMessage({ type: "dismissOnboarding" })
+						: undefined
+				}
+			/>
+		)
 	}
 
 	return (

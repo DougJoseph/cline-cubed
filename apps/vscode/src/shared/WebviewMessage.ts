@@ -1,7 +1,13 @@
+import type { NewChatLocation } from "./storage/types"
+
 export interface WebviewMessage {
-	type: "grpc_request" | "grpc_request_cancel"
+	type: "grpc_request" | "grpc_request_cancel" | "selectTask" | "syncChatLocation" | "dismissOnboarding"
 	grpc_request?: GrpcRequest
 	grpc_request_cancel?: GrpcCancel
+	/** Task id carried by the sessions webview's "selectTask" message. */
+	taskId?: string
+	/** Chat location carried by the chat webview's "syncChatLocation" message. */
+	newChatLocation?: NewChatLocation
 }
 
 export type GrpcRequest = {

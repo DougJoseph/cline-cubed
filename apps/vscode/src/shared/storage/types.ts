@@ -13,6 +13,9 @@ export function normalizeOpenaiReasoningEffort(effort?: string): OpenaiReasoning
 
 export type Mode = "plan" | "act" | "image"
 
+/** Where a new chat session opens. Default "secondarySidebar" (typically right) since V4; "primarySidebar" (left) is the stock-Cline classic. */
+export type NewChatLocation = "primarySidebar" | "secondarySidebar" | "editor"
+
 export interface BlobStoreSettings {
 	bucket: string
 	adapterType: "s3" | "r2" | "azure" | string

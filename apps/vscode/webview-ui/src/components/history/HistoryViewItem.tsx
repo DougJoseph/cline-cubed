@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { memo, useCallback, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { useExtensionState } from "@/context/ExtensionStateContext"
 import { cn } from "@/lib/utils"
 import { TaskServiceClient } from "@/services/grpc-client"
 import { formatLargeNumber, formatSize } from "@/utils/format"
@@ -43,11 +44,19 @@ const HistoryViewItem = ({
 		[item.id, item.isFavorited, pendingFavoriteToggles],
 	)
 
-	const handleShowTaskWithId = useCallback((id: string) => {
-		TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
-			console.error("Error showing task:", error),
-		)
-	}, [])
+	const { setSurfaceBoundTaskId } = useExtensionState()
+
+	const handleShowTaskWithId = useCallback(
+		(id: string) => {
+			// Cline Cubed (V4.2): this webview chose the task — bind to it so its broadcast renders
+			// here and no other open chat surface switches to it.
+			setSurfaceBoundTaskId(id)
+			TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
+				console.error("Error showing task:", error),
+			)
+		},
+		[setSurfaceBoundTaskId],
+	)
 
 	const formatDate = useCallback((timestamp: number) => {
 		const date = new Date(timestamp)

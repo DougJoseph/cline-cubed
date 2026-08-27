@@ -8,6 +8,7 @@ import { telemetryService } from "@/services/telemetry"
 import type { ExtensionMessage } from "@/shared/ExtensionMessage"
 import { Logger } from "@/shared/services/Logger"
 import { WebviewMessage } from "@/shared/WebviewMessage"
+import { revealChatSurface } from "./chatEditorPanel"
 
 /*
 https://github.com/microsoft/vscode-webview-ui-toolkit-samples/blob/main/default/weather-webview/src/providers/WeatherViewProvider.ts
@@ -17,7 +18,7 @@ https://github.com/KumarVariable/vscode-extension-sidebar-html/blob/master/src/c
 export class VscodeWebviewProvider extends WebviewProvider implements vscode.WebviewViewProvider {
 	// Used in package.json as the view's id. This value cannot be changed due to how vscode caches
 	// views based on their id, and updating the id would break existing instances of the extension.
-	public static readonly SIDEBAR_ID = ExtensionRegistryInfo.views.Sidebar
+	public static readonly SIDEBAR_SECONDARY_ID = ExtensionRegistryInfo.views.SidebarSecondary
 
 	private webview?: vscode.WebviewView
 	private disposables: vscode.Disposable[] = []
@@ -184,6 +185,20 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 				}
 				break
 			}
+			case "syncChatLocation": {
+				// Cline Cubed: the user changed "Where new chat sessions open" (Button 1's
+				// placement). Reveal the new surface immediately so the change is visible and
+				// an in-use view is never left hidden (no blank panel).
+				await revealChatSurface(this.context, this, message.newChatLocation ?? "secondarySidebar")
+				break
+			}
+			case "dismissOnboarding": {
+				// The user left the "Cline Cubed: Get Started" re-view — clear the flag WITHOUT
+				// touching welcomeViewCompleted (we never pretend to be a new user).
+				this.controller.stateManager.setGlobalState("clineCubedShowOnboarding", false)
+				await this.controller.postStateToWebview()
+				break
+			}
 			default: {
 				Logger.error("Received unhandled WebviewMessage type:", JSON.stringify(message))
 			}
@@ -198,6 +213,12 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 	 */
 	private async postMessageToWebview(message: ExtensionMessage): Promise<boolean | undefined> {
 		return this.webview?.webview.postMessage(message)
+	}
+
+	/** Cline Cubed (V4.2): targeted host→webview message for THIS surface (e.g.
+	 *  showNewChatHome / bindTask). Other chat surfaces never receive it. */
+	public sendMessageToWebview(message: ExtensionMessage): void {
+		void this.webview?.webview.postMessage(message)
 	}
 
 	/**

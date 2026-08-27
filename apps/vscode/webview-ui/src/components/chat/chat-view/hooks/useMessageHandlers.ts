@@ -13,7 +13,8 @@ import type { ChatState, MessageHandlers } from "../types/chatTypes"
  * Handles sending messages, button clicks, and task management
  */
 export function useMessageHandlers(messages: ClineMessage[], chatState: ChatState): MessageHandlers {
-	const { backgroundCommandRunning, turnState } = useExtensionState()
+	const { backgroundCommandRunning, turnState, getSurfaceBoundTaskId, getLatestActiveTaskId, setSurfaceBoundTaskId } =
+		useExtensionState()
 	const {
 		setInputValue,
 		activeQuote,
@@ -35,6 +36,15 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 	// Handle sending a message
 	const handleSendMessage = useCallback(
 		async (text: string, images: string[], files: string[]) => {
+			// Cline Cubed (V4.2): never send into the wrong conversation. If this surface is
+			// bound to a task that is not the controller's active task, make our task active
+			// first (showTaskWithId) so the message lands in THIS surface's conversation.
+			const boundTask = getSurfaceBoundTaskId()
+			const activeTask = getLatestActiveTaskId()
+			if (typeof boundTask === "string" && boundTask !== activeTask) {
+				await TaskServiceClient.showTaskWithId(StringRequest.create({ value: boundTask }))
+			}
+
 			let messageToSend = text.trim()
 			const hasContent = messageToSend || images.length > 0 || files.length > 0
 
@@ -183,7 +193,13 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 						partial: false,
 					})
 					try {
-						await TaskServiceClient.newTask(request)
+						const response = await TaskServiceClient.newTask(request)
+						// Cline Cubed (V4.2): bind this surface to the task it just created so its
+						// broadcasts render HERE and no other open chat surface switches to it.
+						const newTaskId = response?.value
+						if (newTaskId) {
+							setSurfaceBoundTaskId(newTaskId)
+						}
 					} catch (error) {
 						rollbackPendingResponse(id, optimisticMessage)
 						restorePendingMessageState()
@@ -322,6 +338,9 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 			setPendingUserMessage,
 			setPendingResponse,
 			chatState,
+			getSurfaceBoundTaskId,
+			getLatestActiveTaskId,
+			setSurfaceBoundTaskId,
 		],
 	)
 

@@ -43,6 +43,8 @@ export async function getStateToPostToWebview(controller: {
 	const autoApprovalSettings = stateManager.getGlobalSettingsKey("autoApprovalSettings")
 	const browserSettings = stateManager.getGlobalSettingsKey("browserSettings")
 	const preferredLanguage = stateManager.getGlobalSettingsKey("preferredLanguage")
+	// Cline Cubed: where a new chat session opens ("secondarySidebar" | "editor").
+	const newChatLocation = stateManager.getGlobalSettingsKey("newChatLocation")
 	const mode = stateManager.getGlobalSettingsKey("mode")
 	const useAutoCondense = stateManager.getGlobalSettingsKey("useAutoCondense")
 	const compactionStrategy = readCompactionStrategyGlobally()
@@ -69,6 +71,7 @@ export async function getStateToPostToWebview(controller: {
 	const defaultTerminalProfile = stateManager.getGlobalSettingsKey("defaultTerminalProfile")
 	const isNewUser = stateManager.getGlobalStateKey("isNewUser")
 	const welcomeViewCompleted = !!stateManager.getGlobalStateKey("welcomeViewCompleted")
+	const clineCubedShowOnboarding = !!stateManager.getGlobalStateKey("clineCubedShowOnboarding")
 
 	const mcpResponsesCollapsed = stateManager.getGlobalStateKey("mcpResponsesCollapsed")
 	const favoritedModelIds = stateManager.getGlobalStateKey("favoritedModelIds")
@@ -119,11 +122,17 @@ export async function getStateToPostToWebview(controller: {
 		extensionVariant: getExtensionVariant(),
 		apiConfiguration,
 		currentTaskItem,
+		/** Cline Cubed (V5): the controller's LIVE task/session id when a task is active —
+		 *  always present in a broadcast for an active task (unlike `currentTaskItem`, which
+		 *  depends on the persisted taskHistory file and is undefined for new/streaming tasks).
+		 *  Undefined when no task is active. This is what the per-surface binding gate keys on. */
+		activeTaskId: controller.task?.taskId ?? undefined,
 		clineMessages,
 		checkpointRestoreInput,
 		autoApprovalSettings,
 		browserSettings,
 		preferredLanguage,
+		newChatLocation,
 		mode,
 		useAutoCondense,
 		compactionStrategy,
@@ -158,6 +167,7 @@ export async function getStateToPostToWebview(controller: {
 		defaultTerminalProfile,
 		isNewUser,
 		welcomeViewCompleted,
+		clineCubedShowOnboarding,
 		onboardingModels,
 		mcpResponsesCollapsed,
 		taskHistory: processedTaskHistory,

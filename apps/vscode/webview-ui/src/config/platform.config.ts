@@ -47,6 +47,12 @@ declare global {
 		// !! Do not change the name of the handler without updating it on
 		// the JetBrains side as well. !!
 		standalonePostMessage?: (message: string) => void
+		// Startup "kind" of this webview, injected into the HTML by the host:
+		// "chat" (sidebar/editor panel) or "sessions" (history-only left view).
+		__CLINE_CUBED_WEBVIEW_KIND__?: "chat" | "sessions"
+		// Cline Cubed (V4.2): boot flag for a NEW editor chat panel — it starts in New Chat
+		// home mode instead of adopting the current task (covers the postMessage mount race).
+		__CLINE_CUBED_WEBVIEW_NEW_CHAT__?: boolean
 	}
 	function acquireVsCodeApi(): any
 }

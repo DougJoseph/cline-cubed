@@ -4,7 +4,8 @@ import type { OnboardingModel, OnboardingModelGroup, OpenRouterModelInfo } from 
 import { VSCodeLink } from "@vscode/webview-ui-toolkit/react"
 import { AlertCircleIcon, CircleCheckIcon, CircleIcon, ListIcon, LoaderCircleIcon, ZapIcon } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import ClineLogoWhite from "@/assets/ClineLogoWhite"
+import ClineCubedLogoWhite from "@/assets/ClineCubedLogoWhite"
+import NewChatLocationSetting from "@/components/settings/NewChatLocationSetting"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -326,11 +327,20 @@ const OnboardingStepContent = ({
 }: OnboardingStepContentProps) => {
 	if (step === 0) {
 		return (
-			<UserTypeSelectionStep
-				onSelectUserType={onSelectUserType}
-				userType={userType}
-				userTypeSelections={userTypeSelections}
-			/>
+			<div className="flex flex-col w-full items-center gap-3">
+				<UserTypeSelectionStep
+					onSelectUserType={onSelectUserType}
+					userType={userType}
+					userTypeSelections={userTypeSelections}
+				/>
+				{/* Cline Cubed: the "Where new chat sessions open" picker on the VERY FIRST screen
+					a new user sees (per Doug's 2026-08-26 instruction — it belongs on the Get
+					Started flow, not only the chat home). Also on the chat home and in
+					Settings → General. */}
+				<div className="w-full max-w-lg rounded-md border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] p-4">
+					<NewChatLocationSetting />
+				</div>
+			</div>
 		)
 	}
 	if (step === 2) {
@@ -619,7 +629,7 @@ const OnboardingViewContent = ({ onboardingModels }: { onboardingModels: Onboard
 	return (
 		<div className="fixed inset-0 p-0 flex flex-col w-full">
 			<div className="h-full px-5 xs:mx-10 overflow-auto flex flex-col gap-4 items-center justify-center">
-				<ClineLogoWhite className="size-16 flex-shrink-0" />
+				<ClineCubedLogoWhite className="size-16 flex-shrink-0" />
 				<h2 className="text-lg font-semibold p-0 flex-shrink-0">{stepDisplayInfo.title}</h2>
 				{stepNumber === 2 && (
 					<div className="flex w-full max-w-lg flex-col gap-6 my-4 items-center ">
@@ -696,22 +706,48 @@ const OnboardingWelcomeFallback = () => {
 	return <WelcomeView />
 }
 
-const OnboardingView = () => {
+type OnboardingViewProps = {
+	/** When present, the "Cline Cubed: Get Started" re-view shows a "Back to chat" control. */
+	onDismiss?: () => void
+}
+
+const OnboardingView = ({ onDismiss }: OnboardingViewProps) => {
 	const { status, models } = useOnboardingModels()
+
+	const dismissControl = onDismiss ? (
+		<div className="fixed top-4 right-4 z-10">
+			<Button className="w-auto" onClick={onDismiss} variant="secondary">
+				Back to chat
+			</Button>
+		</div>
+	) : null
 
 	if (status === "loading") {
 		return (
-			<div className="fixed inset-0 flex items-center justify-center">
-				<LoaderCircleIcon className="animate-spin" />
-			</div>
+			<>
+				{dismissControl}
+				<div className="fixed inset-0 flex items-center justify-center">
+					<LoaderCircleIcon className="animate-spin" />
+				</div>
+			</>
 		)
 	}
 
 	if (status === "empty") {
-		return <OnboardingWelcomeFallback />
+		return (
+			<>
+				{dismissControl}
+				<OnboardingWelcomeFallback />
+			</>
+		)
 	}
 
-	return <OnboardingViewContent onboardingModels={models} />
+	return (
+		<>
+			{dismissControl}
+			<OnboardingViewContent onboardingModels={models} />
+		</>
+	)
 }
 
 export default OnboardingView

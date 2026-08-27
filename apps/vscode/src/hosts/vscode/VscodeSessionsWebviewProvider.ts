@@ -31,8 +31,9 @@ export class VscodeSessionsWebviewProvider implements vscode.WebviewViewProvider
 
 	private webviewView?: vscode.WebviewView
 	private disposables: vscode.Disposable[] = []
-	/** When Button #1's panel was last hidden (ms epoch) — used to detect a real user reveal. */
-	private lastHiddenTs = 0
+	/** When this provider was created (ms epoch) — the startup window during which a
+	 *  window-restore/activation auto-reveal must NOT trigger Button #1's open/create. */
+	private createdTs = Date.now()
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -87,24 +88,25 @@ export class VscodeSessionsWebviewProvider implements vscode.WebviewViewProvider
 			this.disposables,
 		)
 
-		// Button #1 (V5): the primary-bar icon reveals this view. A REAL user reveal (the view
-		// was hidden for a while, then shown again) triggers the open/create-in-Settings-location
-		// behavior — no current chat → the "What can I do for you?" home shows there; current
-		// chat exists → a fresh, independent chat. The first resolution and a startup window
-		// restore have no hidden phase, so they never auto-trigger.
-		webviewView.onDidChangeVisibility(
-			() => {
-				if (!webviewView.visible) {
-					this.lastHiddenTs = Date.now()
-					return
-				}
-				if (this.kind === "chat" && this.lastHiddenTs > 0 && Date.now() - this.lastHiddenTs > 500) {
-					void this.handlePrimaryButtonPressed()
-				}
-			},
-			null,
-			this.disposables,
-		)
+		// Button #1 (V5.1): the primary-bar icon reveals this view. ANY reveal — the first
+		// resolution or a hidden→visible transition — triggers the open/create-in-Settings-location
+		// behavior: no current chat → the "What can I do for you?" home shows there; current chat
+		// exists → a fresh, independent chat. The ONLY skip is a window-restore/activation-time
+		// auto-reveal (within a few seconds of provider creation), so the Settings-location
+		// surface never pops open on its own at startup.
+		const maybeRunButton1 = () => {
+			if (this.kind !== "chat" || !webviewView.visible) {
+				return
+			}
+			if (Date.now() - this.createdTs < 3000) {
+				return
+			}
+			void this.handlePrimaryButtonPressed()
+		}
+		webviewView.onDidChangeVisibility(maybeRunButton1, null, this.disposables)
+		// The first resolution (the user's first click of the icon) has no visibility-CHANGE
+		// event — run it once now that the view is first shown.
+		maybeRunButton1()
 	}
 
 	private setWebviewMessageListener(webview: vscode.Webview) {

@@ -167,6 +167,11 @@ export class Controller {
 	// SDK session state and the coordinators that drive it.
 	private messageTranslatorState: MessageTranslatorState
 	private turnStateTracker!: TurnStateTracker
+	/** Cline Cubed (V7): per-session turn-phase trackers for concurrent chats. */
+	private readonly turnStateTrackers = new Map<string, TurnStateTracker>()
+	/** Cline Cubed (V7): per-session task proxies — every live session has its own proxy so
+	 *  each chat's messages/turn state are read and written independently of the focused chat. */
+	private readonly taskProxies = new Map<string, TaskProxy>()
 	private messages: SdkMessageCoordinator
 	private sessions: SdkSessionLifecycle
 	private sessionRebuilds: SdkSessionRebuildScheduler
@@ -282,7 +287,7 @@ export class Controller {
 		this.sdkTelemetry = createVscodeSdkTelemetryHandle()
 		this.statePostDebouncer = new StatePostDebouncer({
 			debounceMs: Controller.STATE_POST_DEBOUNCE_MS,
-			flush: () => this.flushStateToWebview(),
+			flush: (sessionId) => this.flushStateToWebview(sessionId),
 		})
 		this.providerConfigStore = createProviderConfigStore()
 		this.providerCatalog = createProviderCatalog(this.providerConfigStore)
@@ -334,7 +339,8 @@ export class Controller {
 		// Authoritative UI-mode tracker, sharing the one id/seq/epoch authority.
 		this.turnStateTracker = new TurnStateTracker(this.messageTranslatorState.getMinter())
 		this.messages = new SdkMessageCoordinator({
-			getTask: () => this.task,
+			// V7: messages belong to the session that produced them.
+			getTask: (sessionId) => (sessionId ? (this.taskProxies.get(sessionId) ?? this.task) : this.task),
 			// Stamp seq/epoch on every message flowing to the webview from the shared authority.
 			getMinter: () => this.messageTranslatorState.getMinter(),
 		})
@@ -388,6 +394,11 @@ export class Controller {
 				})
 			},
 			onDidBecomeIdle: () => this.handleSessionBecameIdle(),
+			// V7: drop per-session bookkeeping when a session ends.
+			onSessionEnded: (sessionId) => {
+				this.taskProxies.delete(sessionId)
+				this.turnStateTrackers.delete(sessionId)
+			},
 			beforeStartSession: () => this.ensureRemoteConfigForSessionStart(),
 			getRemoteConfigIntegration: () => this.remoteConfigCoreIntegration,
 			foregroundCommands: this.foregroundCommands,
@@ -588,6 +599,11 @@ export class Controller {
 			getTask: () => this.task,
 			setTask: (task) => {
 				this.task = task
+				// V7: every session gets its own proxy so concurrent chats read/write their own
+				// message state and history independently of the focused chat.
+				if (task) {
+					this.taskProxies.set(task.taskId, task)
+				}
 			},
 			onAskResponse: (text, images, files) => this.askResponse(text, images, files),
 			resetMessageTranslator: () => this.resetMessageTranslatorAndFence(),
@@ -610,12 +626,17 @@ export class Controller {
 			sessionConfigBuilder: this.sessionConfigBuilder,
 			buildStartSessionInput,
 			createHistoryItemFromSession,
-			clearTask: async () => {
+			clearTask: async (options) => {
 				this.pendingClineAuthRetryPrompt = undefined
-				await this.taskControl.clearTask()
+				await this.taskControl.clearTask(options)
 			},
 			setTask: (task) => {
 				this.task = task
+				// V7: every session gets its own proxy so concurrent chats read/write their own
+				// message state and history independently of the focused chat.
+				if (task) {
+					this.taskProxies.set(task.taskId, task)
+				}
 			},
 			onAskResponse: (text, images, files) => this.askResponse(text, images, files),
 			onCancelTask: () => this.cancelTask(),
@@ -648,9 +669,9 @@ export class Controller {
 			taskHistory: this.taskHistory,
 			stateManager: this.stateManager,
 			getTask: () => this.task,
-			postStateToWebview: () => this.postStateToWebview(),
-			setTurnPhase: (phase, anchorTs) => this.turnStateTracker.set(phase, anchorTs),
-			getTurnPhase: () => this.turnStateTracker.currentPhase,
+			postStateToWebview: (sessionId) => this.postStateToWebview(sessionId),
+			setTurnPhase: (phase, anchorTs, sessionId) => this.getTurnStateTrackerFor(sessionId).set(phase, anchorTs),
+			getTurnPhase: (sessionId) => this.getTurnStateTrackerFor(sessionId).currentPhase,
 			captureProviderApiError: (event) => this.captureProviderFailure(event),
 			beginProviderFailureTelemetryTurn: () => this.beginProviderFailureTelemetryTurn(),
 		})
@@ -2187,18 +2208,37 @@ export class Controller {
 	 * resolves once a snapshot reflecting this request has been shipped, or
 	 * rejects if that rebuild failed.
 	 */
-	postStateToWebview(): Promise<void> {
+	/**
+	 * Cline Cubed (V7): the turn-phase tracker for a given session (undefined = focused).
+	 * Each live session gets its own tracker sharing the single id/seq/epoch authority.
+	 */
+	private getTurnStateTrackerFor(sessionId?: string): TurnStateTracker {
+		if (!sessionId) {
+			return this.turnStateTracker
+		}
+		let tracker = this.turnStateTrackers.get(sessionId)
+		if (!tracker) {
+			tracker = new TurnStateTracker(this.messageTranslatorState.getMinter())
+			this.turnStateTrackers.set(sessionId, tracker)
+		}
+		return tracker
+	}
+
+	postStateToWebview(sessionId?: string): Promise<void> {
 		if (this.isDisposed) {
 			return Promise.resolve()
 		}
-		return this.statePostDebouncer.post()
+		return this.statePostDebouncer.post(sessionId)
 	}
 
-	/** Build the current ExtensionState and push it to the webview immediately. */
-	private async flushStateToWebview(): Promise<void> {
+	/**
+	 * Build the current ExtensionState for a session and push it to the webview immediately.
+	 * `sessionId` targets that session's own snapshot (V7); undefined builds the focused one.
+	 */
+	private async flushStateToWebview(sessionId?: string): Promise<void> {
 		// Import dynamically to avoid circular deps
 		const { sendStateUpdate } = await import("@core/controller/state/subscribeToState")
-		const state = await this.getStateToPostToWebview()
+		const state = await this.getStateToPostToWebview(sessionId)
 		await sendStateUpdate(state)
 	}
 
@@ -2214,14 +2254,16 @@ export class Controller {
 		this.messageTranslatorState.getMinter().bumpEpoch()
 	}
 
-	async getStateToPostToWebview(): Promise<ExtensionState> {
+	async getStateToPostToWebview(sessionId?: string): Promise<ExtensionState> {
 		// Build the base ExtensionState from StateManager, then layer the SDK's
-		// task history on top.
+		// task history on top. (Cline Cubed V7: `sessionId` targets that session's own
+		// task proxy and turn state; undefined builds the focused chat's snapshot.)
+		const task = sessionId ? (this.taskProxies.get(sessionId) ?? this.task) : this.task
 		try {
 			syncTelemetrySettingFromSharedGlobalSettings(this.stateManager)
 			const { getStateToPostToWebview: buildBaseState } = await import("@core/controller/state/getStateToPostToWebview")
 			const state = await buildBaseState({
-				task: this.task,
+				task,
 				stateManager: this.stateManager,
 				mcpHub: this.mcpHub,
 				backgroundCommandRunning: this.backgroundCommandRunning,
@@ -2255,13 +2297,13 @@ export class Controller {
 			// history adapter can lag behind the active in-memory TaskProxy). Classic
 			// state included the current task immediately, and the testing platform
 			// asserts that taskHistory reflects newTask before the model turn completes.
-			if (this.task?.taskId && !mergedTaskHistoryById.has(this.task.taskId)) {
-				const taskMessage = this.task.messageStateHandler
+			if (task?.taskId && !mergedTaskHistoryById.has(task.taskId)) {
+				const taskMessage = task.messageStateHandler
 					.getClineMessages()
 					.find((message) => message.type === "say" && message.say === "task" && message.text)
 				if (taskMessage?.text) {
-					mergedTaskHistoryById.set(this.task.taskId, {
-						id: this.task.taskId,
+					mergedTaskHistoryById.set(task.taskId, {
+						id: task.taskId,
 						ts: taskMessage.ts || Date.now(),
 						task: taskMessage.text,
 						tokensIn: 0,
@@ -2269,7 +2311,7 @@ export class Controller {
 						cacheWrites: 0,
 						cacheReads: 0,
 						totalCost: 0,
-						modelId: this.task.api?.getModel?.().id,
+						modelId: task.api?.getModel?.().id,
 						cwdOnTaskInitialization: await this.getWorkspaceRoot(),
 					})
 				}
@@ -2281,10 +2323,11 @@ export class Controller {
 				.slice(0, 100)
 
 			let queuedPrompts: ExtensionState["queuedPrompts"] = []
-			const activeSession = this.sessions.getActiveSession()
-			if (activeSession) {
+			// V7: pending prompts belong to the session whose snapshot is being built.
+			const promptSession = sessionId ? this.sessions.getLiveSession(sessionId) : this.sessions.getActiveSession()
+			if (promptSession) {
 				try {
-					queuedPrompts = await activeSession.sdkHost.pendingPrompts("list", { sessionId: activeSession.sessionId })
+					queuedPrompts = await promptSession.sdkHost.pendingPrompts("list", { sessionId: promptSession.sessionId })
 				} catch (error) {
 					Logger.error("[SdkController] Failed to list pending prompts for webview state:", error)
 				}
@@ -2297,11 +2340,10 @@ export class Controller {
 			const minter = this.messageTranslatorState.getMinter()
 			return {
 				...state,
-				currentTaskItem: this.task?.taskId
-					? processedTaskHistory.find((item) => item.id === this.task?.taskId)
-					: undefined,
+				currentTaskItem: task?.taskId ? processedTaskHistory.find((item) => item.id === task?.taskId) : undefined,
 				taskHistory: processedTaskHistory,
-				turnState: this.turnStateTracker.get(),
+				// V7: the snapshot carries the SESSION's own turn phase.
+				turnState: this.getTurnStateTrackerFor(sessionId).get(),
 				queuedPrompts,
 				stateVersion: minter.nextSeq(),
 				epoch: minter.epoch,

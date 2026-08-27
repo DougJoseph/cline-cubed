@@ -80,7 +80,9 @@ describe("SdkSessionLifecycle", () => {
 		expect(lifecycle.getActiveSession()?.sessionId).toBe("session-2")
 	})
 
-	it("replaces an existing active session before starting another without resubscribing", async () => {
+	it("starts another session WITHOUT stopping the existing one", async () => {
+		// Cline Cubed (V7): sessions coexist — a new session never stops another; both stay live
+		// in the map and the newest becomes the focused one.
 		const unsubscribe = vi.fn()
 		const sdkHost = makeSdkHost({
 			start: vi.fn().mockResolvedValueOnce({ sessionId: "session-1" }).mockResolvedValueOnce({ sessionId: "session-2" }),
@@ -96,12 +98,17 @@ describe("SdkSessionLifecycle", () => {
 
 		expect(mockCreateSessionHost).toHaveBeenCalledOnce()
 		expect(sdkHost.subscribe).toHaveBeenCalledOnce()
-		expect(sdkHost.stop).toHaveBeenCalledWith("session-1")
+		expect(sdkHost.stop).not.toHaveBeenCalled()
 		expect(unsubscribe).not.toHaveBeenCalled()
 		expect(lifecycle.getActiveSession()?.sessionId).toBe("session-2")
+		expect(lifecycle.getLiveSession("session-1")?.sessionId).toBe("session-1")
+		expect(lifecycle.getLiveSession("session-2")?.sessionId).toBe("session-2")
 
 		await lifecycle.dispose("testDispose")
-		expect(unsubscribe).toHaveBeenCalledOnce()
+		expect(sdkHost.stop).toHaveBeenCalledWith("session-1")
+		expect(sdkHost.stop).toHaveBeenCalledWith("session-2")
+		// The shared host subscribes once; its unsubscribe fires once on dispose.
+		expect(unsubscribe).toHaveBeenCalledTimes(1)
 	})
 
 	it("unsubscribes if session start fails", async () => {
@@ -431,7 +438,8 @@ describe("SdkSessionLifecycle", () => {
 		expect(result.startResult.sessionId).toBe("task-1")
 	})
 
-	it("starts a fresh-id session without waiting for an unrelated hung stop", async () => {
+	it("does not stop any session when a fresh-id session starts", async () => {
+		// Cline Cubed (V7): starting a new session never stops another — sessions coexist.
 		const stop = vi.fn(() => new Promise<void>(() => {}))
 		const start = vi.fn().mockResolvedValueOnce({ sessionId: "task-1" }).mockResolvedValueOnce({ sessionId: "task-2" })
 		const sdkHost = makeSdkHost({ start, stop })
@@ -439,12 +447,10 @@ describe("SdkSessionLifecycle", () => {
 		const lifecycle = makeLifecycle()
 		await lifecycle.startNewSession({} as StartInput)
 
-		// A brand-new task does not reuse the old sessionId, so it must not be
-		// delayed by the old session's stop.
 		const result = await lifecycle.startNewSession({ config: {} } as unknown as StartInput)
 
 		expect(result.startResult.sessionId).toBe("task-2")
-		expect(stop).toHaveBeenCalledWith("task-1")
+		expect(stop).not.toHaveBeenCalled()
 	})
 
 	it("replaces the active session by stopping the old session and reusing the shared host", async () => {

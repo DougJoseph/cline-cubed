@@ -52,6 +52,7 @@ describe("SDK remote-config coordination", () => {
 			ensureWorkspaceManager: async () => undefined,
 			taskHistory: { listHistory: async () => [] },
 			sessions: { getActiveSession: () => undefined },
+			getTurnStateTrackerFor: () => ({ get: () => undefined }),
 			turnStateTracker: { get: () => undefined },
 			messageTranslatorState: { getMinter: () => ({ epoch: 1, nextSeq: () => 1 }) },
 		}

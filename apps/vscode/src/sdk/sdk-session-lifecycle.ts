@@ -54,11 +54,20 @@ export interface SdkSessionLifecycleOptions {
 	 * message. Consumed exactly once; null when no switch is pending.
 	 */
 	consumeModeSwitchNotice?: (sessionId: string) => ModeSwitchNotice | null
+	/** Cline Cubed (V7): called when a session is ended/stopped, so owners can drop
+	 *  per-session bookkeeping (task proxies, turn-state trackers). */
+	onSessionEnded?: (sessionId: string) => void
 	onDidBecomeIdle?: () => void
 }
 
 export class SdkSessionLifecycle {
 	private activeSession: ActiveSession | undefined
+	/** Cline Cubed (V7): ALL live sessions, keyed by sessionId. The SDK core already runs
+	 *  multiple sessions concurrently (`sessions = new Map` in LocalRuntimeHost); this map lets
+	 *  the fork keep every session alive instead of stopping one when another starts.
+	 *  `activeSession` is the FOCUSED session for the fork's bookkeeping; every session in the
+	 *  map keeps streaming independently. Sessions stop only on explicit close/dispose. */
+	private readonly sessions = new Map<string, ActiveSession>()
 	private sharedHost: SdkSessionHost | undefined
 	private sharedHostPromise: Promise<SdkSessionHost> | undefined
 	private sharedHostUnsubscribe: (() => void) | undefined
@@ -78,44 +87,71 @@ export class SdkSessionLifecycle {
 		return this.activeSession
 	}
 
-	setRunning(isRunning: boolean): void {
-		const activeSession = this.activeSession
-		if (!activeSession || activeSession.isRunning === isRunning) {
+	setRunning(isRunning: boolean, sessionId?: string): void {
+		// Cline Cubed (V7): set the flag on the TARGET session (default: the focused one).
+		const session = sessionId ? this.sessions.get(sessionId) : this.activeSession
+		if (!session || session.isRunning === isRunning) {
 			return
 		}
-		activeSession.isRunning = isRunning
+		session.isRunning = isRunning
 		if (!isRunning) {
 			this.options.onDidBecomeIdle?.()
 		}
 	}
 
-	private clearActiveSessionReference(): ActiveSession | undefined {
-		const activeSession = this.activeSession
-		this.activeSession = undefined
-		return activeSession
+	/**
+	 * Cline Cubed (V7): the live session for `sessionId`, if it is still running in the map.
+	 * Unlike the classic single-session path, a live session is NOT restarted to be acted on —
+	 * it is merely focused, so it keeps its in-flight state.
+	 */
+	getLiveSession(sessionId: string): ActiveSession | undefined {
+		return this.sessions.get(sessionId)
 	}
 
+	/**
+	 * Cline Cubed (V7): focus an existing live session WITHOUT stopping any other session.
+	 * Every session in the map keeps streaming; only the fork's bookkeeping focus changes.
+	 */
+	focusSession(sessionId: string): ActiveSession | undefined {
+		const session = this.sessions.get(sessionId)
+		if (session) {
+			this.activeSession = session
+		}
+		return session
+	}
+
+	/**
+	 * Cline Cubed (V7): END a specific session (default: the focused one). The session is
+	 * removed from the live map; the focused ref clears only when it pointed at this session.
+	 * A genuine user clear stops the focused session; other live sessions keep streaming.
+	 */
 	async endActiveSession(
 		reason: string,
-		options: { awaitStop?: boolean; timeoutMs?: number } = {},
+		options: { awaitStop?: boolean; timeoutMs?: number; sessionId?: string } = {},
 	): Promise<ActiveSession | undefined> {
-		const activeSession = this.clearActiveSessionReference()
-		if (!activeSession) {
+		const sessionId = options.sessionId ?? this.activeSession?.sessionId
+		const session = sessionId ? this.sessions.get(sessionId) : this.activeSession
+		if (!session) {
 			return undefined
 		}
+		if (this.activeSession === session) {
+			this.activeSession = undefined
+		}
+		this.sessions.delete(session.sessionId)
+		this.options.onSessionEnded?.(session.sessionId)
 
-		this.safeUnsubscribe(activeSession, reason)
-		const stopPromise = this.trackSessionStop(activeSession.sdkHost, activeSession.sessionId, reason)
+		this.safeUnsubscribe(session, reason)
+		const stopPromise = this.trackSessionStop(session.sdkHost, session.sessionId, reason)
 		if (options.awaitStop) {
 			const timeoutMs = options.timeoutMs ?? 3000
 			const stopped = await this.waitForStop(stopPromise, timeoutMs)
 			if (!stopped) {
 				Logger.warn(
-					`[SdkController] Timed out stopping SDK session ${activeSession.sessionId} after ${timeoutMs}ms (${reason})`,
+					`[SdkController] Timed out stopping SDK session ${session.sessionId} after ${timeoutMs}ms (${reason})`,
 				)
 			}
 		}
-		return activeSession
+		return session
 	}
 
 	/**
@@ -144,9 +180,8 @@ export class SdkSessionLifecycle {
 	async startNewSession(
 		startInput: Parameters<VscodeSessionHost["start"]>[0],
 	): Promise<{ startResult: StartSessionResult; sdkHost: SdkSessionHost }> {
-		if (this.activeSession) {
-			await this.endActiveSession("startNewSession")
-		}
+		// Cline Cubed (V7): a new session does NOT stop any other session — the SDK core runs
+		// multiple sessions concurrently, so chats stream independently.
 
 		// Same-id starts must wait for the previous session's stop to finish;
 		// see pendingStops. A fresh id cannot conflict, so it never waits.
@@ -177,6 +212,8 @@ export class SdkSessionLifecycle {
 			startResult,
 			isRunning: true,
 		}
+		// V7: keep every live session in the map so none is stopped when another focuses.
+		this.sessions.set(startResult.sessionId, this.activeSession)
 
 		return { startResult, sdkHost }
 	}
@@ -238,8 +275,13 @@ export class SdkSessionLifecycle {
 			startResult: restored.startResult,
 			isRunning: false,
 		}
+		// V7: keep the live map in sync — the source is gone, the restored session takes its place.
+		this.sessions.delete(sourceSessionId)
+		this.sessions.set(restored.sessionId, this.activeSession)
 
 		if (restored.sessionId !== sourceSessionId) {
+			this.sessions.delete(sourceSessionId)
+			this.options.onSessionEnded?.(sourceSessionId)
 			const stopPromise = this.trackSessionStop(activeSession.sdkHost, sourceSessionId, "restoreActiveSession")
 			stopPromise.catch((error) => {
 				Logger.warn(`[SdkController] Failed to stop source session after checkpoint restore: ${sourceSessionId}`, error)
@@ -250,7 +292,11 @@ export class SdkSessionLifecycle {
 	}
 
 	async dispose(reason = "SdkSessionLifecycle.dispose"): Promise<void> {
-		await this.endActiveSession(reason, { awaitStop: true })
+		// Cline Cubed (V7): stop EVERY live session, not just the focused one.
+		for (const sessionId of [...this.sessions.keys()]) {
+			await this.endActiveSession(reason, { awaitStop: true, sessionId })
+		}
+		this.activeSession = undefined
 
 		const sharedHost = this.sharedHost ?? (await this.sharedHostPromise?.catch(() => undefined))
 		this.sharedHost = undefined
@@ -376,7 +422,9 @@ export class SdkSessionLifecycle {
 		// treat the new turn's completion as a cancelled-turn straggler).
 		const sessionAtSend = this.activeSession
 		const isSuperseded = (label: string): boolean => {
-			if (this.activeSession === sessionAtSend) {
+			// Cline Cubed (V7): a send is superseded only when ITS session was stopped/replaced —
+			// not when another session becomes focused (sessions coexist now).
+			if (this.sessions.get(sessionId) === sessionAtSend) {
 				return false
 			}
 			Logger.debug(`[SdkController] Ignoring ${label} of superseded send for session: ${sessionId}`)
@@ -408,7 +456,7 @@ export class SdkSessionLifecycle {
 					return
 				}
 				Logger.log(`[SdkController] Agent turn completed for session: ${sessionId}`)
-				this.setRunning(false)
+				this.setRunning(false, sessionId)
 				await this.options.onSendComplete(sessionId)
 			})
 			.catch(async (error: unknown) => {
@@ -420,7 +468,7 @@ export class SdkSessionLifecycle {
 					return
 				}
 				Logger.error("[SdkController] Agent turn failed:", error)
-				this.setRunning(false)
+				this.setRunning(false, sessionId)
 				await this.options.onSendError(error, sessionId)
 			})
 	}

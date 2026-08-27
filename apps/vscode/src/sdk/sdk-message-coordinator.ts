@@ -8,7 +8,12 @@ import { pushMessageToWebview } from "./webview-grpc-bridge"
 export type SessionEventListener = (messages: ClineMessage[], event: CoreSessionEvent) => void
 
 export interface SdkMessageCoordinatorOptions {
-	getTask: () => TaskProxy | undefined
+	/**
+	 * Cline Cubed (V7): resolve the TASK PROXY for a given session. `sessionId` is the session
+	 * whose messages are flowing; undefined means the focused task. Each live session has its own
+	 * proxy, so concurrent chats write into their own message state.
+	 */
+	getTask: (sessionId?: string) => TaskProxy | undefined
 	/**
 	 * The process-wide id/seq/epoch authority. When provided, every message flowing to the
 	 * webview is stamped with a fresh `seq` and the current `epoch` so the webview can merge
@@ -71,12 +76,12 @@ export class SdkMessageCoordinator {
 		}
 	}
 
-	appendMessages(messages: ClineMessage[]): void {
+	appendMessages(messages: ClineMessage[], sessionId?: string): void {
 		// Stamp seq/epoch BEFORE storing/emitting so both the message-state handler and the
 		// partial-message stream carry identical, freshness-ordered, epoch-fenced messages.
 		this.stamp(messages)
 
-		const task = this.options.getTask()
+		const task = this.options.getTask(sessionId)
 		if (!task?.messageStateHandler) {
 			return
 		}
@@ -84,10 +89,10 @@ export class SdkMessageCoordinator {
 		task.messageStateHandler.addMessages(messages)
 	}
 
-	replaceMessages(messages: ClineMessage[]): void {
+	replaceMessages(messages: ClineMessage[], sessionId?: string): void {
 		this.stamp(messages)
 
-		const task = this.options.getTask()
+		const task = this.options.getTask(sessionId)
 		if (!task?.messageStateHandler) {
 			return
 		}
@@ -96,12 +101,13 @@ export class SdkMessageCoordinator {
 	}
 
 	appendAndEmit(messages: ClineMessage[], event: CoreSessionEvent): void {
-		this.appendMessages(messages)
+		// V7: messages belong to the event's SESSION, not the focused task.
+		this.appendMessages(messages, event.payload.sessionId)
 		this.emitSessionEvents(messages, event)
 	}
 
-	emitHookMessage(message: ClineMessage): void {
-		this.appendMessages([message])
+	emitHookMessage(message: ClineMessage, sessionId?: string): void {
+		this.appendMessages([message], sessionId)
 		pushMessageToWebview(message).catch(() => {})
 	}
 

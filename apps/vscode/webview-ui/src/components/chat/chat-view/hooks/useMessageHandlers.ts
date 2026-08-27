@@ -13,8 +13,14 @@ import type { ChatState, MessageHandlers } from "../types/chatTypes"
  * Handles sending messages, button clicks, and task management
  */
 export function useMessageHandlers(messages: ClineMessage[], chatState: ChatState): MessageHandlers {
-	const { backgroundCommandRunning, turnState, getSurfaceBoundTaskId, getLatestActiveTaskId, setSurfaceBoundTaskId } =
-		useExtensionState()
+	const { backgroundCommandRunning, turnState, getSurfaceBoundTaskId, setSurfaceBoundTaskId } = useExtensionState()
+
+	// Cline Cubed (V6): stamp a chat-bound request with THIS surface's bound session so the host
+	// routes it to the right conversation (Claude Code's per-session model).
+	const askWithSession = (request: ReturnType<typeof AskResponseRequest.create>) => {
+		request.sessionId = getSurfaceBoundTaskId() ?? ""
+		return TaskServiceClient.askResponse(request)
+	}
 	const {
 		setInputValue,
 		activeQuote,
@@ -36,15 +42,6 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 	// Handle sending a message
 	const handleSendMessage = useCallback(
 		async (text: string, images: string[], files: string[]) => {
-			// Cline Cubed (V4.2): never send into the wrong conversation. If this surface is
-			// bound to a task that is not the controller's active task, make our task active
-			// first (showTaskWithId) so the message lands in THIS surface's conversation.
-			const boundTask = getSurfaceBoundTaskId()
-			const activeTask = getLatestActiveTaskId()
-			if (typeof boundTask === "string" && boundTask !== activeTask) {
-				await TaskServiceClient.showTaskWithId(StringRequest.create({ value: boundTask }))
-			}
-
 			let messageToSend = text.trim()
 			const hasContent = messageToSend || images.length > 0 || files.length > 0
 
@@ -167,6 +164,9 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 							: undefined,
 					)
 					try {
+						// Cline Cubed (V6): stamp the request with THIS surface's bound session so
+						// the host routes it to the right conversation (Claude Code's model).
+						request.sessionId = getSurfaceBoundTaskId() ?? ""
 						await TaskServiceClient.askResponse(request)
 					} catch (error) {
 						rollbackPendingResponse(id, optimisticMessage)
@@ -339,7 +339,6 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 			setPendingResponse,
 			chatState,
 			getSurfaceBoundTaskId,
-			getLatestActiveTaskId,
 			setSurfaceBoundTaskId,
 		],
 	)
@@ -380,7 +379,7 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 			switch (actionType) {
 				case "retry":
 					// For API retry (api_req_failed), always send simple approval without content
-					await TaskServiceClient.askResponse(
+					await askWithSession(
 						AskResponseRequest.create({
 							responseType: "yesButtonClicked",
 						}),
@@ -389,7 +388,7 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 					break
 				case "approve":
 					if (hasContent) {
-						await TaskServiceClient.askResponse(
+						await askWithSession(
 							AskResponseRequest.create({
 								responseType: "yesButtonClicked",
 								text: trimmedInput,
@@ -398,7 +397,7 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 							}),
 						)
 					} else {
-						await TaskServiceClient.askResponse(
+						await askWithSession(
 							AskResponseRequest.create({
 								responseType: "yesButtonClicked",
 							}),
@@ -409,7 +408,7 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 
 				case "reject":
 					if (hasContent) {
-						await TaskServiceClient.askResponse(
+						await askWithSession(
 							AskResponseRequest.create({
 								responseType: "noButtonClicked",
 								text: trimmedInput,
@@ -418,7 +417,7 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 							}),
 						)
 					} else {
-						await TaskServiceClient.askResponse(
+						await askWithSession(
 							AskResponseRequest.create({
 								responseType: "noButtonClicked",
 							}),
@@ -429,7 +428,7 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 
 				case "proceed":
 					if (hasContent) {
-						await TaskServiceClient.askResponse(
+						await askWithSession(
 							AskResponseRequest.create({
 								responseType: "yesButtonClicked",
 								text: trimmedInput,
@@ -438,7 +437,7 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 							}),
 						)
 					} else {
-						await TaskServiceClient.askResponse(
+						await askWithSession(
 							AskResponseRequest.create({
 								responseType: "yesButtonClicked",
 							}),

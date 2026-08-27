@@ -8,8 +8,11 @@ type HistoryPreviewProps = {
 }
 
 const HistoryPreview = ({ showHistoryView }: HistoryPreviewProps) => {
-	const { taskHistory } = useExtensionState()
+	const { taskHistory, setSurfaceBoundTaskId } = useExtensionState()
 	const handleHistorySelect = (id: string) => {
+		// Cline Cubed (V5.1): bind this surface to the chosen task so its broadcast renders
+		// HERE — the per-surface gate would otherwise ignore it and the click would do nothing.
+		setSurfaceBoundTaskId(id)
 		TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
 			console.error("Error showing task:", error),
 		)

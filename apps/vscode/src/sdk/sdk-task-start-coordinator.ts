@@ -44,7 +44,7 @@ export interface SdkTaskStartCoordinatorOptions {
 		},
 	) => StartInput
 	createHistoryItemFromSession: (sessionId: string, prompt: string, modelId?: string, cwd?: string) => HistoryItem
-	clearTask: () => Promise<void>
+	clearTask: (options?: { stopActiveSession?: boolean }) => Promise<void>
 	setTask: (task: TaskProxy | undefined) => void
 	onAskResponse: (text?: string, images?: string[], files?: string[]) => Promise<void>
 	onCancelTask: () => Promise<void>
@@ -176,7 +176,21 @@ export class SdkTaskStartCoordinator {
 
 	async reinitExistingTaskFromId(taskId: string): Promise<void> {
 		try {
-			await this.options.clearTask()
+			// Cline Cubed (V7): if the session is already live (still streaming), focus it IN
+			// PLACE — no restart, no stop of any other session. Concurrent chats keep streaming
+			// independently; only the fork's bookkeeping focus changes.
+			const liveSession = this.options.sessions.getLiveSession(taskId)
+			if (liveSession) {
+				this.options.sessions.focusSession(taskId)
+				this.createAndSetTask(taskId)
+				await this.options.postStateToWebview()
+				Logger.log(`[SdkController] Task focused (live session): ${taskId}`)
+				return
+			}
+
+			// Bookkeeping only — do NOT stop the currently-focused session: it may be a
+			// different chat that must keep streaming while this one is reinitialized (V7).
+			await this.options.clearTask({ stopActiveSession: false })
 
 			const historyItem = await this.options.taskHistory.findHistoryItem(taskId)
 			if (!historyItem) {

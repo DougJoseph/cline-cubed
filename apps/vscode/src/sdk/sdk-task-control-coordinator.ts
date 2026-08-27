@@ -107,13 +107,17 @@ export class SdkTaskControlCoordinator {
 		Logger.log(`[SdkController] Task cancelled: ${sessionId}`)
 	}
 
-	async clearTask(): Promise<void> {
+	async clearTask(options: { stopActiveSession?: boolean } = {}): Promise<void> {
 		// Supersede any in-flight showTaskWithId so it cannot re-install a task
 		// after the user cleared the view (e.g. clicked New Task).
 		this.taskViewGeneration++
 		this.options.interactions.clearPending("Task cleared")
 
-		await this.options.sessions.endActiveSession("clearTask")
+		// Cline Cubed (V7): a genuine user clear stops the focused SDK session; reinit of a
+		// live session (focus-without-stop) must NOT stop any other session.
+		if (options.stopActiveSession !== false) {
+			await this.options.sessions.endActiveSession("clearTask")
+		}
 
 		const task = this.options.getTask()
 		if (task) {

@@ -119,6 +119,10 @@ message AskResponseRequest {
   string text = 3;
   repeated string images = 4;
   repeated string files = 5;
+  // Cline Cubed (V6): the target session this response is for. The webview fills it from its
+  // bound surface session; the host routes to that session so a message can never land in
+  // another chat (Claude Code's per-session model).
+  string session_id = 6;
 }
 
 // Request for editing a past user message and regenerating the conversation after it

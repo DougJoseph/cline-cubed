@@ -55,7 +55,9 @@ describe("SdkSessionEventCoordinator", () => {
 		expect(options.messages.appendAndEmit).toHaveBeenCalledWith([{ ts: 2, type: "say", say: "text", text: "kept" }], event)
 	})
 
-	it("ignores stale events from inactive sessions", async () => {
+	it("ignores events from closed/replaced sessions", async () => {
+		// Cline Cubed (V7): sessions coexist, so events from ANY live session are accepted;
+		// only events for sessions that are no longer live (closed/replaced) are stale.
 		const { coordinator, options, event } = makeCoordinator({
 			translation: {
 				messages: [{ ts: 1, type: "say", say: "text", text: "stale" }],
@@ -88,7 +90,7 @@ describe("SdkSessionEventCoordinator", () => {
 
 		await coordinator.handleSessionEvent(event)
 
-		expect(options.sessions.setRunning).toHaveBeenCalledWith(false)
+		expect(options.sessions.setRunning).toHaveBeenCalledWith(false, "session-123")
 	})
 
 	it("posts state on turn end even when the turn-complete event carries NO messages", async () => {
@@ -106,7 +108,7 @@ describe("SdkSessionEventCoordinator", () => {
 
 		await coordinator.handleSessionEvent(event)
 
-		expect(options.setTurnPhase).toHaveBeenCalledWith("awaiting_followup")
+		expect(options.setTurnPhase).toHaveBeenCalledWith("awaiting_followup", undefined, "session-123")
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
 	})
 
@@ -122,7 +124,7 @@ describe("SdkSessionEventCoordinator", () => {
 
 		await coordinator.handleSessionEvent(event)
 
-		expect(options.setTurnPhase).toHaveBeenCalledWith("error")
+		expect(options.setTurnPhase).toHaveBeenCalledWith("error", undefined, "session-123")
 		expect(options.setTurnPhase).not.toHaveBeenCalledWith("awaiting_followup")
 	})
 
@@ -151,8 +153,8 @@ describe("SdkSessionEventCoordinator", () => {
 
 		expect(clearTurnOutcome).toHaveBeenCalledOnce()
 		expect(options.beginProviderFailureTelemetryTurn).toHaveBeenCalledOnce()
-		expect(options.sessions.setRunning).toHaveBeenCalledWith(true)
-		expect(options.setTurnPhase).toHaveBeenCalledWith("streaming")
+		expect(options.sessions.setRunning).toHaveBeenCalledWith(true, "session-123")
+		expect(options.setTurnPhase).toHaveBeenCalledWith("streaming", undefined, "session-123")
 		expect(options.messages.appendAndEmit).toHaveBeenCalledWith([message], event)
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
 	})
@@ -178,7 +180,7 @@ describe("SdkSessionEventCoordinator", () => {
 
 		await coordinator.handleSessionEvent(event)
 
-		expect(options.setTurnPhase).toHaveBeenCalledWith("streaming")
+		expect(options.setTurnPhase).toHaveBeenCalledWith("streaming", undefined, "session-123")
 		expect(options.messages.appendAndEmit).not.toHaveBeenCalled()
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
 	})
@@ -221,13 +223,14 @@ describe("SdkSessionEventCoordinator", () => {
 
 		await coordinator.handleSessionEvent(event)
 
-		expect(options.setTurnPhase).toHaveBeenCalledWith("awaiting_followup")
-		expect(options.sessions.setRunning).toHaveBeenCalledWith(false)
+		expect(options.setTurnPhase).toHaveBeenCalledWith("awaiting_followup", undefined, "session-123")
+		expect(options.sessions.setRunning).toHaveBeenCalledWith(false, "session-123")
 	})
 
-	it("updates task usage when the active session has a start result", async () => {
+	it("updates task usage for the event's session when it has a start result", async () => {
+		// Cline Cubed (V7): usage is persisted against the event's OWN session, not the focused
+		// task — concurrent chats each persist their own usage.
 		const { coordinator, options, event } = makeCoordinator({
-			task: { taskId: "task-1" },
 			translation: {
 				messages: [],
 				sessionEnded: false,
@@ -238,7 +241,7 @@ describe("SdkSessionEventCoordinator", () => {
 
 		await coordinator.handleSessionEvent(event)
 
-		expect(options.taskHistory.updateTaskUsage).toHaveBeenCalledWith("task-1", {
+		expect(options.taskHistory.updateTaskUsage).toHaveBeenCalledWith("session-123", {
 			tokensIn: 3,
 			tokensOut: 4,
 			cacheReads: 5,
@@ -279,7 +282,7 @@ describe("SdkSessionEventCoordinator", () => {
 			],
 			event,
 		)
-		expect(options.taskHistory.updateTaskUsage).toHaveBeenCalledWith("task-1", {
+		expect(options.taskHistory.updateTaskUsage).toHaveBeenCalledWith("session-123", {
 			tokensIn: 10,
 			tokensOut: 5,
 			totalCost: 0,
@@ -404,7 +407,9 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 	const options = {
 		messageTranslatorState: new MessageTranslatorState(),
 		sessions: {
-			getActiveSession: vi.fn(() => activeSession),
+			// V7: the coordinator accepts events for ANY live session; only closed/replaced
+			// sessions are gated out.
+			getLiveSession: vi.fn((sessionId) => (sessionId === event.payload.sessionId ? activeSession : undefined)),
 			setRunning: vi.fn(),
 		},
 		messages: {
@@ -423,7 +428,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 		isClineFreeModel: input.isClineFreeModel,
 	} as unknown as SdkSessionEventCoordinatorOptions & {
 		sessions: SdkSessionEventCoordinatorOptions["sessions"] & {
-			getActiveSession: ReturnType<typeof vi.fn>
+			getLiveSession: ReturnType<typeof vi.fn>
 			setRunning: ReturnType<typeof vi.fn>
 		}
 		messages: SdkSessionEventCoordinatorOptions["messages"] & { appendAndEmit: ReturnType<typeof vi.fn> }

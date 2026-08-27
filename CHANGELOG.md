@@ -4,53 +4,45 @@
 
 ### Added
 
-- **Three always-visible chat entry points, mirroring Claude Code.** A **Sessions**
-  (chat-history) view in the left activity bar, a chat button in the editor title bar
-  that opens the chat as an editor-area panel, and a chat in the secondary sidebar
-  (typically right). All three are always present — nothing is gated by settings.
-- **"Where new chat sessions open" setting** (Settings → General) — choose where the
-  Sessions flow and new chats land: **Primary sidebar** (typically left), **Secondary
-  sidebar** (typically right), or **Editor area** (new tab). Default: **Secondary
-  sidebar (typically right)** so the primary bar isn't crowded for new users.
-- **Start-up chooser** — the chat home ("What can I do for you?") now shows the same
-  three-choice picker, so new users can choose the chat location without hunting
-  through settings. A gear button in the chat input row opens Settings quickly.
-- **Editor-area chat panel** — per-session panels opening in a fresh, locked editor
-  group, with find-in-chat support and light/dark icons.
-- **Sessions view in the left activity bar** — browse past sessions and click one to
-  reopen it.
-- **"Cline Cubed: New Chat Pane" and "Cline Cubed: Open Chat in Editor" commands.**
-- **Reworked activity-bar icon** (evenodd fill fix).
-- **Every chat button is a real chat panel (V5)** — the left activity-bar icon opens/creates a
-  chat in the Settings location; the editor and secondary icons open chats in their own areas.
-  With no current chat each shows the stock "What can I do for you?" home (a chat whose default
-  is also the history chooser — recent chats + the prompt input at the bottom); with a current
-  chat it creates a new, independent chat.
+- **Three chat buttons, every one a real chat panel.** The left activity-bar icon opens or
+  creates a chat **in the location chosen in Settings** (Primary sidebar / Secondary sidebar /
+  Editor area); the editor title-bar icon opens a chat in the editor; the secondary-sidebar
+  chat-header icon opens a chat there. With **no current chat**, each shows the **"What can I
+  do for you?"** home — a chat whose default is also the history chooser (recent chats, plus
+  the prompt input at the bottom). With a **current chat**, it creates a **new, independent
+  chat**.
+- **Multiple chats at once, fully independent.** Each chat is keyed to its own conversation —
+  typing or streaming in one never appears in another. Editor = multiple tabs; sidebars = one
+  on screen, many preserved and switchable.
+- **"Where new chat sessions open" setting** (Settings → General) — choose where Button #1's
+  chats land: **Primary sidebar** (typically left), **Secondary sidebar** (typically right), or
+  **Editor area** (new tab). Default: **Secondary sidebar (typically right)**.
+- **Start-up chooser** — the chat home shows the same three-choice picker, so new users can
+  pick the chat location without hunting through settings. A gear button in the chat input row
+  opens Settings quickly (restores the settings affordance stock Cline removed from the VS Code
+  panel).
+- **Prior chats open from the home** — clicking a recent chat in the "What can I do for you?"
+  list, or in the full history, opens it right in that surface.
+- **The home shows the Cline Cubed icon** — the fork's mark, not the stock Cline logo.
+- **Editor-area chat panels** — per-session panels in a fresh, locked editor group, with
+  find-in-chat support and light/dark icons.
+- **"Cline Cubed: New Chat Pane", "Cline Cubed: Open Chat in Editor", and "Cline Cubed:
+  New Chat in Secondary" commands**, plus the reworked activity-bar icon.
 
 ### Fixed
 
-- Chat no longer appears in two places at once, and stuck "Resume task" sessions are
-  gone: the sessions and chat views use separate provider instances with view-level
-  `when` guards (previously two views shared one webview slot/response channel, and
-  resolving one disposed the other's message listener, leaving a "zombie" webview).
-- Changing "Where new chat sessions open" takes effect immediately — the target chat
-  surface is revealed instead of hiding the in-use view and going blank.
-- With the setting on "Primary sidebar", opening a session/new chat now focuses the
-  left Chat view so it replaces the sessions chooser instead of showing both at once.
-- The editor-area chat panel no longer renders blank (HTML resource URLs are now built
-  per-webview instead of reusing the sidebar webview's origin).
-- Fresh installs default to the secondary (right) sidebar instead of flipping to the
-  wrong side when the setting was unset.
-- **New chats no longer reset other open chats** — each chat surface keeps its own
-  conversation; the new-chat commands (editor title-bar button, New Chat Pane, Sessions
-  "+") no longer clear the shared task globally and only tell the target surface to show
-  the New Chat home.
-- **Sessions chooser "Done" and "+" restored** — Done is hidden only on the primary-toolbar
-  chooser (Doug's rule) and keeps its stock close-and-return function everywhere else; the
-  "+" new-session button is back on the Sessions view.
-- **Multiple chats no longer leak into each other (V5)** — the state broadcast is keyed on the
-  controller's live task id, so a new chat in one surface never clones into another (the gate
-  previously relied on the persisted taskHistory file, which lags for new/streaming tasks).
+- **Chats never duplicate or leak across surfaces** — each surface shows only its own
+  conversation; opening a new chat or resuming a past one never disturbs another open chat.
+- **The editor-area chat panel no longer renders blank** — HTML resource URLs are built
+  per-webview instead of reusing the sidebar webview's origin.
+- **The chat location setting takes effect immediately** — changing it moves the chat surface
+  right away.
+- **Every chat message targets its own conversation by session id** — each chat-bound message
+  carries the surface's bound session and the host routes it to that session (Claude Code's
+  per-session model), so a message typed or a button clicked in one chat can never appear in
+  another — even while another chat is mid-turn.
+- **Fresh installs default to the secondary (right) sidebar** instead of flipping to the wrong
+  side when the setting was unset.
 
 ## [4.1.15]
 

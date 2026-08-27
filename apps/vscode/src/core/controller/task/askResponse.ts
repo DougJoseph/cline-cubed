@@ -14,6 +14,13 @@ import { Controller } from ".."
  */
 export async function askResponse(controller: Controller, request: AskResponseRequest): Promise<Empty> {
 	try {
+		// Cline Cubed (V6): route to the TARGET session. Every chat-bound response carries the
+		// surface's bound session id, so it can never land in another chat. Reinit the target
+		// if it is not the active session, then respond.
+		if (request.sessionId && controller.task?.taskId !== request.sessionId) {
+			await controller.reinitExistingTaskFromId(request.sessionId)
+		}
+
 		if (!controller.task) {
 			Logger.warn("askResponse: No active task to receive response")
 			return Empty.create()

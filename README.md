@@ -29,7 +29,9 @@ so non-vision models get full image context without ever receiving raw image byt
 **Fork maintainer:** [Doug Joseph](https://github.com/DougJoseph)
 
 ## What's different from Cline
+</div>
 
+<div align="left">
 - **Three model channels — Plan, Act, and Image Mode.** Each tab in API
   Configuration keeps its own provider, model, API key, and reasoning effort.
   Image Mode is the vision channel used when an image is pasted into a chat.

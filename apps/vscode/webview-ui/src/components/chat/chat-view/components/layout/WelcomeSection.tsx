@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react"
 import BannerCarousel from "@/components/common/BannerCarousel"
 import WhatsNewModal from "@/components/common/WhatsNewModal"
 import HistoryPreview from "@/components/history/HistoryPreview"
+import NewChatLocationSetting from "@/components/settings/NewChatLocationSetting"
 import { useApiConfigurationHandlers } from "@/components/settings/utils/useApiConfigurationHandlers"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import HomeHeader from "@/components/welcome/HomeHeader"
@@ -261,6 +262,14 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 			/>
 			<div className="overflow-y-auto flex flex-col pb-2.5">
 				<HomeHeader shouldShowQuickWins={shouldShowQuickWins} />
+				{/* Cline Cubed: "Where new chats open" — a start-up notice that is ALSO a picker.
+					New users see their three choices (primary sidebar / secondary sidebar / editor
+					tab) here at start-up instead of having to hunt through settings. */}
+				<div className="mt-4 mb-2 px-5">
+					<div className="rounded-md border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] p-4">
+						<NewChatLocationSetting />
+					</div>
+				</div>
 				{!showWhatsNewModal && (
 					<>
 						<BannerCarousel banners={activeBanners} />

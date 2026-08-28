@@ -8,6 +8,60 @@ import { ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
 import { getNonce } from "./getNonce"
 
+/**
+ * Cline Cubed: the identity a chat webview is born with.
+ *
+ * Injected into the HTML rather than posted after mount, so it is available before React runs —
+ * a surface knows which session it owns from its very first render.
+ *
+ * - `surfaceId`   identifies the surface for targeted state/transcript delivery.
+ * - `sessionId`   the session this surface displays; `null` = a brand-new chat (show the home).
+ */
+export interface WebviewBootIdentity {
+	surfaceId: string
+	sessionId: string | null
+	/**
+	 * Which UI this webview renders. Omitted (the default) = the full chat. "sessions" = the
+	 * chats list in the primary container: open chats, then history — no ChatView at all.
+	 */
+	viewKind?: "sessions"
+}
+
+/** Webview-scoping accessor for generating HTML served into a webview OTHER than the
+ *  provider's own (the sessions view, the editor-area panel). Resource URLs must be built
+ *  with the TARGET webview's `asWebviewUri` (each webview has its own origin) and the CSP
+ *  must use the target webview's cspSource — the provider's own webview cannot serve them. */
+export interface HtmlWebviewSource {
+	cspSource: string
+	webviewUrlForPath(assetPath: string): string
+}
+
+let surfaceIdCounter = 0
+
+/**
+ * Cline Cubed: mint a process-unique id for a chat surface.
+ * Used as the routing key for targeted state/transcript delivery.
+ */
+export function mintSurfaceId(label: string): string {
+	surfaceIdCounter += 1
+	return `${label}-${surfaceIdCounter}`
+}
+
+/**
+ * Cline Cubed: the inline <script> that gives a webview its identity before the bundle loads.
+ * JSON.stringify on both values keeps this injection-safe.
+ */
+function buildIdentityScript(nonce: string, identity?: WebviewBootIdentity): string {
+	if (!identity) {
+		return ""
+	}
+	return /*html*/ `<script nonce="${nonce}">window.__CLINE_CUBED_SURFACE_ID__ = ${JSON.stringify(
+		identity.surfaceId,
+	)}; window.__CLINE_CUBED_BOUND_SESSION_ID__ = ${JSON.stringify(
+		identity.sessionId,
+	)}; window.__CLINE_CUBED_VIEW_KIND__ = ${JSON.stringify(identity.viewKind ?? null)};</script>`
+}
+
 export abstract class WebviewProvider {
 	private static instance: WebviewProvider | null = null
 	controller: Controller
@@ -72,16 +126,16 @@ export abstract class WebviewProvider {
 	 * @returns A template string literal containing the HTML that should be
 	 * rendered within the webview panel
 	 */
-	public getHtmlContent(): string {
+	public getHtmlContent(target?: HtmlWebviewSource, identity?: WebviewBootIdentity): string {
 		// Get the local path to main script run in the webview,
 		// then convert it to a url we can use in the webview.
 		// The JS file from the React build output
-		const scriptUrl = this.getExtensionUrl("webview-ui", "build", "assets", "index.js")
+		const scriptUrl = this.getExtensionUrlFor(target, "webview-ui", "build", "assets", "index.js")
 
 		// The CSS file from the React build output. The webview's own index.css
 		// @imports @vscode/codicons, so the codicon @font-face + codicon.ttf are
 		// bundled into these build assets — no separate codicons <link> needed.
-		const stylesUrl = this.getExtensionUrl("webview-ui", "build", "assets", "index.css")
+		const stylesUrl = this.getExtensionUrlFor(target, "webview-ui", "build", "assets", "index.css")
 
 		// Use a nonce to only allow a specific script to be run.
 		/*
@@ -96,6 +150,15 @@ export abstract class WebviewProvider {
 				*/
 		const nonce = getNonce()
 
+		// The surface's boot identity (surface id + bound session), set in the HTML rather than
+		// via postMessage so it is available before React mounts.
+		const identityScript = buildIdentityScript(nonce, identity)
+
+		// A webview's cspSource is unique to that webview instance. When generating HTML for
+		// a DIFFERENT webview than the provider's own (the left chat view, the editor panel),
+		// the target webview provides both the cspSource and the resource-URL builder.
+		const resolvedCspSource = target?.cspSource ?? this.getCspSource()
+
 		// Tip: Install the es6-string-html VS Code extension to enable code highlighting below
 		return /*html*/ `
 			<!DOCTYPE html>
@@ -107,15 +170,16 @@ export abstract class WebviewProvider {
 				<link rel="stylesheet" type="text/css" href="${stylesUrl}">
 				<meta http-equiv="Content-Security-Policy" content="default-src 'none';
 					connect-src https://*.posthog.com https://*.cline.bot; 
-					font-src ${this.getCspSource()} data:; 
-					style-src ${this.getCspSource()} 'unsafe-inline'; 
-					img-src ${this.getCspSource()} https: data:; 
+					font-src ${resolvedCspSource} data:; 
+					style-src ${resolvedCspSource} 'unsafe-inline'; 
+					img-src ${resolvedCspSource} https: data:; 
 					script-src 'nonce-${nonce}' 'unsafe-eval';">
 				<title>Cline</title>
 			</head>
 			<body>
 				<noscript>You need to enable JavaScript to run this app.</noscript>
 				<div id="root"></div>
+				${identityScript}
 				<script type="module" nonce="${nonce}" src="${scriptUrl}"></script>
 			</body>
 		</html>
@@ -154,7 +218,7 @@ export abstract class WebviewProvider {
 	 * @returns A template string literal containing the HTML that should be
 	 * rendered within the webview panel
 	 */
-	protected async getHMRHtmlContent(): Promise<string> {
+	public async getHMRHtmlContent(target?: HtmlWebviewSource, identity?: WebviewBootIdentity): Promise<string> {
 		const localPort = await this.getDevServerPort()
 		const localServerUrl = `127.0.0.1:${localPort}`
 
@@ -171,11 +235,15 @@ export abstract class WebviewProvider {
 				})
 			}
 
-			return this.getHtmlContent()
+			// Forward the boot identity so a surface keeps its session when HMR is unavailable.
+			return this.getHtmlContent(target, identity)
 		}
 
 		const nonce = getNonce()
-		const stylesUrl = this.getExtensionUrl("webview-ui", "build", "assets", "index.css")
+		const stylesUrl = this.getExtensionUrlFor(target, "webview-ui", "build", "assets", "index.css")
+
+		const resolvedCspSource = target?.cspSource ?? this.getCspSource()
+		const identityScript = buildIdentityScript(nonce, identity)
 
 		const scriptEntrypoint = "src/main.tsx"
 		const scriptUrl = `http://${localServerUrl}/${scriptEntrypoint}`
@@ -192,9 +260,9 @@ export abstract class WebviewProvider {
 
 		const csp = [
 			"default-src 'none'",
-			`font-src ${this.getCspSource()}`,
-			`style-src ${this.getCspSource()} 'unsafe-inline' https://* http://${localServerUrl} http://0.0.0.0:${localPort}`,
-			`img-src ${this.getCspSource()} https: data:`,
+			`font-src ${resolvedCspSource}`,
+			`style-src ${resolvedCspSource} 'unsafe-inline' https://* http://${localServerUrl} http://0.0.0.0:${localPort}`,
+			`img-src ${resolvedCspSource} https: data:`,
 			`script-src 'unsafe-eval' https://* http://${localServerUrl} http://0.0.0.0:${localPort} 'nonce-${nonce}'`,
 			`connect-src https://* ws://${localServerUrl} ws://0.0.0.0:${localPort} http://${localServerUrl} http://0.0.0.0:${localPort}`,
 		]
@@ -212,22 +280,24 @@ export abstract class WebviewProvider {
 				<body>
 					<div id="root"></div>
 					${reactRefresh}
+					${identityScript}
 					<script type="module" src="${scriptUrl}"></script>
 				</body>
 			</html>
 		`
 	}
 	/**
-	 * A helper function which will get the webview URL of a given file or resource in the extension directory.
+	 * A helper function which will get the webview URL of a given file or resource in the
+	 * extension directory, scoped to the given target webview (or the provider's own webview
+	 * when no target is provided).
 	 *
-	 * @remarks This URL can be used within a webview's HTML as a link to the
-	 * given file/resource.
-	 *
+	 * @param target The target webview (sessions view / editor panel) or undefined for the
+	 *        provider's own webview
 	 * @param pathList An array of strings representing the path to a file/resource in the extension directory.
 	 * @returns A URL pointing to the file/resource
 	 */
-	private getExtensionUrl(...pathList: string[]): string {
+	private getExtensionUrlFor(target: HtmlWebviewSource | undefined, ...pathList: string[]): string {
 		const assetPath = path.resolve(HostProvider.get().extensionFsPath, ...pathList)
-		return this.getWebviewUrl(assetPath)
+		return target ? target.webviewUrlForPath(assetPath) : this.getWebviewUrl(assetPath)
 	}
 }

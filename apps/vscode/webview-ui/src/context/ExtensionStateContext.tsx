@@ -11,6 +11,7 @@ import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mc
 import { fromProtobufModels } from "@shared/proto-conversions/models/typeConversion"
 import type React from "react"
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { PLATFORM_CONFIG } from "@/config/platform.config"
 import {
 	type ModelInfo,
 	openRouterDefaultModelId,
@@ -137,6 +138,23 @@ export interface ExtensionStateContextType extends ExtensionState {
 
 	// Event callbacks
 	onRelinquishControl: (callback: () => void) => () => void
+
+	// Cline Cubed: per-surface task binding
+	/** The task THIS webview displays. undefined = never bound (stock behavior);
+	 *  null = New Chat home (ignores other surfaces' tasks); <id> = bound to that task. */
+	surfaceBoundTaskId: string | null | undefined
+	/** Bind this surface to a task (or to none / New Chat home). Writing the binding also
+	 *  applies the cached snapshot if it was already broadcast (covers the RPC race). */
+	setSurfaceBoundTaskId: (taskId: string | null | undefined) => void
+	/** Current binding (ref-backed — stable across renders). */
+	getSurfaceBoundTaskId: () => string | null | undefined
+	/** Cline Cubed: leave the Get Started screen in THIS surface. */
+	dismissOnboardingHere: () => void
+	/** Cline Cubed: put THIS surface on the New Chat home, locally and at once. */
+	showNewChatHomeLocally: () => void
+	/** The controller's active task id from the LAST broadcast (pre-binding gate). Used by the
+	 *  message-send guard so a message never lands in another surface's conversation. */
+	getLatestActiveTaskId: () => string | undefined
 }
 
 export const ExtensionStateContext = createContext<ExtensionStateContextType | undefined>(undefined)
@@ -295,6 +313,7 @@ export const ExtensionStateContextProvider: React.FC<{
 		defaultTerminalProfile: "default",
 		isNewUser: false,
 		welcomeViewCompleted: false,
+		clineCubedShowOnboarding: false,
 		onboardingModels: undefined,
 		mcpResponsesCollapsed: false, // Default value (expanded), will be overwritten by extension state
 		useAutoCondense: true,
@@ -329,6 +348,53 @@ export const ExtensionStateContextProvider: React.FC<{
 
 	const [showWelcome, setShowWelcome] = useState(false)
 	const [onboardingModels, setOnboardingModels] = useState<OnboardingModelGroup | undefined>(undefined)
+	/** Cline Cubed: Get Started was opened in THIS chat surface (targeted, never broadcast). */
+	const [showOnboardingHere, setShowOnboardingHere] = useState(false)
+
+	// Cline Cubed: this surface's session, injected into the HTML by the host before the bundle
+	// loads. `null` = a new chat (opens on the home). The host delivers only this session's state
+	// and transcript here, so the value is used to STAMP outgoing messages with their target
+	// conversation rather than to filter anything on arrival.
+	const initialBoundTaskId: string | null | undefined =
+		window.__CLINE_CUBED_SURFACE_ID__ !== undefined ? (window.__CLINE_CUBED_BOUND_SESSION_ID__ ?? null) : undefined
+	const [surfaceBoundTaskId, setSurfaceBoundTaskIdState] = useState<string | null | undefined>(initialBoundTaskId)
+	const surfaceBoundTaskIdRef = useRef<string | null | undefined>(initialBoundTaskId)
+	/** The session id carried by the most recent snapshot delivered to this surface. */
+	const latestActiveTaskIdRef = useRef<string | undefined>(undefined)
+
+	/**
+	 * Cline Cubed: bind this surface to a session and tell the host, so it delivers that
+	 * session's state and transcript here and nowhere else.
+	 */
+	const setSurfaceBoundTaskId = useCallback((taskId: string | null | undefined) => {
+		surfaceBoundTaskIdRef.current = taskId
+		setSurfaceBoundTaskIdState(taskId)
+		if (window.__CLINE_CUBED_SURFACE_ID__ !== undefined && taskId !== undefined) {
+			PLATFORM_CONFIG.postMessage({ type: "bindSurfaceSession", sessionId: taskId })
+		}
+	}, [])
+	const getSurfaceBoundTaskId = useCallback(() => surfaceBoundTaskIdRef.current, [])
+
+	/**
+	 * Cline Cubed: put THIS surface on the "What can I do for you?" home, locally and at once.
+	 * Used by the in-chat close control and the targeted showNewChatHome message. The host
+	 * addresses each surface individually, so no broadcast is involved: this surface unbinds
+	 * (and reports it via bindSurfaceSession), resets its replica so the cleared transcript
+	 * cannot be merged back, and clears its displayed conversation.
+	 */
+	const showNewChatHomeLocally = useCallback(() => {
+		setSurfaceBoundTaskId(null)
+		replicaRef.current = createReplicaState()
+		setState((prev) => ({
+			...prev,
+			clineMessages: [],
+			currentTaskItem: undefined,
+			activeTaskId: undefined,
+			activeTaskTitle: undefined,
+			turnState: undefined,
+		}))
+	}, [setSurfaceBoundTaskId, setState])
+	const getLatestActiveTaskId = useCallback(() => latestActiveTaskIdRef.current, [])
 
 	const [openRouterModels, setOpenRouterModels] = useState<Record<string, ModelInfo>>({
 		[openRouterDefaultModelId]: openRouterDefaultModelInfo,
@@ -450,28 +516,54 @@ export const ExtensionStateContextProvider: React.FC<{
 					try {
 						const stateData = JSON.parse(response.stateJson) as ExtensionState
 						setState((prevState) => {
+							// Cline Cubed: the host addresses each chat surface directly, so a snapshot
+							// that arrives WITH conversation fields belongs to THIS surface's session.
+							// A snapshot that arrives WITHOUT them is a settings-level update meant
+							// for every surface — this one keeps the conversation it is showing.
+							const carriesConversation = Object.hasOwn(stateData as object, "clineMessages")
+							if (!carriesConversation) {
+								stateData.clineMessages = prevState.clineMessages ?? []
+								stateData.currentTaskItem = prevState.currentTaskItem
+								stateData.activeTaskId = prevState.activeTaskId
+								stateData.activeTaskTitle = prevState.activeTaskTitle
+								stateData.turnState = prevState.turnState
+								stateData.queuedPrompts = prevState.queuedPrompts
+								stateData.checkpointRestoreInput = prevState.checkpointRestoreInput
+							}
+							const broadcastTaskId = stateData.activeTaskId ?? stateData.currentTaskItem?.id
+							latestActiveTaskIdRef.current = broadcastTaskId
+							if (
+								carriesConversation &&
+								broadcastTaskId !== undefined &&
+								surfaceBoundTaskIdRef.current !== broadcastTaskId
+							) {
+								surfaceBoundTaskIdRef.current = broadcastTaskId
+							}
+
 							// Versioning logic for autoApprovalSettings
 							const incomingVersion = stateData.autoApprovalSettings?.version ?? 1
 							const currentVersion = prevState.autoApprovalSettings?.version ?? 1
 							const shouldUpdateAutoApproval = incomingVersion > currentVersion
 
-							// Route the snapshot's transcript through the convergent-replica reducer:
-							// merge by ts/seq within the same epoch (never truncate), replace on a
-							// newer epoch, ignore stale/older snapshots. Unstamped (classic/legacy)
-							// state defaults to epoch 0 / version 0, which merges.
-							replicaRef.current = reducerApplyStateSnapshot(
-								replicaRef.current,
-								stateData.clineMessages ?? [],
-								stateData.epoch ?? 0,
-								stateData.stateVersion ?? 0,
-								stateData.turnState,
-							)
-							stateData.clineMessages = replicaRef.current.messages
-							// Use the seq-gated turnState from the replica, NOT the raw snapshot's, so a
-							// late/stale snapshot carrying an older phase (e.g. "idle") cannot revert a
-							// newer phase (e.g. "streaming") and hide the Cancel button. Falls back to
-							// undefined for classic/legacy state.
-							stateData.turnState = replicaRef.current.turnState
+							if (carriesConversation) {
+								// Route the snapshot's transcript through the convergent-replica reducer:
+								// merge by ts/seq within the same epoch (never truncate), replace on a
+								// newer epoch, ignore stale/older snapshots. Unstamped (classic/legacy)
+								// state defaults to epoch 0 / version 0, which merges.
+								replicaRef.current = reducerApplyStateSnapshot(
+									replicaRef.current,
+									stateData.clineMessages ?? [],
+									stateData.epoch ?? 0,
+									stateData.stateVersion ?? 0,
+									stateData.turnState,
+								)
+								stateData.clineMessages = replicaRef.current.messages
+								// Use the seq-gated turnState from the replica, NOT the raw snapshot's, so a
+								// late/stale snapshot carrying an older phase (e.g. "idle") cannot revert a
+								// newer phase (e.g. "streaming") and hide the Cancel button. Falls back to
+								// undefined for classic/legacy state.
+								stateData.turnState = replicaRef.current.turnState
+							}
 
 							const newState = {
 								...stateData,
@@ -870,8 +962,36 @@ export const ExtensionStateContextProvider: React.FC<{
 		refreshLiteLlmModels,
 	])
 
+	// Cline Cubed: targeted host→webview messages (aimed at THIS surface only).
+	useEffect(() => {
+		const onHostMessage = (event: MessageEvent) => {
+			const data = event.data as { type?: string; sessionId?: string }
+			if (data?.type === "bindTaskToSurface" && typeof data.sessionId === "string") {
+				// Cline Cubed: the host opened this sidebar to show an existing chat picked from
+				// the chats list. Adopt it — the sidebar reveal path carries no task id of its own.
+				setSurfaceBoundTaskId(data.sessionId)
+			} else if (data?.type === "showNewChatHome") {
+				// Cline Cubed: this surface's session was evicted — it moved to another surface.
+				// Step back to the home instead of freezing on a stale copy of the moved chat.
+				showNewChatHomeLocally()
+			} else if (data?.type === "showOnboarding") {
+				// Cline Cubed: Get Started opens in THIS chat only.
+				setShowOnboardingHere(true)
+			}
+		}
+		window.addEventListener("message", onHostMessage)
+		return () => window.removeEventListener("message", onHostMessage)
+	}, [showNewChatHomeLocally, setSurfaceBoundTaskId])
+
 	const contextValue: ExtensionStateContextType = {
 		...state,
+		// Cline Cubed: Get Started is targeted at ONE surface, so ONLY this surface's own flag
+		// decides. The global state key is never consulted: global state reaches every chat and
+		// persists across reinstalls, so reading it here is what once sent every open chat to the
+		// Get Started screen at once (it is also purged at activation).
+		clineCubedShowOnboarding: showOnboardingHere,
+		dismissOnboardingHere: () => setShowOnboardingHere(false),
+		showNewChatHomeLocally,
 		didHydrateState,
 		showWelcome,
 		onboardingModels,
@@ -909,6 +1029,12 @@ export const ExtensionStateContextProvider: React.FC<{
 		remoteRulesToggles: state.remoteRulesToggles || {},
 		remoteWorkflowToggles: state.remoteWorkflowToggles || {},
 		enableCheckpointsSetting: state.enableCheckpointsSetting,
+
+		// Cline Cubed: per-surface task binding
+		surfaceBoundTaskId,
+		setSurfaceBoundTaskId,
+		getSurfaceBoundTaskId,
+		getLatestActiveTaskId,
 
 		// Navigation functions
 		navigateToMarketplace,

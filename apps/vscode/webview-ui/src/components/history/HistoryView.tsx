@@ -2,7 +2,7 @@ import { EmptyRequest, StringArrayRequest } from "@shared/proto/cline/common"
 import { GetTaskHistoryRequest, TaskFavoriteRequest, type TaskItem } from "@shared/proto/cline/task"
 import { VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import Fuse, { FuseResult } from "fuse.js"
-import { FunnelIcon } from "lucide-react"
+import { FunnelIcon, TrashIcon } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GroupedVirtuoso } from "react-virtuoso"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,21 @@ import ViewHeader from "../common/ViewHeader"
 import HistoryViewItem from "./HistoryViewItem"
 
 type HistoryViewProps = {
-	onDone: () => void
+	/** Stock behavior: when present, the header shows a "Done" button calling this, which
+	 *  closes the history section and returns the user to what they were working in (the
+	 *  chat / New Chat home). */
+	onDone?: () => void
+	/** Doug's primary-toolbar rule (2026-08-26): the Done button is hidden when the chooser is
+	 *  shown on the primary toolbar (there is nothing to return to). Everywhere else it stays,
+	 *  with its stock close-and-return function. */
+	hideDone?: boolean
+	/** Cline Cubed: forwarded to each row — see HistoryViewItem.onSelectTask. */
+	onSelectTask?: (id: string) => void
+	/** Cline Cubed: render in normal flow instead of as a full-viewport overlay. This view is
+	 *  `fixed inset-0` by default because inside a chat it IS a full-screen overlay; embedded in
+	 *  the chats panel that makes it paint OVER the panel's own header and New Chat button —
+	 *  two things occupying the same space. */
+	embedded?: boolean
 }
 
 type SortOption = "newest" | "oldest" | "mostExpensive" | "mostTokens" | "mostRelevant"
@@ -37,14 +51,13 @@ const HISTORY_FILTERS = {
 
 const HISTORY_PAGE_SIZE = 50
 
-const HistoryView = ({ onDone }: HistoryViewProps) => {
+const HistoryView = ({ onDone, hideDone, onSelectTask, embedded }: HistoryViewProps) => {
 	const extensionStateContext = useExtensionState()
 	const { taskHistory, onRelinquishControl, environment } = extensionStateContext
 	const [searchQuery, setSearchQuery] = useState("")
 	const [sortOption, setSortOption] = useState<SortOption>("newest")
 	const [lastNonRelevantSort, setLastNonRelevantSort] = useState<SortOption | null>("newest")
 	const [deleteAllDisabled, setDeleteAllDisabled] = useState(false)
-	const [selectedItems, setSelectedItems] = useState<string[]>([])
 	const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
 	const [showCurrentWorkspaceOnly, setShowCurrentWorkspaceOnly] = useState(false)
 
@@ -220,15 +233,6 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 		}
 	}, [searchQuery, sortOption, lastNonRelevantSort])
 
-	const handleHistorySelect = useCallback((itemId: string, checked: boolean) => {
-		setSelectedItems((prev) => {
-			if (checked) {
-				return [...prev, itemId]
-			}
-			return prev.filter((id) => id !== itemId)
-		})
-	}, [])
-
 	const handleDeleteHistoryItem = useCallback(
 		(id: string) => {
 			TaskServiceClient.deleteTasksWithIds(StringArrayRequest.create({ value: [id] }))
@@ -241,27 +245,11 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 		[fetchTotalTasksSize, loadTaskHistory],
 	)
 
-	const handleDeleteSelectedHistoryItems = useCallback(
-		(ids: string[]) => {
-			if (ids.length > 0) {
-				TaskServiceClient.deleteTasksWithIds(StringArrayRequest.create({ value: ids }))
-					.then(async () => {
-						await loadTaskHistory(0)
-						setSelectedItems([])
-						await fetchTotalTasksSize()
-					})
-					.catch((error) => console.error("Error deleting tasks:", error))
-			}
-		},
-		[fetchTotalTasksSize, loadTaskHistory],
-	)
-
 	const handleDeleteAllHistory = useCallback(() => {
 		setDeleteAllDisabled(true)
 		TaskServiceClient.deleteAllTaskHistory(EmptyRequest.create({}))
 			.then(async () => {
 				await loadTaskHistory(0)
-				setSelectedItems([])
 				await fetchTotalTasksSize()
 			})
 			.catch((error) => console.error("Error deleting task history:", error))
@@ -270,7 +258,9 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 
 	const fuse = useMemo(() => {
 		return new Fuse(tasks, {
-			keys: ["task"],
+			// Cline Cubed: search the chat's own name as well as its first prompt — a renamed chat
+			// that could not be found by its new name would be worse than not renaming it.
+			keys: ["task", "title"],
 			threshold: 0.6,
 			shouldSort: true,
 			isCaseSensitive: false,
@@ -358,30 +348,15 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 		}
 	}, [taskHistorySearchResults, sortOption])
 
-	// Calculate total size of selected items
-	const selectedItemsSize = useMemo(() => {
-		if (selectedItems.length === 0) {
-			return 0
-		}
-
-		return tasks.filter((item) => selectedItems.includes(item.id)).reduce((total, item) => total + (item.size || 0), 0)
-	}, [selectedItems, tasks])
-
-	const handleBatchHistorySelect = useCallback(
-		(selectAll: boolean) => {
-			if (selectAll) {
-				setSelectedItems(taskHistorySearchResults.map((item) => item.id))
-			} else {
-				setSelectedItems([])
-			}
-		},
-		[taskHistorySearchResults],
-	)
-
 	return (
-		<div className="fixed overflow-hidden inset-0 flex flex-col w-full">
+		<div
+			className={
+				embedded
+					? "overflow-hidden flex flex-col w-full h-full min-h-0"
+					: "fixed overflow-hidden inset-0 flex flex-col w-full"
+			}>
 			{/* HEADER */}
-			<ViewHeader environment={environment} onDone={onDone} title="History" />
+			{onDone && <ViewHeader environment={environment} hideDone={hideDone} onDone={onDone} title="History" />}
 
 			{/* FILTERS */}
 			<div className="flex flex-col gap-3 px-3">
@@ -503,11 +478,11 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 						return (
 							<HistoryViewItem
 								handleDeleteHistoryItem={handleDeleteHistoryItem}
-								handleHistorySelect={handleHistorySelect}
-								index={index}
 								item={item}
+								key={item.id}
+								onRenamed={() => loadTaskHistory(0)}
+								onSelectTask={onSelectTask}
 								pendingFavoriteToggles={pendingFavoriteToggles}
-								selectedItems={selectedItems}
 								toggleFavorite={toggleFavorite}
 							/>
 						)
@@ -515,37 +490,21 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 				/>
 			</div>
 
-			{/* FOOTER */}
-			<div className="p-2.5 border-t border-t-border-panel">
-				<div className="flex gap-2.5 mb-2.5">
-					<Button className="flex-1" onClick={() => handleBatchHistorySelect(true)} variant="secondary">
-						Select All
-					</Button>
-					<Button className="flex-1" onClick={() => handleBatchHistorySelect(false)} variant="secondary">
-						Select None
-					</Button>
-				</div>
-				{selectedItems.length > 0 ? (
-					<Button
-						aria-label="Delete selected items"
-						className="w-full"
-						onClick={() => {
-							handleDeleteSelectedHistoryItems(selectedItems)
-						}}
-						variant="danger">
-						Delete {selectedItems.length > 1 ? selectedItems.length : ""} Selected
-						{selectedItemsSize > 0 ? ` (${formatSize(selectedItemsSize)})` : ""}
-					</Button>
-				) : (
-					<Button
-						aria-label="Delete all history"
-						className="w-full"
-						disabled={deleteAllDisabled || (taskHistory.length === 0 && tasks.length === 0)}
-						onClick={handleDeleteAllHistory}
-						variant="danger">
-						Delete All History{totalTasksSize !== null ? ` (${formatSize(totalTasksSize)})` : ""}
-					</Button>
-				)}
+			{/* FOOTER — Cline Cubed (2026-08-28, Doug): per-chat deletion moved onto the row's
+			    hover icons, so what is left down here is the one thing that is not per-chat:
+			    clearing the whole history. It is a quiet control, not a full-width red slab. */}
+			<div className="px-3 py-2 border-t border-t-border-panel flex justify-end">
+				<Button
+					aria-label="Delete all history"
+					className="text-xs text-description hover:text-error"
+					disabled={deleteAllDisabled || (taskHistory.length === 0 && tasks.length === 0)}
+					onClick={handleDeleteAllHistory}
+					size="xs"
+					title="Permanently delete every chat in history"
+					variant="ghost">
+					<TrashIcon className="stroke-1" />
+					Delete all history{totalTasksSize !== null ? ` (${formatSize(totalTasksSize)})` : ""}
+				</Button>
 			</div>
 		</div>
 	)

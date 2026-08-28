@@ -44,9 +44,9 @@ export interface SdkTaskStartCoordinatorOptions {
 		},
 	) => StartInput
 	createHistoryItemFromSession: (sessionId: string, prompt: string, modelId?: string, cwd?: string) => HistoryItem
-	clearTask: () => Promise<void>
+	clearTask: (options?: { stopActiveSession?: boolean }) => Promise<void>
 	setTask: (task: TaskProxy | undefined) => void
-	onAskResponse: (text?: string, images?: string[], files?: string[]) => Promise<void>
+	onAskResponse: (text?: string, images?: string[], files?: string[], sessionId?: string) => Promise<void>
 	onCancelTask: () => Promise<void>
 	getWorkspaceRoot: () => Promise<string>
 	createTempSessionHost: () => Promise<SdkSessionHost>
@@ -73,7 +73,9 @@ export class SdkTaskStartCoordinator {
 		let providerId: string | undefined
 		let modelId: string | undefined
 		try {
-			await this.options.clearTask()
+			// Cline Cubed: bookkeeping only. Chats run side by side, so starting a new one must
+			// never stop the session another surface is showing.
+			await this.options.clearTask({ stopActiveSession: false })
 
 			const cwd = await this.options.getWorkspaceRoot()
 			const mode = this.getCurrentMode()
@@ -176,7 +178,21 @@ export class SdkTaskStartCoordinator {
 
 	async reinitExistingTaskFromId(taskId: string): Promise<void> {
 		try {
-			await this.options.clearTask()
+			// Cline Cubed: if the session is already live (still streaming), focus it IN
+			// PLACE — no restart, no stop of any other session. Concurrent chats keep streaming
+			// independently; only the fork's bookkeeping focus changes.
+			const liveSession = this.options.sessions.getLiveSession(taskId)
+			if (liveSession) {
+				this.options.sessions.focusSession(taskId)
+				this.createAndSetTask(taskId)
+				await this.options.postStateToWebview()
+				Logger.log(`[SdkController] Task focused (live session): ${taskId}`)
+				return
+			}
+
+			// Bookkeeping only — do NOT stop the currently-focused session: it may be a
+			// different chat that must keep streaming while this one is reinitialized (V7).
+			await this.options.clearTask({ stopActiveSession: false })
 
 			const historyItem = await this.options.taskHistory.findHistoryItem(taskId)
 			if (!historyItem) {
@@ -223,7 +239,8 @@ export class SdkTaskStartCoordinator {
 	private createAndSetTask(sessionId: string): TaskProxy {
 		const task = createTaskProxy(
 			sessionId,
-			(text?: string, images?: string[], files?: string[]) => this.options.onAskResponse(text, images, files),
+			(text?: string, images?: string[], files?: string[], proxySessionId?: string) =>
+				this.options.onAskResponse(text, images, files, proxySessionId ?? sessionId),
 			() => this.options.onCancelTask(),
 		)
 		this.options.setTask(task)

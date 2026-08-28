@@ -269,6 +269,9 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 				sdkHost,
 			})),
 			fireAndForgetSend: vi.fn(),
+			// V7: no session is live in these reinit tests, so reinit restarts from history.
+			getLiveSession: vi.fn(() => undefined),
+			focusSession: vi.fn(),
 		},
 		messages: {
 			appendAndEmit: vi.fn(),
@@ -315,6 +318,8 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 		sessions: SdkTaskStartCoordinatorOptions["sessions"] & {
 			startNewSession: ReturnType<typeof vi.fn>
 			fireAndForgetSend: ReturnType<typeof vi.fn>
+			getLiveSession: ReturnType<typeof vi.fn>
+			focusSession: ReturnType<typeof vi.fn>
 		}
 		messages: SdkTaskStartCoordinatorOptions["messages"] & {
 			appendAndEmit: ReturnType<typeof vi.fn>

@@ -1,8 +1,8 @@
 {
 	"name": "cline-cubed",
-	"displayName": "Cline Cubed (image bridge)",
+	"displayName": "Cline Cubed",
 	"description": "Autonomous coding agent right in your IDE, capable of creating/editing files, running commands, using the browser, and more with your permission every step of the way.",
-	"version": "4.1.17",
+	"version": "4.1.18",
 	"icon": "assets/icons/icon.png",
 	"engines": {
 		"vscode": "^1.101.0"
@@ -27,6 +27,13 @@
 	],
 	"keywords": [
 		"cline",
+		"cline cubed",
+		"multiple chats",
+		"concurrent chats",
+		"side by side chats",
+		"image bridge",
+		"vision",
+		"image to text",
 		"claude",
 		"dev",
 		"mcp",
@@ -40,7 +47,7 @@
 		"llama"
 	],
 	"activationEvents": [
-		"onView:cline-cubed.SidebarProvider",
+		"onView:cline-cubed.SidebarChatProvider",
 		"onLanguage",
 		"onUri",
 		"onStartupFinished"
@@ -111,19 +118,34 @@
 		"viewsContainers": {
 			"activitybar": [
 				{
-					"id": "cline-cubed-ActivityBar",
+					"id": "cline-cubed-Sessions",
 					"title": "Cline Cubed",
-					"icon": "assets/icons/icon.svg"
+					"icon": "assets/icons/nav-icon.svg"
+				}
+			],
+			"secondarySidebar": [
+				{
+					"id": "cline-cubed-ActivityBarSecondary",
+					"title": "Cline Cubed",
+					"icon": "assets/icons/nav-icon.svg"
 				}
 			]
 		},
 		"views": {
-			"cline-cubed-ActivityBar": [
+			"cline-cubed-Sessions": [
 				{
 					"type": "webview",
-					"id": "cline-cubed.SidebarProvider",
+					"id": "cline-cubed.SidebarChatProvider",
+					"name": "Chats",
+					"icon": "assets/icons/nav-icon.svg"
+				}
+			],
+			"cline-cubed-ActivityBarSecondary": [
+				{
+					"type": "webview",
+					"id": "cline-cubed.SidebarProviderSecondary",
 					"name": "",
-					"icon": "assets/icons/icon.svg"
+					"icon": "assets/icons/nav-icon.svg"
 				}
 			]
 		},
@@ -132,6 +154,53 @@
 				"command": "cline.plusButtonClicked",
 				"title": "New Task",
 				"icon": "$(add)"
+			},
+			{
+				"command": "cline.newChatPane",
+				"title": "New Chat",
+				"category": "Cline Cubed",
+				"icon": {
+					"light": "assets/icons/icon.svg",
+					"dark": "assets/icons/icon-dark.svg"
+				}
+			},
+			{
+				"command": "cline.openChatInEditor",
+				"title": "New Chat",
+				"category": "Cline Cubed",
+				"icon": {
+					"light": "assets/icons/icon.svg",
+					"dark": "assets/icons/icon-dark.svg"
+				}
+			},
+			{
+				"command": "cline.openChatInSecondary",
+				"title": "New Chat",
+				"category": "Cline Cubed",
+				"icon": {
+					"light": "assets/icons/icon.svg",
+					"dark": "assets/icons/icon-dark.svg"
+				}
+			},
+			{
+				"command": "cline.chatsListMarketplace",
+				"title": "Customize",
+				"icon": "$(wrench)"
+			},
+			{
+				"command": "cline.chatsListAccount",
+				"title": "Account",
+				"icon": "$(account)"
+			},
+			{
+				"command": "cline.chatsListSettings",
+				"title": "Settings",
+				"icon": "$(settings-gear)"
+			},
+			{
+				"command": "cline.openOnboarding",
+				"title": "Get Started",
+				"category": "Cline Cubed"
 			},
 			{
 				"command": "cline.mcpButtonClicked",
@@ -254,31 +323,57 @@
 			}
 		],
 		"menus": {
+			"editor/title": [
+				{
+					"command": "cline.openChatInEditor",
+					"group": "navigation"
+				}
+			],
 			"view/title": [
 				{
 					"command": "cline.plusButtonClicked",
 					"group": "navigation@1",
-					"when": "view == cline-cubed.SidebarProvider"
+					"when": "view == cline-cubed.SidebarChatProvider"
+				},
+				{
+					"command": "cline.openChatInSecondary",
+					"group": "navigation@1",
+					"when": "view == cline-cubed.SidebarProviderSecondary"
 				},
 				{
 					"command": "cline.marketplaceButtonClicked",
 					"group": "navigation@2",
-					"when": "view == cline-cubed.SidebarProvider"
+					"when": "view == cline-cubed.SidebarProviderSecondary"
 				},
 				{
 					"command": "cline.historyButtonClicked",
 					"group": "navigation@3",
-					"when": "view == cline-cubed.SidebarProvider"
+					"when": "view == cline-cubed.SidebarProviderSecondary"
 				},
 				{
 					"command": "cline.accountButtonClicked",
 					"group": "navigation@5",
-					"when": "view == cline-cubed.SidebarProvider"
+					"when": "view == cline-cubed.SidebarProviderSecondary"
 				},
 				{
 					"command": "cline.settingsButtonClicked",
 					"group": "navigation@6",
-					"when": "view == cline-cubed.SidebarProvider"
+					"when": "view == cline-cubed.SidebarProviderSecondary"
+				},
+				{
+					"command": "cline.chatsListMarketplace",
+					"group": "navigation@2",
+					"when": "view == cline-cubed.SidebarChatProvider"
+				},
+				{
+					"command": "cline.chatsListAccount",
+					"group": "navigation@5",
+					"when": "view == cline-cubed.SidebarChatProvider"
+				},
+				{
+					"command": "cline.chatsListSettings",
+					"group": "navigation@6",
+					"when": "view == cline-cubed.SidebarChatProvider"
 				}
 			],
 			"editor/context": [
@@ -333,6 +428,34 @@
 				{
 					"command": "cline.abortGitCommitMessage",
 					"when": "config.git.enabled && cline.isGeneratingCommit"
+				},
+				{
+					"command": "cline.dev.createTestTasks",
+					"when": "cline.isDevMode"
+				},
+				{
+					"command": "cline.dev.expireMcpOAuthTokens",
+					"when": "cline.isDevMode"
+				},
+				{
+					"command": "cline.openChatInEditor",
+					"when": "false"
+				},
+				{
+					"command": "cline.openChatInSecondary",
+					"when": "false"
+				},
+				{
+					"command": "cline.chatsListMarketplace",
+					"when": "false"
+				},
+				{
+					"command": "cline.chatsListAccount",
+					"when": "false"
+				},
+				{
+					"command": "cline.chatsListSettings",
+					"when": "false"
 				}
 			]
 		},

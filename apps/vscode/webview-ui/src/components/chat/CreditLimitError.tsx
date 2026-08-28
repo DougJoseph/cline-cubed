@@ -3,6 +3,7 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react"
 import React, { useEffect, useMemo, useState } from "react"
 import VSCodeButtonLink from "@/components/common/VSCodeButtonLink"
 import { useClineAuth } from "@/context/ClineAuthContext"
+import { useExtensionState } from "@/context/ExtensionStateContext"
 import { AccountServiceClient, TaskServiceClient } from "@/services/grpc-client"
 
 interface CreditLimitErrorProps {
@@ -25,6 +26,7 @@ const CreditLimitError: React.FC<CreditLimitErrorProps> = ({
 	totalPromotions,
 	totalSpent,
 }) => {
+	const { getSurfaceBoundTaskId } = useExtensionState()
 	const { activeOrganization } = useClineAuth()
 	const [fullBuyCreditsUrl, setFullBuyCreditsUrl] = useState<string>("")
 
@@ -79,6 +81,8 @@ const CreditLimitError: React.FC<CreditLimitErrorProps> = ({
 						await TaskServiceClient.askResponse(
 							AskResponseRequest.create({
 								responseType: "yesButtonClicked",
+								// Cline Cubed: answer the chat this button belongs to.
+								sessionId: getSurfaceBoundTaskId() ?? "",
 							}),
 						)
 					} catch (error) {

@@ -14,7 +14,7 @@ import { HistoryItem } from "@shared/HistoryItem"
 import { DEFAULT_MCP_DISPLAY_MODE, McpDisplayMode } from "@shared/McpDisplayMode"
 import { toLegacyApiProvider } from "@shared/model-catalog/provider-helpers"
 import { GlobalInstructionsFile } from "@shared/remote-config/schema"
-import { Mode } from "@shared/storage/types"
+import { Mode, NewChatLocation } from "@shared/storage/types"
 import { TelemetrySetting } from "@shared/TelemetrySetting"
 import { UserInfo } from "@shared/UserInfo"
 import { LanguageModelChatSelector } from "vscode"
@@ -81,6 +81,8 @@ const GLOBAL_STATE_FIELDS = {
 	},
 	isNewUser: { default: true as boolean },
 	welcomeViewCompleted: { default: undefined as boolean | undefined },
+	/** Cline Cubed: "Cline Cubed: Get Started" re-view flag (shows onboarding without flipping welcomeViewCompleted). */
+	clineCubedShowOnboarding: { default: false as boolean },
 	mcpDisplayMode: { default: DEFAULT_MCP_DISPLAY_MODE as McpDisplayMode },
 	multiRootEnabled: { default: true as boolean },
 	lastDismissedInfoBannerVersion: { default: 0 as number },
@@ -290,6 +292,8 @@ const USER_SETTINGS_FIELDS = {
 	subagentsEnabled: { default: false as boolean },
 	worktreesEnabled: { default: false as boolean },
 	preferredLanguage: { default: "English" as string },
+	// Cline Cubed: where a new chat session opens ("secondarySidebar" | "editor").
+	newChatLocation: { default: "secondarySidebar" as NewChatLocation },
 	mode: { default: "act" as Mode },
 	focusChainSettings: { default: DEFAULT_FOCUS_CHAIN_SETTINGS as FocusChainSettings },
 	backgroundEditEnabled: { default: false as boolean },

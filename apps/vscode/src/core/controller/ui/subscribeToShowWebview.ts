@@ -1,6 +1,7 @@
 import { EmptyRequest } from "@shared/proto/cline/common"
 import { ShowWebviewEvent } from "@shared/proto/cline/ui"
 import { Logger } from "@/shared/services/Logger"
+import { streamIsTargeted } from "../chat-surfaces"
 import { getRequestRegistry, StreamingResponseHandler } from "../grpc-handler"
 import type { Controller } from "../index"
 
@@ -38,9 +39,13 @@ export async function subscribeToShowWebview(
  * Send a show webview event to all active subscribers
  * @param preserveEditorFocus When true, the webview should not steal focus from the editor
  */
-export async function sendShowWebviewEvent(preserveEditorFocus: boolean = false): Promise<void> {
+export async function sendShowWebviewEvent(preserveEditorFocus: boolean = false, targetSurfaceId?: string): Promise<void> {
 	// Send the event to all active subscribers
 	const promises = Array.from(showWebviewSubscriptions).map(async (responseStream) => {
+		// Cline Cubed: focus is aimed at ONE chat, not every open chat.
+		if (!streamIsTargeted(responseStream, targetSurfaceId)) {
+			return
+		}
 		try {
 			const event = ShowWebviewEvent.create({ preserveEditorFocus })
 			await responseStream(

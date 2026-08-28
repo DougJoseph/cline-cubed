@@ -4,8 +4,8 @@
 import assert from "node:assert"
 import * as vscode from "vscode"
 import { Logger } from "@/shared/services/Logger"
+import { getActiveChatSurface } from "./core/controller/chat-surfaces"
 import { sendAccountButtonClickedEvent } from "./core/controller/ui/subscribeToAccountButtonClicked"
-import { sendChatButtonClickedEvent } from "./core/controller/ui/subscribeToChatButtonClicked"
 import { sendHistoryButtonClickedEvent } from "./core/controller/ui/subscribeToHistoryButtonClicked"
 import { sendMarketplaceButtonClickedEvent } from "./core/controller/ui/subscribeToMarketplaceButtonClicked"
 import { sendMcpButtonClickedEvent } from "./core/controller/ui/subscribeToMcpButtonClicked"
@@ -37,6 +37,7 @@ import {
 	migrateWorkspaceToGlobalStorage,
 } from "./core/storage/state-migrations"
 import { workspaceResolver } from "./core/workspace"
+import { openOrCreateChat, revealChatSurface, revealChatSurfaceById } from "./hosts/vscode/chatEditorPanel"
 import { findMatchingNotebookCell, getContextForCommand, showWebview } from "./hosts/vscode/commandUtils"
 import { abortCommitGeneration, generateCommitMsg } from "./hosts/vscode/commit-message-generator"
 import { registerClineOutputChannel } from "./hosts/vscode/hostbridge/env/debugLog"
@@ -46,6 +47,7 @@ import {
 } from "./hosts/vscode/review/VscodeCommentReviewController"
 import { DIFF_VIEW_URI_SCHEME, diffContentProvider } from "./hosts/vscode/VscodeDiffContentProvider"
 import { EDIT_PREVIEW_URI_SCHEME, editPreviewContentProvider, VscodeEditPreview } from "./hosts/vscode/VscodeEditPreview"
+import { VscodeSessionsWebviewProvider } from "./hosts/vscode/VscodeSessionsWebviewProvider"
 import { VscodeWebviewProvider } from "./hosts/vscode/VscodeWebviewProvider"
 import { exportVSCodeStorageToSharedFiles } from "./hosts/vscode/vscode-to-file-migration"
 import { ExtensionRegistryInfo } from "./registry"
@@ -85,6 +87,20 @@ export async function activate(context: vscode.ExtensionContext) {
 	// IMPORTANT: Must be done after host provider is setup and migrations are complete
 	const webview = (await initialize(storageContext)) as VscodeWebviewProvider
 
+	// Cline Cubed: purge the persisted onboarding flag. It is GLOBAL state, which reaches every
+	// chat surface and SURVIVES reinstalls — a stale true left in storage drove every open chat
+	// to the Get Started screen at once. Onboarding is a targeted per-surface message now; the
+	// stored key must never drive UI again.
+	webview.controller.stateManager.setGlobalState("clineCubedShowOnboarding", false)
+
+	// Cline Cubed: "primarySidebar" was retired as a chat location (Doug, 2026-08-27) — the
+	// setting now offers the secondary sidebar or the editor. Global state survives reinstalls,
+	// so a value stored by an earlier build coerces to the default here, and every read site
+	// sees only current values.
+	if ((webview.controller.stateManager.getGlobalSettingsKey("newChatLocation") as string) === "primarySidebar") {
+		webview.controller.stateManager.setGlobalState("newChatLocation", "secondarySidebar")
+	}
+
 	// 5. Register services and commands specific to VS Code
 	// Initialize hook discovery cache for performance optimization
 	HookDiscoveryCache.getInstance().initialize(
@@ -116,31 +132,132 @@ export async function activate(context: vscode.ExtensionContext) {
 	)
 
 	context.subscriptions.push(
-		vscode.window.registerWebviewViewProvider(VscodeWebviewProvider.SIDEBAR_ID, webview, {
+		vscode.window.registerWebviewViewProvider(VscodeWebviewProvider.SIDEBAR_SECONDARY_ID, webview, {
 			webviewOptions: { retainContextWhenHidden: true },
 		}),
+	)
+
+	// Button #1's panel (the primary-bar Sessions container) hosts the CHAT view (kind=chat):
+	// the "What can I do for you?" home (history preview + prompt input) when no chat is open,
+	// and the current chat in the same panel when one is. A SEPARATE provider instance
+	// (delegating to the shared controller) so it coexists with the secondary chat without the
+	// single-provider collision bug. Button #1's open/create-in-Settings-location behavior runs
+	// when this view becomes visible (VscodeSessionsWebviewProvider, V5).
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(
+			VscodeSessionsWebviewProvider.SIDEBAR_CHAT_ID,
+			new VscodeSessionsWebviewProvider(context),
+			{
+				webviewOptions: { retainContextWhenHidden: true },
+			},
+		),
 	)
 
 	// NOTE: Commands must be added to the internal registry before registering them with VSCode
 	const { commands } = ExtensionRegistryInfo
 
+	// Cline Cubed: every new-chat button routes through the ONE shared openOrCreateChat
+	// (hosts/vscode/chatEditorPanel.ts) — a sidebar holds one chat; further chats overflow to
+	// editor tabs; the editor always gets a fresh tab. No button touches an existing chat.
 	context.subscriptions.push(
 		vscode.commands.registerCommand(commands.PlusButton, async () => {
-			const sidebarInstance = WebviewProvider.getInstance()
+			const sidebarInstance = WebviewProvider.getInstance() as VscodeWebviewProvider
 			telemetryService.captureNewTaskClicked("activity_bar_plus", !!sidebarInstance.controller.task)
-			await sidebarInstance.controller.clearTask()
-			await sidebarInstance.controller.postStateToWebview()
-			await sendChatButtonClickedEvent()
+			await openOrCreateChat(
+				context,
+				sidebarInstance,
+				sidebarInstance.controller.stateManager.getGlobalSettingsKey("newChatLocation"),
+			)
 		}),
 	)
-	context.subscriptions.push(vscode.commands.registerCommand(commands.McpButton, () => sendMcpButtonClickedEvent()))
 	context.subscriptions.push(
-		vscode.commands.registerCommand(commands.MarketplaceButton, () => sendMarketplaceButtonClickedEvent()),
+		vscode.commands.registerCommand(commands.NewChatPane, async () => {
+			const sidebarInstance = WebviewProvider.getInstance() as VscodeWebviewProvider
+			await openOrCreateChat(
+				context,
+				sidebarInstance,
+				sidebarInstance.controller.stateManager.getGlobalSettingsKey("newChatLocation"),
+			)
+		}),
 	)
-	context.subscriptions.push(vscode.commands.registerCommand(commands.SettingsButton, () => sendSettingsButtonClickedEvent()))
-	context.subscriptions.push(vscode.commands.registerCommand(commands.HistoryButton, () => sendHistoryButtonClickedEvent()))
-	context.subscriptions.push(vscode.commands.registerCommand(commands.AccountButton, () => sendAccountButtonClickedEvent()))
-	context.subscriptions.push(vscode.commands.registerCommand(commands.WorktreesButton, () => sendWorktreesButtonClickedEvent()))
+	// Button #2 — the Cline Cubed icon at the top of the Editor area. Like EVERY chat button it
+	// follows the "Where new chat sessions open" setting (Doug, 2026-08-27) — a freshly saved
+	// setting is the user's explicit intent; the button's own placement is incidental.
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.OpenChatInEditor, async () => {
+			const sidebarInstance = WebviewProvider.getInstance() as VscodeWebviewProvider
+			await openOrCreateChat(
+				context,
+				sidebarInstance,
+				sidebarInstance.controller.stateManager.getGlobalSettingsKey("newChatLocation"),
+			)
+		}),
+	)
+	// Button #3 — the Cline Cubed icon at the top of the Secondary sidebar's chat area. Follows
+	// the setting, same as every other chat button.
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.OpenChatInSecondary, async () => {
+			const sidebarInstance = WebviewProvider.getInstance() as VscodeWebviewProvider
+			await openOrCreateChat(
+				context,
+				sidebarInstance,
+				sidebarInstance.controller.stateManager.getGlobalSettingsKey("newChatLocation"),
+			)
+		}),
+	)
+	// Cline Cubed: the chats panel's OWN toolbar buttons. The chat views' equivalents fire at the
+	// ACTIVE CHAT surface — from the chats panel that drove a different chat, and did nothing at
+	// all when no chat was open. These act on the panel they were clicked in.
+	for (const [command, panel] of [
+		[commands.ChatsListMarketplace, "marketplace"],
+		[commands.ChatsListAccount, "account"],
+		[commands.ChatsListSettings, "settings"],
+	] as const) {
+		context.subscriptions.push(
+			vscode.commands.registerCommand(command, () => {
+				VscodeSessionsWebviewProvider.getChatInstance()?.showPanel(panel)
+			}),
+		)
+	}
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.OpenOnboarding, async () => {
+			// Command-palette path back to the Get Started (onboarding) screen — the screen new
+			// users see, which also carries the "Where new chat sessions open" chooser (V4).
+			// A dedicated flag drives it, so we NEVER pretend the user is new (Doug 2026-08-26):
+			// welcomeViewCompleted stays untouched; "Back to chat" or completing the flow clears
+			// the flag.
+			// Cline Cubed: onboarding is shown in ONE chat — the surface being revealed — not in
+			// every open chat. It is delivered as a targeted message rather than global state,
+			// because global state reaches every surface by definition.
+			const sidebarInstance = WebviewProvider.getInstance()
+			const surface = await revealChatSurface(
+				context,
+				webview,
+				sidebarInstance.controller.stateManager.getGlobalSettingsKey("newChatLocation"),
+			)
+			surface?.postMessage({ type: "showOnboarding" })
+		}),
+	)
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.McpButton, () => sendMcpButtonClickedEvent(getActiveChatSurface())),
+	)
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.MarketplaceButton, () =>
+			sendMarketplaceButtonClickedEvent(getActiveChatSurface()),
+		),
+	)
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.SettingsButton, () => sendSettingsButtonClickedEvent(getActiveChatSurface())),
+	)
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.HistoryButton, () => sendHistoryButtonClickedEvent(getActiveChatSurface())),
+	)
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.AccountButton, () => sendAccountButtonClickedEvent(getActiveChatSurface())),
+	)
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.WorktreesButton, () => sendWorktreesButtonClickedEvent(getActiveChatSurface())),
+	)
 
 	context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(DIFF_VIEW_URI_SCHEME, diffContentProvider))
 
@@ -225,7 +342,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				// Ensure the sidebar view is visible but preserve editor focus
 				await showWebview(true)
 
-				await sendAddToInputEvent(`Terminal output:\n\`\`\`\n${terminalContents}\n\`\`\``)
+				await sendAddToInputEvent(`Terminal output:\n\`\`\`\n${terminalContents}\n\`\`\``, getActiveChatSurface())
 
 				Logger.log("addSelectedTerminalOutputToChat", terminalContents, terminal.name)
 			} catch (error) {
@@ -349,20 +466,20 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand(commands.FocusChatInput, async (preserveEditorFocus = false) => {
 			const webview = WebviewProvider.getInstance() as VscodeWebviewProvider
 
-			// Show the webview
-			const webviewView = webview.getWebview()
-			if (webviewView) {
-				if (preserveEditorFocus) {
-					// Only make webview visible without forcing focus
-					webviewView.show(false)
-				} else {
-					// Show and force focus (default behavior for explicit focus actions)
-					webviewView.show(true)
-				}
-			}
+			// Cline Cubed: chats live in the primary sidebar, the secondary sidebar, or editor
+			// tabs. Jump to the chat the user is WORKING IN — never force one fixed surface open.
+			// With no chat known, open the configured location. The whole code-action family
+			// (Add to Chat, Explain, Improve, terminal output, Jupyter) funnels through here via
+			// commandUtils.showWebview, so this is their multi-chat behavior too.
+			const { surfaceId } = await revealChatSurfaceById(
+				context,
+				webview,
+				getActiveChatSurface(),
+				webview.controller.stateManager.getGlobalSettingsKey("newChatLocation"),
+			)
 
-			// Send show webview event with preserveEditorFocus flag
-			sendShowWebviewEvent(preserveEditorFocus)
+			// Focus the input of THAT chat only.
+			sendShowWebviewEvent(preserveEditorFocus, surfaceId)
 			telemetryService.captureButtonClick("command_focusChatInput", webview.controller?.task?.ulid)
 		}),
 	)
@@ -607,7 +724,7 @@ async function openClineSidebarForTaskUri(): Promise<void> {
 	const sidebarWaitTimeoutMs = 3000
 	const sidebarWaitIntervalMs = 50
 
-	await vscode.commands.executeCommand(`${ExtensionRegistryInfo.views.Sidebar}.focus`)
+	await vscode.commands.executeCommand(`${ExtensionRegistryInfo.views.SidebarSecondary}.focus`)
 
 	const startedAt = Date.now()
 	while (Date.now() - startedAt < sidebarWaitTimeoutMs) {

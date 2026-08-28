@@ -1,5 +1,13 @@
+import {
+	bindChatSurfaceToSession,
+	registerChatSurface,
+	sessionForChatSurface,
+	setActiveChatSurface,
+	setChatSurfaceEvictionNotifier,
+} from "@core/controller/chat-surfaces"
 import { sendShowWebviewEvent } from "@core/controller/ui/subscribeToShowWebview"
 import { WebviewProvider } from "@core/webview"
+import { mintSurfaceId } from "@core/webview/WebviewProvider"
 import * as vscode from "vscode"
 import { handleGrpcRequest, handleGrpcRequestCancel } from "@/core/controller/grpc-handler"
 import { HostProvider } from "@/hosts/host-provider"
@@ -17,11 +25,18 @@ https://github.com/KumarVariable/vscode-extension-sidebar-html/blob/master/src/c
 export class VscodeWebviewProvider extends WebviewProvider implements vscode.WebviewViewProvider {
 	// Used in package.json as the view's id. This value cannot be changed due to how vscode caches
 	// views based on their id, and updating the id would break existing instances of the extension.
-	public static readonly SIDEBAR_ID = ExtensionRegistryInfo.views.Sidebar
+	public static readonly SIDEBAR_SECONDARY_ID = ExtensionRegistryInfo.views.SidebarSecondary
 
 	private webview?: vscode.WebviewView
 	private disposables: vscode.Disposable[] = []
 	private hasResolvedView = false
+	/** Cline Cubed: this surface's routing id — state and transcript are addressed to it. */
+	private readonly surfaceId = mintSurfaceId("secondary-sidebar")
+
+	/** Cline Cubed: the routing id of this chat surface. */
+	public getSurfaceId(): string {
+		return this.surfaceId
+	}
 
 	override getWebviewUrl(path: string) {
 		if (!this.webview) {
@@ -65,10 +80,24 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 			localResourceRoots: [vscode.Uri.file(HostProvider.get().extensionFsPath)],
 		}
 
+		// Cline Cubed: the surface is registered and given its identity in the HTML before the
+		// bundle loads, so it is addressable from its first render.
+		registerChatSurface(this.surfaceId, sessionForChatSurface(this.surfaceId) ?? null)
+		// If this surface's session is ever reopened elsewhere (evicted), tell THIS webview to
+		// step back to the home rather than freeze on a stale copy of the moved chat.
+		setChatSurfaceEvictionNotifier(this.surfaceId, () => {
+			void this.postMessageToWebview({ type: "showNewChatHome" })
+		})
+		if (webviewView.visible) {
+			// This chat is in front of the user from the moment it resolves — claim the active
+			// slot now, not only on the next visibility CHANGE.
+			setActiveChatSurface(this.surfaceId)
+		}
+		const identity = { surfaceId: this.surfaceId, sessionId: sessionForChatSurface(this.surfaceId) ?? null }
 		webviewView.webview.html =
 			this.context.extensionMode === vscode.ExtensionMode.Development
-				? await this.getHMRHtmlContent()
-				: this.getHtmlContent()
+				? await this.getHMRHtmlContent(undefined, identity)
+				: this.getHtmlContent(undefined, identity)
 
 		// Sets up an event listener to listen for messages passed from the webview view context
 		// and executes code based on the message that is received
@@ -87,9 +116,12 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 		webviewView.onDidChangeVisibility(
 			async () => {
 				if (this.webview?.visible) {
+					// Cline Cubed: this chat is now the one the user is working in, so
+					// command-palette actions and toolbar buttons aim here.
+					setActiveChatSurface(this.surfaceId)
 					telemetryService.capturePanelOpened("sidebar_visible")
 					// View becoming visible should not steal editor focus.
-					await sendShowWebviewEvent(true)
+					await sendShowWebviewEvent(true, this.surfaceId)
 				}
 			},
 			null,
@@ -174,7 +206,7 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 		switch (message.type) {
 			case "grpc_request": {
 				if (message.grpc_request) {
-					await handleGrpcRequest(this.controller, postMessageToWebview, message.grpc_request)
+					await handleGrpcRequest(this.controller, postMessageToWebview, message.grpc_request, this.surfaceId)
 				}
 				break
 			}
@@ -182,6 +214,24 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 				if (message.grpc_request_cancel) {
 					await handleGrpcRequestCancel(postMessageToWebview, message.grpc_request_cancel)
 				}
+				break
+			}
+			case "bindSurfaceSession": {
+				// Cline Cubed: this surface now shows that session — deliver its state and
+				// transcript here, and release any other surface that was claiming it.
+				bindChatSurfaceToSession(this.surfaceId, message.sessionId ?? null)
+				if (typeof message.sessionId === "string") {
+					// A surface binding AFTER a session's opening state post would miss that
+					// snapshot — repost that session's state so the first render cannot be skipped.
+					await this.controller.postStateToWebview(message.sessionId)
+				}
+				break
+			}
+			case "dismissOnboarding": {
+				// The user left the "Cline Cubed: Get Started" re-view — clear the flag WITHOUT
+				// touching welcomeViewCompleted (we never pretend to be a new user).
+				this.controller.stateManager.setGlobalState("clineCubedShowOnboarding", false)
+				await this.controller.postStateToWebview()
 				break
 			}
 			default: {
@@ -198,6 +248,12 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 	 */
 	private async postMessageToWebview(message: ExtensionMessage): Promise<boolean | undefined> {
 		return this.webview?.webview.postMessage(message)
+	}
+
+	/** Cline Cubed: targeted host→webview message for THIS surface. Other chat surfaces never
+	 *  receive it. */
+	public sendMessageToWebview(message: ExtensionMessage): void {
+		void this.webview?.webview.postMessage(message)
 	}
 
 	/**

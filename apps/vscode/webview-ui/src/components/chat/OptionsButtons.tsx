@@ -2,6 +2,7 @@ import { AskResponseRequest } from "@shared/proto/cline/task"
 import { useState } from "react"
 import styled from "styled-components"
 import { CODE_BLOCK_BG_COLOR } from "@/components/common/CodeBlock"
+import { useExtensionState } from "@/context/ExtensionStateContext"
 import { TaskServiceClient } from "@/services/grpc-client"
 
 const OptionButton = styled.button<{ $isSelected?: boolean; $isNotSelectable?: boolean }>`
@@ -35,6 +36,7 @@ export const OptionsButtons = ({
 	isActive?: boolean
 	inputValue?: string
 }) => {
+	const { getSurfaceBoundTaskId } = useExtensionState()
 	const optionItems = options ?? []
 	const optionsKey = optionItems.join("\u0000")
 	const optimisticSelectionKey = `${selected ?? ""}\u0001${optionsKey}`
@@ -81,6 +83,8 @@ export const OptionsButtons = ({
 									responseType: "messageResponse",
 									text: option + (inputValue ? `: ${inputValue?.trim()}` : ""),
 									images: [],
+									// Cline Cubed: answer the chat this button belongs to.
+									sessionId: getSurfaceBoundTaskId() ?? "",
 								}),
 							)
 						} catch (error) {

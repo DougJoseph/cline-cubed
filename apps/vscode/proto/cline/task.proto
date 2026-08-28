@@ -21,6 +21,9 @@ service TaskService {
   rpc proceedWhileRunningCommand(EmptyRequest) returns (Empty);
   // Clears the current task
   rpc clearTask(EmptyRequest) returns (Empty);
+  // Cline Cubed: close ONE chat session by id. Ends that session and clears its task —
+  // never the focused one, which may belong to a different chat surface.
+  rpc closeTaskSession(StringRequest) returns (Empty);
   // Gets the total size of all tasks
   rpc getTotalTasksSize(EmptyRequest) returns (Int64);
   // Deletes multiple tasks with the given IDs
@@ -33,6 +36,9 @@ service TaskService {
   rpc exportTaskWithId(StringRequest) returns (Empty);
   // Toggles the favorite status of a task
   rpc toggleTaskFavorite(TaskFavoriteRequest) returns (Empty);
+
+  // Cline Cubed: rename a chat without touching its first prompt.
+  rpc setTaskTitle(TaskTitleRequest) returns (Empty);
   // Gets filtered task history
   rpc getTaskHistory(GetTaskHistoryRequest) returns (TaskHistoryArray);
   // Sends a response to a previous ask operation
@@ -56,6 +62,14 @@ message NewTaskRequest {
   optional Settings task_settings = 5;
 }
 
+// Cline Cubed: request message for renaming a chat. An empty/blank title CLEARS the custom name,
+// which restores the chat's first prompt as its displayed name.
+message TaskTitleRequest {
+  Metadata metadata = 1;
+  string task_id = 2;
+  string title = 3;
+}
+
 // Request message for toggling task favorite status
 message TaskFavoriteRequest {
   Metadata metadata = 1;
@@ -77,6 +91,9 @@ message TaskResponse {
   int32 cache_reads = 10;
   string model_id = 11;
   bool is_legacy = 12;
+  // Cline Cubed: the chat's own name, when it has been renamed. Empty means the chat has never
+  // been renamed and is displayed by its first prompt (`task`) instead.
+  string title = 13;
 }
 
 // Request for getting task history with filtering
@@ -110,6 +127,9 @@ message TaskItem {
   int32 cache_reads = 10;
   string model_id = 11;
   bool is_legacy = 12;
+  // Cline Cubed: the chat's own name, when it has been renamed. Empty means the chat has never
+  // been renamed and is displayed by its first prompt (`task`) instead.
+  string title = 13;
 }
 
 // Request for ask response operation
@@ -119,6 +139,10 @@ message AskResponseRequest {
   string text = 3;
   repeated string images = 4;
   repeated string files = 5;
+  // Cline Cubed (V6): the target session this response is for. The webview fills it from its
+  // bound surface session; the host routes to that session so a message can never land in
+  // another chat (Claude Code's per-session model).
+  string session_id = 6;
 }
 
 // Request for editing a past user message and regenerating the conversation after it

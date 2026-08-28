@@ -33,7 +33,8 @@ export interface SdkFollowupCoordinatorOptions {
 	messages: SdkMessageCoordinator
 	taskHistory: SdkTaskHistory
 	sessionConfigBuilder: SdkSessionConfigBuilder
-	getTask: () => TaskProxy | undefined
+	/** Cline Cubed: `sessionId` selects that session's own proxy; omitted = the focused chat. */
+	getTask: (sessionId?: string) => TaskProxy | undefined
 	createTempSessionHost: () => Promise<SdkSessionHost>
 	getWorkspaceRoot: () => Promise<string>
 	loadInitialMessages: (sessionHost: SdkSessionHost, taskId: string) => Promise<unknown[] | undefined>
@@ -70,6 +71,12 @@ export class SdkFollowupCoordinator {
 		files?: string[],
 		askResponse?: ClineAskResponse,
 		turnPhaseAtSubmit?: TurnPhase,
+		/**
+		 * Cline Cubed: the session this response belongs to — the chat surface it was sent from.
+		 * Chats run side by side, so the target is the session that ASKED, never whichever
+		 * session happens to be focused.
+		 */
+		targetSessionId?: string,
 	): Promise<void> {
 		if (this.options.interactions.resolvePendingToolApproval(prompt, askResponse, images, files)) {
 			return
@@ -79,8 +86,10 @@ export class SdkFollowupCoordinator {
 			return
 		}
 
-		const activeSession = this.options.sessions.getActiveSession()
-		const task = this.options.getTask()
+		// Cline Cubed: address the response's own session when one is named and still live.
+		const targetSession = targetSessionId ? this.options.sessions.getLiveSession(targetSessionId) : undefined
+		const activeSession = targetSession ?? this.options.sessions.getActiveSession()
+		const task = targetSessionId ? (this.options.getTask(targetSessionId) ?? this.options.getTask()) : this.options.getTask()
 		const submittedDuringActiveTurn = turnPhaseAtSubmit === "streaming" || turnPhaseAtSubmit === "awaiting_approval"
 		if (activeSession && (activeSession.isRunning || submittedDuringActiveTurn)) {
 			await this.queueToActiveSession(activeSession, prompt, images, files)
@@ -103,7 +112,9 @@ export class SdkFollowupCoordinator {
 				return
 			}
 
-			const currentSession = this.options.sessions.getActiveSession()
+			const currentSession =
+				(targetSessionId ? this.options.sessions.getLiveSession(targetSessionId) : undefined) ??
+				this.options.sessions.getActiveSession()
 			if (currentSession && (currentSession.isRunning || submittedDuringActiveTurn)) {
 				await this.queueToActiveSession(currentSession, prompt, images, files)
 				return

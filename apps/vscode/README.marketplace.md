@@ -1,8 +1,22 @@
-# Cline Cubed (image bridge)
+# Cline Cubed
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/DougJoseph/cline-cubed/main/assets/icons/icon.png" width="128" alt="Cline Cubed (image bridge)" />
+  <img src="https://raw.githubusercontent.com/DougJoseph/cline-cubed/main/assets/icons/icon.png" width="128" alt="Cline Cubed" />
 </p>
+
+Want to have multiple Cline chats running at the same time? **Get Cline Cubed!**
+
+Want to use affordable text-only models for Plan mode and Act mode, yet still paste
+an image and have your chat understand it? **Get Cline Cubed!**
+
+Cline Cubed adds a third model channel — **Image Mode**. When you add an image to a
+prompt or reply and your Plan/Act model can't see images, the image is routed to your
+Image Mode model first and its description is added to your prompt as text. And you
+can run multiple chat sessions at once, each with its own conversation.
+
+If you love Cline but want more of it, get Cline Cubed.
+
+---
 
 A fork of [Cline](https://github.com/cline/cline) that adds a third **Image Mode**
 model channel. When you paste an image into a chat running a non-vision model
@@ -21,6 +35,61 @@ raw image bytes.
   model, URL, image type/size, auth, status) to the output channel and shows the
   most recent calls inline under failed bridge blocks, with a one-click toggle
   right in the chat.
+
+## Chat layout (mirrors Claude Code)
+
+Three chat buttons are always visible — the Cline Cubed icon in the left activity bar, at
+the top of the Editor, and at the top of the Secondary sidebar chat. Every one opens or
+creates a chat **in the location chosen in Settings**.
+
+Every button behaves the same way. When the target area has **no chat**, it shows the
+**"What can I do for you?"** home — a chat whose default is also the history chooser
+(recent chats, plus the prompt input at the bottom to start a new task). When a chat is
+**already there**, the button opens a **new, independent chat beside it** and leaves the
+existing one running, untouched.
+
+That gives you **multiple chat sessions side by side** — each keyed to its own
+conversation, each showing its own work. The sidebar hosts one chat at full height;
+further chats open as editor tabs, which you can arrange side by side. A chat lives in
+one place: open it somewhere else and it moves there, with its old spot returning to
+the home.
+
+New chat sessions open in the location picked by the **"Where new chat sessions open"**
+setting (Settings → General, or the chooser right on the chat home):
+
+- **Secondary sidebar** (typically right) — the default
+- **Editor area** (new tab)
+
+The setting governs where new chats open; chats you already have open stay where they
+are. A gear button in the chat input row opens Settings quickly.
+
+## Your chats, listed
+
+The left activity-bar icon opens a **chats list** rather than a chat: the chats open right now
+sit at the top, each labelled with where it is, and your full history follows underneath. A New
+Chat button sits above them, and the Settings, Account, and Marketplace buttons open right there
+in the panel instead of commandeering one of your running chats.
+
+Clicking a row opens that chat — one target, one outcome. The per-row controls appear on hover at
+the right: details, favorite, and delete. There is no checkbox column and no full-width red delete
+button; clearing the whole history is a single quiet control under the list. The chats list and
+the history panel inside a chat are the same component, so both behave identically.
+
+Opening a chat into a new editor column evens the column widths, so a new chat never arrives as a
+sliver beside a wide one.
+
+## Name your chats
+
+Every chat is displayed by its first prompt until you give it a name of its own. Hover the name at
+the top of a chat, or anywhere on a row in the chats list or history — the name highlights and a
+pencil appears; click either to edit it in place. Enter or clicking away commits, Escape cancels,
+and clearing the box restores the first prompt, so a rename is always undoable.
+
+Renaming never rewrites what you actually typed: the name is stored in a field of its own, and your
+first prompt stays intact in the chat's expanded details. The name shows everywhere the chat is
+listed — the header at the top of the chat, history rows, the home screen's recent list, and the
+chats list — and fuzzy search matches it as well as the prompt, so a renamed chat is findable by
+its new name.
 
 ## Setup
 

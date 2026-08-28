@@ -21,22 +21,29 @@ type AgentFailureTelemetry = Pick<ProviderFailureTelemetry, "sessionId" | "error
 
 export interface SdkSessionEventCoordinatorOptions {
 	messageTranslatorState: MessageTranslatorState
+	/**
+	 * Cline Cubed: the translator belonging to a session. Chats stream side by side, and the
+	 * translator holds single-stream bookkeeping, so each session translates through its own.
+	 */
+	getTranslatorFor: (sessionId?: string) => MessageTranslatorState
 	sessions: SdkSessionLifecycle
 	messages: SdkMessageCoordinator
 	taskHistory: SdkTaskHistory
 	getTask: () => TaskProxy | undefined
-	postStateToWebview: () => Promise<void>
+	/** Cline Cubed: post state for a SPECIFIC session (undefined = focused). */
+	postStateToWebview: (sessionId?: string) => Promise<void>
 	stateManager?: StateManager
 	translateSessionEvent?: (event: CoreSessionEvent, state: MessageTranslatorState) => TranslationResult
 	isClineFreeModel?: () => Promise<boolean>
 	/**
 	 * Set the authoritative UI turn phase. Called as the agent streams (streaming), on a
 	 * completed turn (completed if attempt_completion was used, else awaiting_followup), and on
-	 * error. Optional for tests.
+	 * error. `sessionId` targets a specific session's tracker (V7); undefined targets the
+	 * focused session. Optional for tests.
 	 */
-	setTurnPhase?: (phase: TurnPhase, anchorTs?: number) => void
-	/** Current authoritative UI turn phase, from the controller's TurnStateTracker. */
-	getTurnPhase?: () => TurnPhase
+	setTurnPhase?: (phase: TurnPhase, anchorTs?: number, sessionId?: string) => void
+	/** Current authoritative UI turn phase for a session, from the controller's trackers. */
+	getTurnPhase?: (sessionId?: string) => TurnPhase
 	captureProviderApiError?: (event: ProviderFailureTelemetry) => void
 	beginProviderFailureTelemetryTurn?: () => void
 }
@@ -51,23 +58,27 @@ export class SdkSessionEventCoordinator {
 	async handleSessionEvent(event: CoreSessionEvent): Promise<void> {
 		this.logQueueEvents(event)
 
-		const activeSession = this.options.sessions.getActiveSession()
-		if (!activeSession || event.payload.sessionId !== activeSession.sessionId) {
-			Logger.debug(
-				`[SdkController] Ignoring stale SDK event for session ${event.payload.sessionId}; active=${activeSession?.sessionId ?? "none"}`,
-			)
+		const sessionId = event.payload.sessionId
+		// Cline Cubed: sessions coexist — accept events for ANY live session. Only events for
+		// sessions that are no longer live (closed/replaced) are stale stragglers and dropped.
+		const session = this.options.sessions.getLiveSession(sessionId)
+		if (!session) {
+			Logger.debug(`[SdkController] Ignoring event for closed/replaced session ${sessionId}`)
 			return
 		}
 
 		if (event.type === "pending_prompts") {
-			this.options.postStateToWebview().catch((err) => {
+			this.options.postStateToWebview(sessionId).catch((err) => {
 				Logger.error("[SdkController] Failed to post pending-prompt state update:", err)
 			})
 		}
 
-		const result = this.translateSessionEvent(event, this.options.messageTranslatorState)
+		// Cline Cubed: translate through the EVENT'S OWN session, so concurrent streams cannot
+		// overwrite each other's in-flight rows.
+		const translator = this.options.getTranslatorFor(sessionId)
+		const result = this.translateSessionEvent(event, translator)
 		const agentFailure = this.getAgentFailureTelemetry(event)
-		if (agentFailure && !this.options.messageTranslatorState.isSuppressedToolApprovalDenial(agentFailure.error)) {
+		if (agentFailure && !translator.isSuppressedToolApprovalDenial(agentFailure.error)) {
 			this.options.captureProviderApiError?.({
 				sessionId: agentFailure.sessionId,
 				error: agentFailure.error,
@@ -77,16 +88,16 @@ export class SdkSessionEventCoordinator {
 		}
 		if (event.type === "pending_prompt_submitted") {
 			this.options.beginProviderFailureTelemetryTurn?.()
-			this.options.messageTranslatorState.clearTurnOutcome()
-			this.options.sessions.setRunning(true)
-			this.options.setTurnPhase?.(PROVIDER_FAILURE_PHASE.STREAMING)
+			translator.clearTurnOutcome()
+			this.options.sessions.setRunning(true, sessionId)
+			this.options.setTurnPhase?.(PROVIDER_FAILURE_PHASE.STREAMING, undefined, sessionId)
 		}
 		const zeroCostPromise = this.zeroCostForFreeClineModel(result)
 		if (zeroCostPromise) {
 			await zeroCostPromise
 		}
 
-		if (!activeSession.isRunning && result.messages.length > 0) {
+		if (!session.isRunning && result.messages.length > 0) {
 			result.messages = result.messages.filter(
 				(m) => !(m.type === "ask" && (m.ask === "completion_result" || m.ask === "resume_completed_task")),
 			)
@@ -96,62 +107,55 @@ export class SdkSessionEventCoordinator {
 			this.options.messages.appendAndEmit(result.messages, event)
 		}
 
-		if (activeSession) {
-			if (result.sessionEnded || result.turnComplete) {
-				// Authoritative UI phase at turn end. If the completion tool was used this turn
-				// the phase is "completed" (green box + Start New Task); otherwise the agent
-				// simply stopped and is waiting for the user ("awaiting_followup"). Error turns
-				// are surfaced as the error phase. The webview reads this, not the array tail.
-				//
-				// EXCEPTION: a turn-complete from a turn that was cancelled (cancelTask set phase
-				// "resumable" and aborted) is a straggler. Overwriting it here would clobber
-				// "resumable" with "awaiting_followup"/"completed" and the footer would lose the
-				// Resume Task button (showing the scroll-arrow default instead), so the cancel-set
-				// phase is preserved. Check the phase itself, not just isRunning: when the SDK
-				// drains a queued prompt at turn end, the PREVIOUS turn's send promise settles
-				// after the new turn already started and its completion bookkeeping flips
-				// isRunning back to false mid-turn (see fireAndForgetSend). Keying on isRunning
-				// alone made the queued turn's real completion look like this straggler, leaving
-				// the phase stuck on "streaming" (endless Thinking).
-				if (!activeSession.isRunning && this.options.getTurnPhase?.() === "resumable") {
-					Logger.debug("[SdkController] turn-complete straggler after cancel; preserving resumable phase")
-				} else if (this.options.messageTranslatorState.wasErrorSeen()) {
-					// The turn surfaced a provider error (ask:"api_req_failed" was emitted) —
-					// offer error recovery (Retry / Start New Task), not the followup state.
-					this.options.setTurnPhase?.("error")
-				} else if (this.options.messageTranslatorState.wasAttemptCompletionSeen()) {
-					this.options.setTurnPhase?.("completed")
-				} else {
-					this.options.setTurnPhase?.("awaiting_followup")
-				}
-
-				this.options.sessions.setRunning(false)
+		if (result.sessionEnded || result.turnComplete) {
+			// Authoritative UI phase at turn end. If the completion tool was used this turn
+			// the phase is "completed" (green box + Start New Task); otherwise the agent
+			// simply stopped and is waiting for the user ("awaiting_followup"). Error turns
+			// are surfaced as the error phase. The webview reads this, not the array tail.
+			//
+			// EXCEPTION: a turn-complete from a turn that was cancelled (cancelTask set phase
+			// "resumable" and aborted) is a straggler. Overwriting it here would clobber
+			// "resumable" with "awaiting_followup"/"completed" and the footer would lose the
+			// Resume Task button (showing the scroll-arrow default instead), so the cancel-set
+			// phase is preserved. Check the phase itself, not just isRunning: when the SDK
+			// drains a queued prompt at turn end, the PREVIOUS turn's send promise settles
+			// after the new turn already started and its completion bookkeeping flips
+			// isRunning back to false mid-turn (see fireAndForgetSend). Keying on isRunning
+			// alone made the queued turn's real completion look like this straggler, leaving
+			// the phase stuck on "streaming" (endless Thinking).
+			if (!session.isRunning && this.options.getTurnPhase?.(sessionId) === "resumable") {
+				Logger.debug("[SdkController] turn-complete straggler after cancel; preserving resumable phase")
+			} else if (translator.wasErrorSeen()) {
+				// The turn surfaced a provider error (ask:"api_req_failed" was emitted) —
+				// offer error recovery (Retry / Start New Task), not the followup state.
+				this.options.setTurnPhase?.("error", undefined, sessionId)
+			} else if (translator.wasAttemptCompletionSeen()) {
+				this.options.setTurnPhase?.("completed", undefined, sessionId)
+			} else {
+				this.options.setTurnPhase?.("awaiting_followup", undefined, sessionId)
 			}
 
-			if (result.usage && activeSession.startResult) {
-				Promise.resolve(
-					this.options.taskHistory.updateTaskUsage(
-						this.options.getTask()?.taskId ?? this.options.sessions.getActiveSession()?.sessionId,
-						result.usage,
-					),
-				).catch((error) => {
-					Logger.error("[SdkController] Failed to persist task usage:", error)
-				})
-			}
+			this.options.sessions.setRunning(false, sessionId)
+		}
+
+		if (result.usage && session.startResult) {
+			Promise.resolve(this.options.taskHistory.updateTaskUsage(sessionId, result.usage)).catch((error) => {
+				Logger.error("[SdkController] Failed to persist task usage:", error)
+			})
 		}
 
 		// Post state when there are messages to ship OR when the turn ended. A clean turn end's
 		// `done` event carries no transcript message, yet the authoritative phase just changed to
 		// completed/awaiting_followup/error above; without posting here the webview would stay on
 		// the prior phase (footer stuck on the streaming/scroll state). The webview reducer gates
-		// turnState by seq, so an extra no-message post is safe.
+		// turnState by seq, so an extra no-message post is safe. (V7: posted for THIS session.)
 		if (
 			result.messages.length > 0 ||
 			result.sessionEnded ||
 			result.turnComplete ||
 			event.type === "pending_prompt_submitted"
 		) {
-			this.options.postStateToWebview().catch((err) => {
+			this.options.postStateToWebview(sessionId).catch((err) => {
 				Logger.error("[SdkController] Failed to post state after event:", err)
 			})
 		}

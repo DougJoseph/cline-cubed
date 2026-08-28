@@ -5,6 +5,7 @@ import { GrpcRequestRegistry } from "@/core/controller/grpc-request-registry"
 import { ExtensionMessage } from "@/shared/ExtensionMessage"
 import { Logger } from "@/shared/services/Logger"
 import { GrpcCancel, GrpcRequest } from "@/shared/WebviewMessage"
+import { tagStreamWithSurface } from "./chat-surfaces"
 
 /**
  * Type definition for a streaming response handler
@@ -54,6 +55,13 @@ export async function handleGrpcRequest(
 	controller: Controller,
 	postMessageToWebview: PostMessageToWebview,
 	request: GrpcRequest,
+	/**
+	 * Cline Cubed: the chat surface this request came from. Streaming subscriptions opened by
+	 * this request are tagged with it, so state and transcript updates are delivered to the
+	 * surface that owns the session rather than to every open webview. Optional — a consumer
+	 * without surface identity (standalone host, tests) keeps the previous behaviour.
+	 */
+	surfaceId?: string,
 ): Promise<void> {
 	recordRequest(request, controller)
 
@@ -61,7 +69,7 @@ export async function handleGrpcRequest(
 	const postMessageWithRecording = withRecordingMiddleware(postMessageToWebview, controller)
 
 	if (request.is_streaming) {
-		await handleStreamingRequest(controller, postMessageWithRecording, request)
+		await handleStreamingRequest(controller, postMessageWithRecording, request, surfaceId)
 	} else {
 		await handleUnaryRequest(controller, postMessageWithRecording, request)
 	}
@@ -114,6 +122,7 @@ async function handleStreamingRequest(
 	controller: Controller,
 	postMessageToWebview: PostMessageToWebview,
 	request: GrpcRequest,
+	surfaceId?: string,
 ): Promise<void> {
 	// Create a response stream function
 	const responseStream: StreamingResponseHandler<any> = async (
@@ -130,6 +139,12 @@ async function handleStreamingRequest(
 				sequence_number: sequenceNumber,
 			},
 		})
+	}
+
+	// Cline Cubed: bind this subscription to its chat surface before the handler registers it,
+	// so the send path can address surfaces individually.
+	if (surfaceId) {
+		tagStreamWithSurface(responseStream, surfaceId)
 	}
 
 	try {

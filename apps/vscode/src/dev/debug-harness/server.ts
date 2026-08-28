@@ -554,6 +554,47 @@ class DebugHarness {
 		return null
 	}
 
+	/**
+	 * Cline Cubed: find EVERY live chat webview frame.
+	 *
+	 * `findSidebar()` returns only the first one, which is not enough when several chat surfaces
+	 * are open side by side (primary sidebar, secondary sidebar, editor panels). Frames are
+	 * sorted by URL so the index is stable within a run — each VS Code webview has its own
+	 * origin GUID, making the URL a reliable per-surface identity.
+	 */
+	private async findChatFrames(): Promise<Frame[]> {
+		if (!this.page) return []
+		const found: { frame: Frame; url: string }[] = []
+		for (const frame of this.page.frames()) {
+			if (frame.isDetached()) continue
+			try {
+				const title = await frame.title()
+				if (title.startsWith("Cline")) {
+					found.push({ frame, url: frame.url() })
+				}
+			} catch {}
+		}
+		found.sort((a, b) => a.url.localeCompare(b.url))
+		return found.map((f) => f.frame)
+	}
+
+	/**
+	 * Cline Cubed: resolve a `surface:<n>` frame selector to the nth chat webview.
+	 * Waits for at least n+1 chat surfaces to exist so a scenario can open a second chat and
+	 * address it without hand-rolled sleeps.
+	 */
+	private async findChatFrame(index: number, timeoutMs = 15000): Promise<Frame> {
+		const start = Date.now()
+		let seen = 0
+		while (Date.now() - start < timeoutMs) {
+			const frames = await this.findChatFrames()
+			seen = frames.length
+			if (frames.length > index) return frames[index]
+			await sleep(300)
+		}
+		throw new Error(`Chat surface ${index} not found (only ${seen} chat surface(s) open)`)
+	}
+
 	async shutdown(): Promise<any> {
 		this.extCdp.close()
 		this.webCdp?.close()
@@ -902,18 +943,32 @@ class DebugHarness {
 
 	async uiFrames(): Promise<any> {
 		if (!this.page) throw new Error("VSCode not running")
-		const frames: { name: string; url: string; title: string; detached: boolean }[] = []
+		// Cline Cubed: tag chat webviews with the `surface:<n>` selector that addresses them,
+		// so a scenario can see how many chat surfaces are open and target each one.
+		const chatFrames = await this.findChatFrames()
+		const surfaceIndexByUrl = new Map(chatFrames.map((f, i) => [f.url(), i]))
+		const frames: {
+			name: string
+			url: string
+			title: string
+			detached: boolean
+			isChatSurface: boolean
+			surface?: string
+		}[] = []
 		for (const f of this.page.frames()) {
 			try {
+				const index = f.isDetached() ? undefined : surfaceIndexByUrl.get(f.url())
 				frames.push({
 					name: f.name(),
 					url: f.url(),
 					title: await f.title().catch(() => ""),
 					detached: f.isDetached(),
+					isChatSurface: index !== undefined,
+					...(index !== undefined ? { surface: `surface:${index}` } : {}),
 				})
 			} catch {}
 		}
-		return { frames }
+		return { frames, chatSurfaceCount: chatFrames.length }
 	}
 
 	async uiWaitForSelector(params: { selector: string; frame?: string; timeout?: number }): Promise<void> {
@@ -937,6 +992,26 @@ class DebugHarness {
 	}
 
 	/**
+	 * Cline Cubed: snapshot one chat surface's visible transcript.
+	 *
+	 * Deliberately reads `document.body.innerText` rather than a component selector, so an
+	 * "unchanged" assertion covers the whole frame rather than one subtree. Page chrome is
+	 * identical between two reads, so any difference is conversation content.
+	 *
+	 * Params: `frame` — "surface:<n>" (default "surface:0"), or "sidebar".
+	 */
+	async uiTranscript(params: { frame?: string } = {}): Promise<any> {
+		const target = await this.getTarget(params.frame ?? "surface:0")
+		const text: string = await target.evaluate(() => document.body.innerText || "")
+		// Cheap stable digest so a scenario can compare two snapshots without shipping the text.
+		let hash = 0
+		for (let i = 0; i < text.length; i++) {
+			hash = (hash * 31 + text.charCodeAt(i)) | 0
+		}
+		return { text, length: text.length, hash }
+	}
+
+	/**
 	 * Set text in a React-controlled textarea using execCommand('insertText').
 	 * This fires real InputEvent/input events that React's onChange handler processes,
 	 * unlike Playwright's fill() or nativeInputValueSetter which bypass React's
@@ -948,8 +1023,15 @@ class DebugHarness {
 	 *   clear    - Whether to clear existing content first (default: true)
 	 *   submit   - Whether to press Enter after typing (default: false)
 	 */
-	async uiReactInput(params: { selector?: string; text: string; clear?: boolean; submit?: boolean }): Promise<any> {
-		const sidebar = await this.findSidebar()
+	async uiReactInput(params: {
+		selector?: string
+		text: string
+		clear?: boolean
+		submit?: boolean
+		/** Cline Cubed: `surface:<n>` to type into a specific chat surface (default: the first). */
+		frame?: string
+	}): Promise<any> {
+		const sidebar = params.frame ? await this.getTarget(params.frame) : await this.findSidebar()
 		if (!sidebar) throw new Error("Sidebar not found")
 
 		const selector = params.selector || '[data-testid="chat-input"]'
@@ -1122,6 +1204,16 @@ class DebugHarness {
 			const sb = await this.findSidebar(forceRefresh)
 			if (!sb) throw new Error("Sidebar not found")
 			return sb
+		}
+		// Cline Cubed: `surface:<n>` addresses the nth open chat webview (see findChatFrames).
+		// Every command that already takes a `frame` param gets per-surface targeting for free —
+		// ui.click, ui.fill, ui.get_text, ui.wait_for_selector, ui.locator.
+		if (frame?.startsWith("surface:")) {
+			const index = Number.parseInt(frame.slice("surface:".length), 10)
+			if (!Number.isInteger(index) || index < 0) {
+				throw new Error(`Invalid surface selector: ${frame} (expected surface:0, surface:1, …)`)
+			}
+			return await this.findChatFrame(index)
 		}
 		return this.page
 	}
@@ -1429,6 +1521,9 @@ class DebugHarness {
 				return this.uiCommandPalette(params)
 			case "ui.get_text":
 				return this.uiGetText(params)
+			// Cline Cubed: per-surface transcript snapshot.
+			case "ui.transcript":
+				return this.uiTranscript(params)
 			case "ui.locator":
 				return this.uiLocator(params)
 			case "ui.react_input":

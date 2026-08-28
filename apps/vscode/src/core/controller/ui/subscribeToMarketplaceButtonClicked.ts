@@ -1,5 +1,6 @@
 import { Empty, EmptyRequest } from "@shared/proto/cline/common"
 import { Logger } from "@/shared/services/Logger"
+import { streamIsTargeted } from "../chat-surfaces"
 import { getRequestRegistry, StreamingResponseHandler } from "../grpc-handler"
 import { Controller } from "../index"
 
@@ -27,8 +28,12 @@ export async function subscribeToMarketplaceButtonClicked(
 	}
 }
 
-export async function sendMarketplaceButtonClickedEvent(): Promise<void> {
+export async function sendMarketplaceButtonClickedEvent(targetSurfaceId?: string): Promise<void> {
 	const promises = Array.from(activeMarketplaceButtonClickedSubscriptions).map(async (responseStream) => {
+		// Cline Cubed: a navigation event is aimed at ONE chat, not every open chat.
+		if (!streamIsTargeted(responseStream, targetSurfaceId)) {
+			return
+		}
 		try {
 			await responseStream(Empty.create({}), false)
 		} catch (error) {

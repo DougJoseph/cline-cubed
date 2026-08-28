@@ -2,7 +2,7 @@ import { setCompactionStrategyGlobally, setModelToolEnabledGlobally } from "@cli
 import { Empty } from "@shared/proto/cline/common"
 import { PlanActMode, McpDisplayMode as ProtoMcpDisplayMode, UpdateSettingsRequest } from "@shared/proto/cline/state"
 import { convertProtoToApiProvider } from "@shared/proto-conversions/models/api-configuration-conversion"
-import { OpenaiReasoningEffort } from "@shared/storage/types"
+import { NewChatLocation, OpenaiReasoningEffort } from "@shared/storage/types"
 import { TelemetrySetting } from "@shared/TelemetrySetting"
 import { ClineEnv } from "@/config"
 import { McpDisplayMode } from "@/shared/McpDisplayMode"
@@ -113,6 +113,18 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 
 		if (request.preferredLanguage !== undefined) {
 			controller.stateManager.setGlobalState("preferredLanguage", request.preferredLanguage)
+		}
+
+		// Cline Cubed: where a new chat session opens ("secondarySidebar" | "editor"). Governs
+		// where FUTURE chats open; chats already open stay where they are.
+		if (request.newChatLocation !== undefined) {
+			// Validate the proto-carried string — only the legal locations are stored.
+			const legalLocations: NewChatLocation[] = ["secondarySidebar", "editor"]
+			if (legalLocations.includes(request.newChatLocation as NewChatLocation)) {
+				controller.stateManager.setGlobalState("newChatLocation", request.newChatLocation as NewChatLocation)
+			} else {
+				Logger.warn(`updateSettings: ignoring invalid newChatLocation: ${request.newChatLocation}`)
+			}
 		}
 
 		// Update terminal timeout setting

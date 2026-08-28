@@ -1,40 +1,49 @@
 import { HistoryItem } from "@shared/HistoryItem"
 import { StringRequest } from "@shared/proto/cline/common"
-import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
 import {
 	ArrowDownIcon,
 	ArrowLeftIcon,
 	ArrowRightIcon,
 	ArrowUpIcon,
-	ChevronsDownUpIcon,
-	ChevronsUpDownIcon,
 	DownloadIcon,
+	InfoIcon,
 	StarIcon,
 	TrashIcon,
 } from "lucide-react"
 import { memo, useCallback, useMemo, useState } from "react"
+import EditableChatTitle from "@/components/common/EditableChatTitle"
 import { Button } from "@/components/ui/button"
+import { useExtensionState } from "@/context/ExtensionStateContext"
 import { cn } from "@/lib/utils"
 import { TaskServiceClient } from "@/services/grpc-client"
 import { formatLargeNumber, formatSize } from "@/utils/format"
 
 type HistoryViewItemProps = {
 	item: HistoryItem
-	index: number
-	selectedItems: string[]
 	pendingFavoriteToggles: Record<string, boolean>
 	handleDeleteHistoryItem: (id: string) => void
 	toggleFavorite: (id: string, isCurrentlyFavorited: boolean) => void
-	handleHistorySelect: (itemId: string, checked: boolean) => void
+	/** Cline Cubed: refresh the list after a rename — the list fetches its own rows. */
+	onRenamed?: () => void
+	/** Cline Cubed: override what opening a row does. The chats list passes this so a click asks
+	 *  the HOST to open the chat elsewhere; without it a row binds THIS webview to the task, which
+	 *  is right inside a chat and wrong in a list that has no conversation of its own. */
+	onSelectTask?: (id: string) => void
 }
+
+/** Cline Cubed row (2026-08-28, Doug): clicking the row OPENS the chat; everything else is an
+ *  icon at the right that appears on hover — info (this row's details), favorite, delete. The
+ *  stock pattern this replaces was select-a-checkbox-then-press-a-full-width-red-button, which
+ *  put two unlabeled click targets in every row and a destructive control under the list. */
+const ICON_REVEAL = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
 
 const HistoryViewItem = ({
 	item,
 	pendingFavoriteToggles,
 	handleDeleteHistoryItem,
 	toggleFavorite,
-	handleHistorySelect,
-	selectedItems,
+	onSelectTask,
+	onRenamed,
 }: HistoryViewItemProps) => {
 	const [expanded, setExpanded] = useState(false)
 
@@ -43,11 +52,25 @@ const HistoryViewItem = ({
 		[item.id, item.isFavorited, pendingFavoriteToggles],
 	)
 
-	const handleShowTaskWithId = useCallback((id: string) => {
-		TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
-			console.error("Error showing task:", error),
-		)
-	}, [])
+	const { setSurfaceBoundTaskId } = useExtensionState()
+
+	const handleShowTaskWithId = useCallback(
+		(id: string) => {
+			if (onSelectTask) {
+				// Cline Cubed: the chats list owns this click — it opens the chat in a real chat
+				// surface, not here.
+				onSelectTask(id)
+				return
+			}
+			// Cline Cubed: this webview chose the task — bind to it so its broadcast renders
+			// here and no other open chat surface switches to it.
+			setSurfaceBoundTaskId(id)
+			TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
+				console.error("Error showing task:", error),
+			)
+		},
+		[setSurfaceBoundTaskId, onSelectTask],
+	)
 
 	const formatDate = useCallback((timestamp: number) => {
 		const date = new Date(timestamp)
@@ -76,156 +99,152 @@ const HistoryViewItem = ({
 	}, [])
 
 	return (
-		<div className="history-item cursor-pointer flex group mb-1 hover:bg-list-hover border-b border-accent/10" key={item.id}>
-			<VSCodeCheckbox
-				checked={selectedItems.includes(item.id)}
-				className="pl-3 pr-1 py-auto self-start mt-3"
-				onClick={(e) => {
-					e.preventDefault()
-					e.stopPropagation()
-					const checked = (e.target as HTMLInputElement).checked
-					handleHistorySelect(item.id, checked)
-				}}
-			/>
-
+		<div className="history-item group flex flex-col mb-1 border-b border-accent/10 hover:bg-list-hover" key={item.id}>
+			{/* The row itself is the OPEN target — one click, one outcome. */}
 			<div
-				className="flex flex-col gap-2 py-2 pl-2 pr-3 relative flex-grow min-w-0"
+				className="flex items-start gap-2 px-3 py-2 cursor-pointer min-w-0"
 				onClick={(e) => {
 					e.stopPropagation()
 					handleShowTaskWithId(item.id)
 				}}>
-				<div className="flex items-center gap-2">
-					<div className="line-clamp-1 overflow-hidden break-words whitespace-pre-wrap flex-1 min-w-0">
-						<span className="ph-no-capture">{item.task}</span>
-					</div>
-					{item.isLegacy && (
-						<span className="text-xs uppercase rounded px-1.5 py-0.5 bg-accent/20 text-description flex-shrink-0">
-							Legacy
-						</span>
-					)}
-					<div className="flex gap-2 flex-shrink-0">
-						<Button
-							aria-label="Delete"
-							className="p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-							disabled={isFavoritedItem}
-							onClick={(e) => {
-								e.stopPropagation()
-								handleDeleteHistoryItem(item.id)
-							}}
-							variant="ghost">
-							<span className="flex items-center gap-1 text-xs">
-								<TrashIcon className="stroke-1" />
-							</span>
-						</Button>
-						<Button
-							aria-label={isFavoritedItem ? "Remove from favorites" : "Add to favorites"}
-							className="p-0"
-							disabled={pendingFavoriteToggles[item.id] !== undefined}
-							onClick={(e) => {
-								e.stopPropagation()
-								toggleFavorite(item.id, isFavoritedItem)
-							}}
-							variant="icon">
-							<StarIcon
-								className={cn("opacity-70", {
-									"text-button-background  fill-button-background opacity-100": isFavoritedItem,
-								})}
+				<div className="flex flex-col gap-1 flex-grow min-w-0">
+					<div className="flex items-center gap-2 min-w-0">
+						<div className="overflow-hidden flex-1 min-w-0">
+							<EditableChatTitle
+								className="line-clamp-1 break-words whitespace-pre-wrap ph-no-capture"
+								fallback={item.task}
+								onRenamed={onRenamed}
+								revealOn="row"
+								taskId={item.id}
+								title={item.title}
 							/>
-						</Button>
+						</div>
+						{item.isLegacy && (
+							<span className="text-xs uppercase rounded px-1.5 py-0.5 bg-accent/20 text-description flex-shrink-0">
+								Legacy
+							</span>
+						)}
+					</div>
+					<div className="flex items-center gap-2 text-xs text-description">
+						<span className="uppercase">{formatDate(item.ts)}</span>
+						<span>${item.totalCost?.toFixed(4) ?? 0}</span>
 					</div>
 				</div>
 
-				<Button
-					className="p-0"
-					onClick={(e) => {
-						e.stopPropagation()
-						setExpanded(!expanded)
-					}}
-					variant="icon">
-					<div className="flex items-center justify-between w-full">
-						<div className="text-description text-xs uppercase">{formatDate(item.ts)}</div>
-						<div className="self-end flex items-center text-xs">
-							<span className="text-description">${item.totalCost?.toFixed(4) ?? 0}</span>
-							{expanded ? (
-								<ChevronsDownUpIcon className="text-description" />
-							) : (
-								<ChevronsUpDownIcon className="text-description hidden opacity-0 group-hover:opacity-100 transition-opacity group-hover:block" />
-							)}
-						</div>
-					</div>
-				</Button>
-				{expanded && (
+				{/* Hover icons, Claude-style: they stay out of the way until the row is hovered
+				    (or focused from the keyboard), except the star, which stays lit when the chat
+				    is favorited because that is state, not an action. */}
+				<div className="flex items-center gap-1 flex-shrink-0 self-center">
 					<Button
-						className="m-0 text-xs cursor-pointer p-2 bg-accent/10 w-full rounded-xs"
+						aria-expanded={expanded}
+						aria-label={expanded ? "Hide details" : "Show details"}
+						className={cn(ICON_REVEAL, "transition-opacity", {
+							"opacity-100 bg-accent/15": expanded,
+						})}
 						onClick={(e) => {
 							e.stopPropagation()
 							setExpanded(!expanded)
 						}}
-						variant="text">
-						<div className="flex flex-col gap-1 w-full text-xs">
-							<div className="flex items-center justify-between w-full">
-								<div className="flex items-center gap-1 flex-wrap w-full">
-									<div className="flex justify-between items-center w-full gap-1 text-xs">
-										<span className="font-medium text-description">Tokens:</span>
-										<div className="flex items-center gap-1 text-description text-xs">
-											<span className="flex items-center gap-1 text-description">
-												<ArrowUpIcon className="text-description !size-1" />
-												{formatLargeNumber(item.tokensIn || 0)}
-											</span>
-											<span className="flex items-center gap-1 text-description">
-												<ArrowDownIcon className="text-description !size-1" />
-												{formatLargeNumber(item.tokensOut || 0)}
-											</span>
-											{item.cacheWrites
-												? item.cacheWrites > 0 && (
-														<span className="flex items-center gap-1 text-description">
-															<ArrowRightIcon className="text-description !size-1" />
-															{formatLargeNumber(item.cacheWrites)}
-														</span>
-													)
-												: null}
-											{item.cacheReads
-												? item.cacheReads > 0 && (
-														<span className="flex items-center gap-1 text-description">
-															<ArrowLeftIcon className="text-description !size-1" />
-															{formatLargeNumber(item.cacheReads)}
-														</span>
-													)
-												: null}
-										</div>
-									</div>
+						size="icon"
+						title={expanded ? "Hide details" : "Show details"}
+						variant="ghost">
+						<InfoIcon className="stroke-1 text-description" />
+					</Button>
+					<Button
+						aria-label={isFavoritedItem ? "Remove from favorites" : "Add to favorites"}
+						className={cn("transition-opacity", isFavoritedItem ? "opacity-100" : ICON_REVEAL)}
+						disabled={pendingFavoriteToggles[item.id] !== undefined}
+						onClick={(e) => {
+							e.stopPropagation()
+							toggleFavorite(item.id, isFavoritedItem)
+						}}
+						size="icon"
+						title={isFavoritedItem ? "Remove from favorites" : "Add to favorites"}
+						variant="ghost">
+						<StarIcon
+							className={cn("opacity-70", {
+								"text-button-background fill-button-background opacity-100": isFavoritedItem,
+							})}
+						/>
+					</Button>
+					<Button
+						aria-label="Delete"
+						className={cn(ICON_REVEAL, "transition-opacity hover:text-error")}
+						disabled={isFavoritedItem}
+						onClick={(e) => {
+							e.stopPropagation()
+							handleDeleteHistoryItem(item.id)
+						}}
+						size="icon"
+						title={isFavoritedItem ? "Unfavorite this chat before deleting it" : "Delete"}
+						variant="ghost">
+						<TrashIcon className="stroke-1" />
+					</Button>
+				</div>
+			</div>
 
-									{item.modelId && (
-										<div className="flex justify-between items-center w-full gap-1 text-xs">
-											<span className="font-medium text-description">Model:</span>
-											<span className="text-description">{item.modelId}</span>
-										</div>
-									)}
-
-									<div className="flex justify-between items-center w-full gap-1 text-xs">
-										<span className="font-medium text-description">Size:</span>
-										<span className="items-center gap-2 flex text-description">
-											{formatSize(item.size)}
-											<Button
-												aria-label="Export"
-												className="m-0 p-0"
-												onClick={(e) => {
-													e.stopPropagation()
-													TaskServiceClient.exportTaskWithId(
-														StringRequest.create({ value: item.id }),
-													).catch((err) => console.error("Failed to export task:", err))
-												}}
-												variant="ghost">
-												<DownloadIcon />
-											</Button>
-										</span>
-									</div>
-								</div>
+			{expanded && (
+				<div className="mx-3 mb-2 p-2 bg-accent/10 rounded-xs">
+					<div className="flex flex-col gap-1 w-full text-xs">
+						<div className="flex justify-between items-center w-full gap-1 text-xs">
+							<span className="font-medium text-description">Tokens:</span>
+							<div className="flex items-center gap-1 text-description text-xs">
+								<span className="flex items-center gap-1 text-description">
+									<ArrowUpIcon className="text-description !size-1" />
+									{formatLargeNumber(item.tokensIn || 0)}
+								</span>
+								<span className="flex items-center gap-1 text-description">
+									<ArrowDownIcon className="text-description !size-1" />
+									{formatLargeNumber(item.tokensOut || 0)}
+								</span>
+								{item.cacheWrites
+									? item.cacheWrites > 0 && (
+											<span className="flex items-center gap-1 text-description">
+												<ArrowRightIcon className="text-description !size-1" />
+												{formatLargeNumber(item.cacheWrites)}
+											</span>
+										)
+									: null}
+								{item.cacheReads
+									? item.cacheReads > 0 && (
+											<span className="flex items-center gap-1 text-description">
+												<ArrowLeftIcon className="text-description !size-1" />
+												{formatLargeNumber(item.cacheReads)}
+											</span>
+										)
+									: null}
 							</div>
 						</div>
-					</Button>
-				)}
-			</div>
+
+						{item.modelId && (
+							<div className="flex justify-between items-center w-full gap-1 text-xs">
+								<span className="font-medium text-description">Model:</span>
+								<span className="text-description">{item.modelId}</span>
+							</div>
+						)}
+
+						<div className="flex justify-between items-center w-full gap-1 text-xs">
+							<span className="font-medium text-description">Size:</span>
+							<span className="items-center gap-2 flex text-description">
+								{formatSize(item.size)}
+								<Button
+									aria-label="Export"
+									className="m-0 p-0"
+									onClick={(e) => {
+										e.stopPropagation()
+										TaskServiceClient.exportTaskWithId(StringRequest.create({ value: item.id })).catch(
+											(err) => console.error("Failed to export task:", err),
+										)
+									}}
+									title="Export this chat"
+									variant="ghost">
+									<DownloadIcon />
+								</Button>
+							</span>
+						</div>
+					</div>
+				</div>
+			)}
 		</div>
 	)
 }

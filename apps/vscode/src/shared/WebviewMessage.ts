@@ -1,7 +1,21 @@
 export interface WebviewMessage {
-	type: "grpc_request" | "grpc_request_cancel"
+	type:
+		| "grpc_request"
+		| "grpc_request_cancel"
+		| "dismissOnboarding"
+		// Cline Cubed: a chat surface reports which session it now shows, so the host delivers
+		// that session's state and transcript to it alone.
+		| "bindSurfaceSession"
+		// Cline Cubed: the chats list asks the host to open an existing chat — revealed where it
+		// already lives, or opened in the configured location if it is not open anywhere.
+		| "openSession"
+		// Cline Cubed: the chats list's New Chat button, routed through the same
+		// openOrCreateChat every chat button uses.
+		| "newChatFromList"
 	grpc_request?: GrpcRequest
 	grpc_request_cancel?: GrpcCancel
+	/** Cline Cubed: session carried by "bindSurfaceSession" (null = a new chat, no session yet). */
+	sessionId?: string | null
 }
 
 export type GrpcRequest = {

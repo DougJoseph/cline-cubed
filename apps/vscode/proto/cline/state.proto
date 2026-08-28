@@ -295,6 +295,7 @@ message Settings {
   optional OpenRouterModelInfo image_mode_api_model_info = 192;
   optional string image_mode_reasoning_effort = 193;
   optional bool image_bridge_debug_enabled = 194;
+  optional string new_chat_location = 195;
 }
 
 message State {
@@ -439,6 +440,7 @@ message UpdateSettingsRequest {
   optional string compaction_strategy = 44;
   optional bool web_search_enabled = 45;
   optional bool image_bridge_debug_enabled = 46;
+  optional string new_chat_location = 47;
 }
 
 message UpdateTerminalConnectionTimeoutRequest {

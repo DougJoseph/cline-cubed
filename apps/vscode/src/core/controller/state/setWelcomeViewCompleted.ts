@@ -14,6 +14,12 @@ export async function setWelcomeViewCompleted(controller: Controller, request: B
 		// Update the global state to set welcomeViewCompleted to the requested value
 		controller.stateManager.setGlobalState("welcomeViewCompleted", request.value)
 
+		if (request.value) {
+			// Completing the flow also clears the "Cline Cubed: Get Started" re-view flag
+			// (so the onboarding page doesn't reappear after a re-view is finished).
+			controller.stateManager.setGlobalState("clineCubedShowOnboarding", false)
+		}
+
 		await controller.postStateToWebview()
 
 		Logger.log(`Welcome view completed set to: ${request.value}`)

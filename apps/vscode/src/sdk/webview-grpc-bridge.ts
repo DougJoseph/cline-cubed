@@ -32,7 +32,7 @@ import type { SessionEventListener } from "./sdk-message-coordinator"
  */
 export class WebviewGrpcBridge {
 	/** Function to get the full ExtensionState from the controller */
-	private getStateFn?: () => Promise<import("@shared/ExtensionMessage").ExtensionState>
+	private getStateFn?: (sessionId?: string) => Promise<import("@shared/ExtensionMessage").ExtensionState>
 
 	constructor(_translatorState: MessageTranslatorState) {
 		// translatorState is kept as a constructor param for API compatibility
@@ -44,7 +44,7 @@ export class WebviewGrpcBridge {
 	 * This should be called after the controller is fully initialized,
 	 * passing `controller.getStateToPostToWebview.bind(controller)`.
 	 */
-	setGetStateFn(fn: () => Promise<import("@shared/ExtensionMessage").ExtensionState>): void {
+	setGetStateFn(fn: (sessionId?: string) => Promise<import("@shared/ExtensionMessage").ExtensionState>): void {
 		this.getStateFn = fn
 	}
 
@@ -67,9 +67,12 @@ export class WebviewGrpcBridge {
 	 * clear streaming timestamps that the first translation used).
 	 */
 	private handleSessionEvent(messages: ClineMessage[], event: CoreSessionEvent): void {
+		// Cline Cubed: every message belongs to the session that produced it, so it is delivered
+		// only to the chat surface showing that session.
+		const sessionId = event.payload.sessionId
 		// Push each translated message through the partial message stream
 		for (const message of messages) {
-			this.pushPartialMessage(message)
+			this.pushPartialMessage(message, sessionId)
 		}
 
 		// Check if we need to push a state update based on event type.
@@ -81,7 +84,7 @@ export class WebviewGrpcBridge {
 
 		if (needsStateUpdate) {
 			// Push state update asynchronously — don't block the event stream
-			this.pushStateUpdate().catch((err) => {
+			this.pushStateUpdate(sessionId).catch((err) => {
 				Logger.error("[WebviewGrpcBridge] Failed to push state update:", err)
 			})
 		}
@@ -90,10 +93,10 @@ export class WebviewGrpcBridge {
 	/**
 	 * Push a ClineMessage to the webview via the subscribeToPartialMessage stream.
 	 */
-	private async pushPartialMessage(message: ClineMessage): Promise<void> {
+	private async pushPartialMessage(message: ClineMessage, sessionId?: string): Promise<void> {
 		try {
 			const protoMessage: ProtoClineMessage = convertClineMessageToProto(message)
-			await sendPartialMessageEvent(protoMessage)
+			await sendPartialMessageEvent(protoMessage, sessionId)
 		} catch (error) {
 			Logger.error("[WebviewGrpcBridge] Failed to push partial message:", error)
 		}
@@ -107,13 +110,18 @@ export class WebviewGrpcBridge {
 	 * which includes the current task's messages and task history.
 	 * Falls back to a minimal state update without task data.
 	 */
-	private async pushStateUpdate(): Promise<void> {
+	private async pushStateUpdate(sessionId?: string): Promise<void> {
 		try {
 			if (this.getStateFn) {
 				// Use the controller's getStateToPostToWebview() which
-				// includes messages, currentTaskItem, and task history
-				const state = await this.getStateFn()
-				await sendStateUpdate(state)
+				// includes messages, currentTaskItem, and task history.
+				// Cline Cubed: built for — and delivered to — the event's own session.
+				const state = await this.getStateFn(sessionId)
+				await sendStateUpdate(
+					state,
+					sessionId,
+					(surfaceSessionId) => this.getStateFn?.(surfaceSessionId) as Promise<ExtensionState>,
+				)
 			} else {
 				// Fallback: build a minimal state without task data
 				const { getStateToPostToWebview } = await import("@core/controller/state/getStateToPostToWebview")
@@ -127,7 +135,7 @@ export class WebviewGrpcBridge {
 					foregroundCommandRunning: false,
 					backgroundCommandTaskId: undefined,
 				})
-				await sendStateUpdate(state)
+				await sendStateUpdate(state, sessionId)
 			}
 		} catch (error) {
 			Logger.error("[WebviewGrpcBridge] Failed to push state update:", error)
@@ -138,10 +146,10 @@ export class WebviewGrpcBridge {
 	 * Push a state update using the controller's getStateToPostToWebview method.
 	 * This is the preferred way when the controller is available.
 	 */
-	async pushStateUpdateFromController(getState: () => Promise<ExtensionState>): Promise<void> {
+	async pushStateUpdateFromController(getState: () => Promise<ExtensionState>, sessionId?: string): Promise<void> {
 		try {
 			const state = await getState()
-			await sendStateUpdate(state)
+			await sendStateUpdate(state, sessionId)
 		} catch (error) {
 			Logger.error("[WebviewGrpcBridge] Failed to push state update from controller:", error)
 		}
@@ -152,10 +160,10 @@ export class WebviewGrpcBridge {
  * Standalone function to push a ClineMessage to the webview.
  * Useful for one-off messages outside the bridge's event loop.
  */
-export async function pushMessageToWebview(message: ClineMessage): Promise<void> {
+export async function pushMessageToWebview(message: ClineMessage, sessionId?: string): Promise<void> {
 	try {
 		const protoMessage: ProtoClineMessage = convertClineMessageToProto(message)
-		await sendPartialMessageEvent(protoMessage)
+		await sendPartialMessageEvent(protoMessage, sessionId)
 	} catch (error) {
 		Logger.error("[WebviewGrpcBridge] Failed to push message to webview:", error)
 	}

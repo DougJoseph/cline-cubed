@@ -14,13 +14,31 @@ import { HistoryItem } from "./HistoryItem"
 import { McpDisplayMode } from "./McpDisplayMode"
 import { ClineMessageModelInfo } from "./messages"
 import { OnboardingModelGroup } from "./proto/cline/state"
-import { Mode } from "./storage/types"
+import { Mode, NewChatLocation } from "./storage/types"
 import { TelemetrySetting } from "./TelemetrySetting"
 import { UserInfo } from "./UserInfo"
 // webview will hold state
 export interface ExtensionMessage {
-	type: "grpc_response" // New type for gRPC responses
+	/**
+	 * Discriminator. The gRPC bridge always uses "grpc_response". Cline Cubed adds TARGETED
+	 * host→webview messages (posted to ONE webview only, never broadcast):
+	 * - "showNewChatHome" — this webview's session was EVICTED (it moved to another surface):
+	 *   return to the New Chat home. Sent only by the eviction notifier — no button sends it.
+	 * - "showOnboarding" — this webview shows the Get Started screen. Targeted rather than
+	 *   global state, because global state reaches every open chat by definition.
+	 * - "bindTaskToSurface" — this webview adopts `sessionId`. Sent when a sidebar is opened to
+	 *   show an existing chat picked from the chats list (the sidebar reveal path carries no task
+	 *   id of its own, so the binding is delivered here).
+	 * - "openChats" — the chats list's live picture of which chat is open in which surface.
+	 */
+	type: "grpc_response" | "showNewChatHome" | "showOnboarding" | "bindTaskToSurface" | "openChats" | "showListPanel"
 	grpc_response?: GrpcResponse
+	/** Session carried by "bindTaskToSurface". */
+	sessionId?: string
+	/** Open chats carried by "openChats": the session in each surface, with a human location. */
+	openChats?: Array<{ sessionId: string; location: string }>
+	/** Which view the chats panel should show over its list, from its own title buttons. */
+	listPanel?: "marketplace" | "account" | "settings"
 }
 
 export type GrpcResponse = {
@@ -39,12 +57,17 @@ export const COMMAND_CANCEL_TOKEN = "__cline_command_cancel__"
 export interface ExtensionState {
 	isNewUser: boolean
 	welcomeViewCompleted: boolean
+	/** Cline Cubed: the "Cline Cubed: Get Started" re-view flag — shows the onboarding page
+	 * WITHOUT lying about welcomeViewCompleted. Dismissed/completed clears it. */
+	clineCubedShowOnboarding: boolean
 	onboardingModels: OnboardingModelGroup | undefined
 	apiConfiguration?: ApiConfiguration
 	autoApprovalSettings: AutoApprovalSettings
 	browserSettings: BrowserSettings
 	remoteBrowserHost?: string
 	preferredLanguage?: string
+	/** Cline Cubed: where a new chat session opens ("secondarySidebar" | "editor"). */
+	newChatLocation?: NewChatLocation
 	mode: Mode
 	clineMessages: ClineMessage[]
 	checkpointRestoreInput?: {
@@ -78,6 +101,14 @@ export interface ExtensionState {
 	 */
 	epoch?: number
 	currentTaskItem?: HistoryItem
+	/** Cline Cubed: the controller's LIVE task/session id when a task is active. Always
+	 *  present in a broadcast for an active task (unlike `currentTaskItem`, which lags until
+	 *  the task lands in the persisted taskHistory file). Undefined when no task is active. */
+	activeTaskId?: string
+	/** Cline Cubed: the active chat's own name, when it has been renamed. Undefined means the chat
+	 *  has never been renamed and shows its first prompt instead. Broadcast alongside
+	 *  `activeTaskId` for the same reason: `currentTaskItem` is undefined for a new/streaming task. */
+	activeTaskTitle?: string
 	mcpMarketplaceEnabled?: boolean
 	mcpDisplayMode: McpDisplayMode
 	planActSeparateModelsSetting: boolean

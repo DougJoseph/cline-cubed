@@ -3,6 +3,7 @@ import { singleFileDiagnosticsToProblemsString } from "@/integrations/diagnostic
 import { telemetryService } from "@/services/telemetry"
 import { CommandContext, Empty } from "@/shared/proto/index.cline"
 import { Logger } from "@/shared/services/Logger"
+import { getActiveChatSurface } from "../chat-surfaces"
 import { Controller } from "../index"
 import { sendAddToInputEvent } from "../ui/subscribeToAddToInput"
 
@@ -36,7 +37,8 @@ export async function addToCline(controller: Controller, request: CommandContext
 	} else if (notebookContext) {
 		await controller.initTask(input)
 	} else {
-		await sendAddToInputEvent(input)
+		// Cline Cubed: aim at the chat the user is working in, not every open chat.
+		await sendAddToInputEvent(input, getActiveChatSurface())
 	}
 
 	Logger.log("addToCline", request.selectedText, filePath, request.language)

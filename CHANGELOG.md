@@ -1,5 +1,58 @@
 # Changelog
 
+## [4.1.18]
+
+### Added
+
+- **Three chat buttons, every one a real chat panel.** The left activity-bar icon, the editor
+  title-bar icon, and the secondary-sidebar chat-header icon each open or create a chat **in
+  the location chosen in Settings**. When the target area has **no chat**, the button shows the
+  **"What can I do for you?"** home — a chat whose default is also the history chooser (recent
+  chats, plus the prompt input at the bottom). When a chat is **already there**, the button
+  opens a **new, independent chat beside it** and leaves the existing one running, untouched.
+- **Multiple chat sessions side by side.** Each chat is keyed to its own conversation, so
+  several run at once and each shows its own work. The sidebar hosts one chat at full height;
+  further chats open as editor tabs, which you can arrange side by side.
+- **A chat lives in one place.** Opening an existing chat somewhere else moves it there — the
+  spot it left cleanly returns to the "What can I do for you?" home.
+- **"Where new chat sessions open" setting** (Settings → General) — **Secondary sidebar**
+  (typically right — the default) or **Editor area** (new tab). Every chat button follows it;
+  chats already open stay where they are.
+- **Start-up chooser** — the chat home shows the same three-choice picker, so new users can
+  pick the chat location without hunting through settings. A gear button in the chat input row
+  opens Settings quickly (restores the settings affordance stock Cline removed from the VS Code
+  panel).
+- **Prior chats open from the home** — clicking a recent chat in the "What can I do for you?"
+  list, or in the full history, opens it right in that surface.
+- **The home shows the Cline Cubed icon** — the fork's mark, not the stock Cline logo.
+- **Editor-area chat panels** — per-session panels in a fresh, locked editor group, with
+  find-in-chat support and light/dark icons.
+- **"Cline Cubed: New Chat" command**, plus the reworked activity-bar icon.
+- **A chats list in the activity bar.** The left activity-bar icon now opens a list of your
+  chats rather than a chat: the ones open right now sit at the top, each labelled with where it
+  is, and the full history follows underneath. A New Chat button sits above them, and the
+  Settings, Account, and Marketplace buttons open right there in the panel instead of
+  commandeering one of your running chats.
+- **Redesigned history rows.** Clicking a row opens that chat — one target, one outcome. The
+  per-row controls appear on hover at the right: details, favorite, and delete. The checkbox
+  column and the full-width red delete button are gone; clearing the whole history is a single
+  quiet control under the list. The chats list and the history panel inside a chat are the same
+  component, so both behave identically.
+- **Even editor widths.** Opening a chat into a new editor column evens the column widths, so a
+  new chat does not arrive as a sliver beside a wide one.
+- **Name your chats.** Every chat is displayed by its first prompt until you give it a name of its
+  own. Hover the name at the top of a chat, or anywhere on a row in the chats list or history —
+  the name highlights and a pencil appears; click either to edit in place. Enter or clicking away
+  commits, Escape cancels, and clearing the box restores the first prompt, so a rename is always
+  undoable. **Renaming never rewrites what you actually typed:** the name is stored in a field of
+  its own, and the first prompt stays intact in the chat's expanded details. A name shows
+  everywhere the chat is listed — the header at the top of the chat, history rows, the home
+  screen's recent list, and the chats list — and fuzzy search matches it as well as the prompt, so
+  a renamed chat is findable by its new name.
+- **The extension is now simply "Cline Cubed"** — the trailing "(image bridge)" is gone, since
+  the fork does considerably more than bridge images — with a new icon across the activity bar,
+  the chat home, and the marketplace listing.
+
 ## [4.1.15]
 
 Everything here lands through the SDK bundle, so it applies to windows running that bundle.

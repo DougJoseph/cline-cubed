@@ -1,3 +1,4 @@
+import { chatSurfaceForSession } from "@core/controller/chat-surfaces"
 import type { ClineMessage, TurnPhase } from "@shared/ExtensionMessage"
 import type { HistoryItem } from "@shared/HistoryItem"
 import { Logger } from "@/shared/services/Logger"
@@ -107,20 +108,30 @@ export class SdkTaskControlCoordinator {
 		Logger.log(`[SdkController] Task cancelled: ${sessionId}`)
 	}
 
-	async clearTask(): Promise<void> {
+	async clearTask(options: { stopActiveSession?: boolean } = {}): Promise<void> {
 		// Supersede any in-flight showTaskWithId so it cannot re-install a task
 		// after the user cleared the view (e.g. clicked New Task).
 		this.taskViewGeneration++
 		this.options.interactions.clearPending("Task cleared")
 
-		await this.options.sessions.endActiveSession("clearTask")
+		// Cline Cubed: a genuine user clear stops the focused SDK session; reinit of a
+		// live session (focus-without-stop) must NOT stop any other session.
+		if (options.stopActiveSession !== false) {
+			await this.options.sessions.endActiveSession("clearTask")
+		}
 
 		const task = this.options.getTask()
 		if (task) {
 			// SDK session persistence owns conversation history. Do not write classic
 			// ui_messages.json here; history viewing reloads from SDK readMessages().
 			this.options.messages.cancelPendingSave()
-			task.messageStateHandler.clear()
+			// Cline Cubed: chats run side by side, and this clear is often just bookkeeping for a
+			// task SWITCH. Wiping the outgoing task's messages would gut a chat that is still
+			// alive or still on screen — so the transcript is dropped only when the session is
+			// neither live nor shown by any surface.
+			if (chatSurfaceForSession(task.taskId) === undefined && !this.options.sessions.getLiveSession(task.taskId)) {
+				task.messageStateHandler.clear()
+			}
 			this.options.setTask(undefined)
 		}
 
@@ -181,10 +192,16 @@ export class SdkTaskControlCoordinator {
 			// land so the persisted session status read below reflects how the last
 			// turn actually ended (completed vs cancelled) instead of a transient
 			// non-terminal status.
-			const activeSession = this.options.sessions.getActiveSession()
-			await this.options.sessions.endActiveSession("showTaskWithId", {
-				awaitStop: activeSession?.sessionId === taskId,
-			})
+			// Cline Cubed: a live session is focused in place — never stopped — so opening or
+			// revisiting one chat leaves every other chat streaming. Only a session that is not
+			// live is torn down here, and only when it is the one being reopened.
+			const liveTarget = this.options.sessions.getLiveSession(taskId)
+			if (!liveTarget) {
+				const activeSession = this.options.sessions.getActiveSession()
+				if (activeSession?.sessionId === taskId) {
+					await this.options.sessions.endActiveSession("showTaskWithId", { awaitStop: true })
+				}
+			}
 
 			// FENCE: everything below mutates the shared task view (clearing the
 			// current task, installing the new proxy, setting the turn phase). If a
@@ -195,7 +212,14 @@ export class SdkTaskControlCoordinator {
 			}
 
 			const currentTask = this.options.getTask()
-			if (currentTask) {
+			// Cline Cubed: opening a chat here must not blank a DIFFERENT chat. The outgoing
+			// task's transcript is dropped only when its session is neither live nor shown by
+			// any surface.
+			if (
+				currentTask &&
+				chatSurfaceForSession(currentTask.taskId) === undefined &&
+				!this.options.sessions.getLiveSession(currentTask.taskId)
+			) {
 				currentTask.messageStateHandler.clear()
 			}
 

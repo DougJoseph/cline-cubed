@@ -13,6 +13,11 @@ export function normalizeOpenaiReasoningEffort(effort?: string): OpenaiReasoning
 
 export type Mode = "plan" | "act" | "image"
 
+/** Where a new chat session opens: the secondary sidebar (typically right — the default) or an
+ *  editor tab. Every chat button follows this setting. ("primarySidebar" was retired 2026-08-27;
+ *  a stored legacy value coerces to the default at activation.) */
+export type NewChatLocation = "secondarySidebar" | "editor"
+
 export interface BlobStoreSettings {
 	bucket: string
 	adapterType: "s3" | "r2" | "azure" | string

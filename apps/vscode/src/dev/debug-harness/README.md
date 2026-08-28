@@ -317,12 +317,13 @@ Call `connect_webview` first after the sidebar is open (only needed for breakpoi
 | `ui.press` | `{key}` | Press key (e.g., "Enter", "Meta+Shift+p") |
 | `ui.type` | `{text, delay?}` | Type text |
 | `ui.open_sidebar` | | Open the Cline sidebar |
-| `ui.frames` | | List all frames |
+| `ui.frames` | | List all frames; chat webviews are tagged `isChatSurface` + a `surface:<n>` selector, plus `chatSurfaceCount` |
 | `ui.wait_for_selector` | `{selector, frame?, timeout?}` | Wait for element |
 | `ui.command_palette` | `{command}` | Open command palette and run command |
 | `ui.get_text` | `{selector, frame?}` | Get element text |
+| `ui.transcript` | `{frame?}` | **(Cline Cubed)** Snapshot one chat surface's visible transcript → `{text, length, hash}`. Default `surface:0` |
 | `ui.locator` | `{role?, name?, testId?, text?, frame?, action?, value?}` | Rich Playwright locator (auto-retries with frame refresh for sidebar) |
-| `ui.react_input` | `{text, selector?, clear?, submit?}` | Set React-controlled textarea value via `execCommand('insertText')` |
+| `ui.react_input` | `{text, selector?, clear?, submit?, frame?}` | Set React-controlled textarea value via `execCommand('insertText')` |
 | `ui.send_message` | `{text, images?, files?, responseType?}` | Send a chat message bypassing the textarea (via gRPC postMessage) |
 
 ### OAuth & Browser Capture
@@ -470,3 +471,31 @@ then use `ext.set_breakpoint_raw` with a `urlRegex` pattern.
 **Debugee still uses ~/.cline**: Check that `CLINE_DIR` appears in the `status()` response.
 If it's missing, the debugee may have been launched before the harness set the env var.
 Shutdown and relaunch.
+## Addressing a specific chat surface (Cline Cubed)
+
+`frame: "sidebar"` resolves to the *first* webview whose title starts with "Cline". With several
+chat surfaces open side by side (primary sidebar, secondary sidebar, editor panels), every
+command that takes a `frame` also accepts **`surface:<n>`**, which addresses the nth open chat
+webview: `ui.click`, `ui.fill`, `ui.get_text`, `ui.wait_for_selector`, `ui.locator`,
+`ui.react_input`, `ui.transcript`.
+
+Surfaces are ordered by webview URL (each VS Code webview has its own origin GUID), so the index is
+stable for the life of a run. `ui.frames` reports `chatSurfaceCount` and tags each chat frame with
+the selector that addresses it.
+
+```bash
+curl localhost:19229/api -d '{"method":"ui.frames"}'                      # how many chats are open
+curl localhost:19229/api -d '{"method":"ui.transcript","params":{"frame":"surface:0"}}'
+curl localhost:19229/api -d '{"method":"ui.react_input","params":{"frame":"surface:1","text":"hi","submit":true}}'
+```
+
+### The side-by-side chat sessions scenario
+
+`scenarios/concurrent-chats.ts` opens two chats, sends a uniquely-marked probe into the second, and
+asserts the first is untouched and still usable. Run it against a live harness:
+
+```bash
+bun src/dev/debug-harness/scenarios/concurrent-chats.ts
+```
+
+Exit code 0 = all assertions passed; 1 = an assertion failed; 2 = the scenario could not run.

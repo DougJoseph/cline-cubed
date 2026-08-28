@@ -14,8 +14,20 @@ import { Controller } from ".."
  */
 export async function askResponse(controller: Controller, request: AskResponseRequest): Promise<Empty> {
 	try {
-		if (!controller.task) {
-			Logger.warn("askResponse: No active task to receive response")
+		// Cline Cubed: address the response's OWN chat. Every chat-bound response carries the
+		// session of the surface it was sent from, and it is delivered to that session's task —
+		// the focused chat is never consulted, so a reply cannot land in a different conversation.
+		// A session that is not resident is brought back first; only then does it receive the
+		// response.
+		const targetSessionId = request.sessionId?.trim()
+		let task = targetSessionId ? controller.getTaskForSession(targetSessionId) : controller.task
+		if (targetSessionId && !task) {
+			await controller.reinitExistingTaskFromId(targetSessionId)
+			task = controller.getTaskForSession(targetSessionId) ?? controller.task
+		}
+
+		if (!task) {
+			Logger.warn("askResponse: No task to receive response")
 			return Empty.create()
 		}
 
@@ -57,7 +69,7 @@ export async function askResponse(controller: Controller, request: AskResponseRe
 		}
 
 		// Call the task's handler for webview responses
-		await controller.task.handleWebviewAskResponse(responseType, intercepted.text, intercepted.images, request.files)
+		await task.handleWebviewAskResponse(responseType, intercepted.text, intercepted.images, request.files)
 
 		return Empty.create()
 	} catch (error) {

@@ -1,6 +1,7 @@
 import { ClineMessage } from "@shared/ExtensionMessage"
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react"
 import React, { useCallback, useLayoutEffect, useMemo, useState } from "react"
+import EditableChatTitle from "@/components/common/EditableChatTitle"
 import Thumbnails from "@/components/common/Thumbnails"
 import { getModeSpecificFields } from "@/components/settings/utils/providerUtils"
 import { useExtensionState } from "@/context/ExtensionStateContext"
@@ -46,6 +47,8 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 	const {
 		apiConfiguration,
 		currentTaskItem,
+		activeTaskId,
+		activeTaskTitle,
 		mode,
 		expandTaskHeader: isTaskExpanded,
 		setExpandTaskHeader: setIsTaskExpanded,
@@ -157,11 +160,28 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 						)}
 					</div>
 					<div className="flex items-center select-none grow min-w-0 gap-1 justify-between">
-						{!isTaskExpanded && (
-							<div className="whitespace-nowrap overflow-hidden text-ellipsis grow min-w-0">
-								<span className="ph-no-capture text-base">{highlightedText}</span>
-							</div>
-						)}
+						{/* Cline Cubed: this line is the chat's NAME, and naming it happens right here —
+						    hover tints it and shows a pencil, clicking either drops into an input. Until
+						    it is named it shows the first prompt, as before. The chevron and the rest of
+						    the row still expand the header; the title stops its own clicks so a rename
+						    never toggles the panel.
+
+						    It renders in BOTH states, expanded and collapsed, and that is load-bearing.
+						    It used to be gated on `!isTaskExpanded`, which produced two defects Doug
+						    found at once: no way to rename while expanded (the default state a chat
+						    opens in), and a rename made while collapsed appearing to VANISH on expand —
+						    because the only thing left on screen was the details body, which shows the
+						    full first prompt and is deliberately never rewritten by a rename. The name
+						    was never lost; it had nowhere to show. Mention highlighting stays on that
+						    body text below — a one-line NAME does not need it. */}
+						<div className="whitespace-nowrap overflow-hidden grow min-w-0">
+							<EditableChatTitle
+								className="ph-no-capture text-base whitespace-nowrap overflow-hidden text-ellipsis block"
+								fallback={task.text ?? ""}
+								taskId={activeTaskId ?? currentTaskItem?.id}
+								title={activeTaskTitle ?? currentTaskItem?.title}
+							/>
+						</div>
 					</div>
 					<div className="inline-flex items-center justify-end select-none shrink-0">
 						<TaskWorkingDirectoryBadge

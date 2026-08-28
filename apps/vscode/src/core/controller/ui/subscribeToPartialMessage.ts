@@ -1,6 +1,7 @@
 import { EmptyRequest } from "@shared/proto/cline/common"
 import { ClineMessage } from "@shared/proto/cline/ui"
 import { Logger } from "@/shared/services/Logger"
+import { streamAcceptsSession } from "../chat-surfaces"
 import { getRequestRegistry, StreamingResponseHandler } from "../grpc-handler"
 import { Controller } from "../index"
 
@@ -39,16 +40,25 @@ export async function subscribeToPartialMessage(
 }
 
 /**
- * Send a partial message event to all active subscribers
+ * Send a partial message event to the subscribers that should see it.
+ *
+ * Cline Cubed: a streamed message belongs to exactly one conversation, so it is delivered only
+ * to the chat surface showing that session. `sessionId` is the session the message came from;
+ * untagged subscriptions (standalone host, CLI, tests) continue to receive everything.
+ *
  * @param partialMessage The ClineMessage to send
+ * @param sessionId The session this message belongs to
  */
-export async function sendPartialMessageEvent(partialMessage: ClineMessage): Promise<void> {
+export async function sendPartialMessageEvent(partialMessage: ClineMessage, sessionId?: string): Promise<void> {
 	// FIRE-AND-FORGET: do NOT await delivery to the webview. The webview can be hidden,
 	// reloaded, or closed, and VSCode's postMessage may hang or resolve false; awaiting it
 	// could stall the backend's turn loop on a dead consumer. Correctness does not depend on
 	// any single delivery arriving — the webview is a convergent replica that merges by id/seq
 	// and reconciles from full state.
 	for (const responseStream of activePartialMessageSubscriptions) {
+		if (!streamAcceptsSession(responseStream, sessionId)) {
+			continue
+		}
 		responseStream(
 			partialMessage,
 			false, // Not the last message

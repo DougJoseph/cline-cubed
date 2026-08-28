@@ -1,3 +1,4 @@
+import { chatDisplayTitle } from "@shared/HistoryItem"
 import { StringRequest } from "@shared/proto/cline/common"
 import { memo } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
@@ -8,8 +9,11 @@ type HistoryPreviewProps = {
 }
 
 const HistoryPreview = ({ showHistoryView }: HistoryPreviewProps) => {
-	const { taskHistory } = useExtensionState()
+	const { taskHistory, setSurfaceBoundTaskId } = useExtensionState()
 	const handleHistorySelect = (id: string) => {
+		// Cline Cubed: bind this surface to the chosen task so its broadcast renders
+		// HERE — the per-surface gate would otherwise ignore it and the click would do nothing.
+		setSurfaceBoundTaskId(id)
 		TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
 			console.error("Error showing task:", error),
 		)
@@ -160,7 +164,7 @@ const HistoryPreview = ({ showHistoryView }: HistoryPreviewProps) => {
 												}}
 											/>
 										)}
-										<div className="history-task-description ph-no-capture">{item.task}</div>
+										<div className="history-task-description ph-no-capture">{chatDisplayTitle(item)}</div>
 										{item.isLegacy && <span className="history-cost-chip">Legacy</span>}
 									</div>
 									<div className="history-meta-stack">

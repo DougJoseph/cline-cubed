@@ -47,6 +47,15 @@ declare global {
 		// !! Do not change the name of the handler without updating it on
 		// the JetBrains side as well. !!
 		standalonePostMessage?: (message: string) => void
+		// Cline Cubed: this chat surface's identity, injected into the HTML by the host so it is
+		// available before the bundle runs. `__CLINE_CUBED_SURFACE_ID__` is the routing id the
+		// host addresses state and transcript to; `__CLINE_CUBED_BOUND_SESSION_ID__` is the
+		// session this surface shows (null for a new chat, which opens on the home).
+		__CLINE_CUBED_SURFACE_ID__?: string
+		__CLINE_CUBED_BOUND_SESSION_ID__?: string | null
+		// Which UI this webview renders: null/absent = the full chat, "sessions" = the chats list
+		// in the primary container (open chats + history, no ChatView).
+		__CLINE_CUBED_VIEW_KIND__?: "sessions" | null
 	}
 	function acquireVsCodeApi(): any
 }

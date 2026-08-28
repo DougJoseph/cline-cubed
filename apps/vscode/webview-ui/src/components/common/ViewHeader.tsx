@@ -14,9 +14,12 @@ type ViewHeaderProps = {
 	onDone: () => void
 	showEnvironmentSuffix?: boolean
 	environment?: Environment
+	/** Doug's primary-toolbar rule (2026-08-26): hide the Done button when the section is
+	 *  shown on the primary toolbar (nothing to return to). Stock behavior everywhere else. */
+	hideDone?: boolean
 }
 
-const ViewHeader = ({ title, onDone, showEnvironmentSuffix, environment }: ViewHeaderProps) => {
+const ViewHeader = ({ title, onDone, showEnvironmentSuffix, environment, hideDone }: ViewHeaderProps) => {
 	const showSubtext = showEnvironmentSuffix && environment && environment !== "production"
 	const capitalizedEnv = environment ? ENV_DISPLAY_NAMES[environment] : ""
 	const titleColor = getEnvironmentColor(environment)
@@ -33,9 +36,11 @@ const ViewHeader = ({ title, onDone, showEnvironmentSuffix, environment }: ViewH
 					</span>
 				)}
 			</div>
-			<Button size="header" onClick={onDone}>
-				Done
-			</Button>
+			{!hideDone && (
+				<Button onClick={onDone} size="header">
+					Done
+				</Button>
+			)}
 		</div>
 	)
 }

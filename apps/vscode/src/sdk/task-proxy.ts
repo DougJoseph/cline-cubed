@@ -150,7 +150,8 @@ interface TaskProxyState {
 /**
  * Callback type for delegating ask responses to the controller.
  */
-export type AskResponseCallback = (text?: string, images?: string[], files?: string[]) => Promise<void>
+/** Cline Cubed: `sessionId` is the proxy's OWN session, so a response reaches the chat that asked. */
+export type AskResponseCallback = (text?: string, images?: string[], files?: string[], sessionId?: string) => Promise<void>
 
 /**
  * Callback type for delegating task cancellation to the controller.
@@ -214,17 +215,17 @@ export function createTaskProxy(
 				case "noButtonClicked":
 					// For approval responses, we just send an empty continuation
 					// The SDK handles approval differently than the classic Task
-					await onAskResponse(text, images, files)
+					await onAskResponse(text, images, files, currentSessionId)
 					break
 
 				case "messageResponse":
 					// User sent a follow-up message
-					await onAskResponse(text, images, files)
+					await onAskResponse(text, images, files, currentSessionId)
 					break
 
 				default:
 					Logger.warn(`[TaskProxy] Unhandled askResponse type: ${askResponse}`)
-					await onAskResponse(text, images, files)
+					await onAskResponse(text, images, files, currentSessionId)
 					break
 			}
 		},

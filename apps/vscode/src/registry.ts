@@ -11,6 +11,16 @@ const prefix = name === "claude-dev" || name === "cline-cubed" ? "cline" : name
  */
 const ClineCommands = {
 	PlusButton: prefix + ".plusButtonClicked",
+	NewChatPane: prefix + ".newChatPane",
+	OpenChatInEditor: prefix + ".openChatInEditor",
+	// Cline Cubed: Button #3 — the Cline Cubed icon in the secondary chat header.
+	OpenChatInSecondary: prefix + ".openChatInSecondary",
+	// Cline Cubed: the chats panel's OWN title buttons. Separate commands from the chat views'
+	// buttons so they act on the panel the user clicked in, rather than on some other chat.
+	ChatsListMarketplace: prefix + ".chatsListMarketplace",
+	ChatsListAccount: prefix + ".chatsListAccount",
+	ChatsListSettings: prefix + ".chatsListSettings",
+	OpenOnboarding: prefix + ".openOnboarding",
 	McpButton: prefix + ".mcpButtonClicked",
 	MarketplaceButton: prefix + ".marketplaceButtonClicked",
 	SettingsButton: prefix + ".settingsButtonClicked",
@@ -37,7 +47,10 @@ const ClineCommands = {
  * These should match the name + view IDs defined in package.json.
  */
 const ClineViewIds = {
-	Sidebar: name + ".SidebarProvider",
+	SidebarSecondary: name + ".SidebarProviderSecondary",
+	SidebarChat: name + ".SidebarChatProvider",
+	ActivityBarSecondary: name + "-ActivityBarSecondary",
+	SessionsContainer: name + "-Sessions",
 }
 
 /**

@@ -7,8 +7,10 @@ import MarketplaceView from "./components/marketplace/MarketplaceView"
 import McpView from "./components/mcp/configuration/McpConfigurationView"
 import { openClinePassSubscriptionIfPending } from "./components/onboarding/clinePassSubscribe"
 import OnboardingView from "./components/onboarding/OnboardingView"
+import SessionsListView from "./components/sessions/SessionsListView"
 import SettingsView from "./components/settings/SettingsView"
 import WorktreesView from "./components/worktrees/WorktreesView"
+import { PLATFORM_CONFIG } from "./config/platform.config"
 import { useClineAuth } from "./context/ClineAuthContext"
 import { useExtensionState } from "./context/ExtensionStateContext"
 import { Providers } from "./Providers"
@@ -18,6 +20,8 @@ const AppContent = () => {
 	const {
 		didHydrateState,
 		showWelcome,
+		clineCubedShowOnboarding,
+		dismissOnboardingHere,
 		shouldShowAnnouncement,
 		showMarketplace,
 		showMcp,
@@ -72,8 +76,26 @@ const AppContent = () => {
 		return null
 	}
 
-	if (showWelcome) {
-		return <OnboardingView />
+	// Cline Cubed: the primary container's webview renders the CHATS LIST, not a chat. Returned
+	// before ChatView, which is deliberately never unmounted below and would otherwise make this
+	// surface a second chat.
+	if (window.__CLINE_CUBED_VIEW_KIND__ === "sessions") {
+		return <SessionsListView />
+	}
+
+	if (showWelcome || clineCubedShowOnboarding) {
+		return (
+			<OnboardingView
+				onDismiss={
+					clineCubedShowOnboarding && !showWelcome
+						? () => {
+								dismissOnboardingHere()
+								PLATFORM_CONFIG.postMessage({ type: "dismissOnboarding" })
+							}
+						: undefined
+				}
+			/>
+		)
 	}
 
 	return (

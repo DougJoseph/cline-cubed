@@ -192,6 +192,10 @@ export function sessionHistoryRecordToHistoryItem(item: SessionHistoryRecord): H
 		cwdOnTaskInitialization: item.cwd ?? item.workspaceRoot,
 		isLegacy:
 			metadataBoolean(metadata, "legacyTask") === true || metadataBoolean(metadata, "migratedFromLegacyTask") === true,
+		// Cline Cubed: the chat's own name, if it has been renamed. Deliberately NOT the "title"
+		// metadata key above — that one is written from `item.task` on every history write and so
+		// only ever carries the first prompt.
+		title: metadataString(metadata, "customTitle"),
 	}
 }
 
@@ -592,6 +596,40 @@ export class SdkTaskHistory {
 
 	async updateTaskHistoryItem(item: HistoryItem): Promise<void> {
 		await this.updateSession(item.id, item)
+	}
+
+	/**
+	 * Cline Cubed: rename a chat.
+	 *
+	 * This deliberately does NOT go through `updateSession`. That writer sets `prompt: item.task`
+	 * and `title: item.task` on the record and `title` in its metadata — all three from the display
+	 * label — so routing a rename through it would overwrite the person's actual first prompt with
+	 * the new name, permanently. The name therefore lives in its own `customTitle` metadata key,
+	 * written here and nowhere else, and every other history write preserves it by spreading the
+	 * existing metadata forward.
+	 *
+	 * A blank title CLEARS the key, which restores the first prompt as the displayed name.
+	 */
+	async setTaskTitle(sessionId: string, title: string): Promise<void> {
+		const trimmed = title.trim()
+		await this.withHistoryHost(async (host) => {
+			const existing = await host.get(sessionId)
+			if (!existing) {
+				Logger.log(`[SdkTaskHistory] Cannot rename, session not found: ${sessionId}`)
+				return
+			}
+			const metadata: Record<string, unknown> = { ...(existing.metadata ?? {}) }
+			if (trimmed) {
+				metadata.customTitle = trimmed
+			} else {
+				delete metadata.customTitle
+			}
+			await host.update(sessionId, { metadata })
+		})
+		// Renaming is rare, so drop the cache and let the next read re-enumerate from disk rather
+		// than patching a record in place. The patch helper rewrites `prompt` as well, which is the
+		// one thing a rename must never touch.
+		this.invalidateMetadataHistoryCache()
 	}
 
 	private async deleteSession(sessionId: string): Promise<void> {

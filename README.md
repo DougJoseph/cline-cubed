@@ -6,6 +6,9 @@
 
 # Cline Cubed
 
+</div>
+<div align="left">
+
 Want to have multiple Cline chats running at the same time? **Get Cline Cubed!**
 
 Want to use affordable text-only models for Plan mode and Act mode, yet still paste

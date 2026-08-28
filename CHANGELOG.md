@@ -4,12 +4,13 @@
 
 ### Added
 
-- **Three chat buttons, every one a real chat panel.** The left activity-bar icon, the editor
-  title-bar icon, and the secondary-sidebar chat-header icon each open or create a chat **in
-  the location chosen in Settings**. When the target area has **no chat**, the button shows the
+- **Three New Chat buttons, every one a real chat panel.** In the chats list's toolbar, the
+  editor title bar, and the secondary-sidebar chat header. Each opens or creates a chat **in
+  the location chosen in Settings**. When the target area has **no chat**, you get the
   **"What can I do for you?"** home — a chat whose default is also the history chooser (recent
-  chats, plus the prompt input at the bottom). When a chat is **already there**, the button
-  opens a **new, independent chat beside it** and leaves the existing one running, untouched.
+  chats, plus the prompt input at the bottom). When a chat is **already there**, a **new,
+  independent chat** opens beside it and the existing one keeps running, untouched. (The left
+  activity-bar icon opens your chats list rather than a chat.)
 - **Multiple chat sessions side by side.** Each chat is keyed to its own conversation, so
   several run at once and each shows its own work. The sidebar hosts one chat at full height;
   further chats open as editor tabs, which you can arrange side by side.

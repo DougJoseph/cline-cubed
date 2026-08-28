@@ -52,13 +52,14 @@ so non-vision models get full image context without ever receiving raw image byt
   the toggle is off.
 - **Fork identity** — the About panel, extension manifest, and marketplace README
   are the fork's own: `DougJoseph.cline-cubed`, "Cline Cubed".
-- **Three chat buttons (mirrors Claude Code), every one a real chat panel** — the left
-  activity-bar icon, the editor title-bar icon, and the secondary-sidebar icon each open or
-  create a chat **in the location chosen in Settings**. When the target area has **no chat**,
-  the button shows the **"What can I do for you?"** home — a chat whose default is also the
-  history chooser (recent chats, plus the prompt input at the bottom to start a new task).
-  When a chat is **already there**, the button opens a **new, independent chat beside it** and
-  leaves the existing one running, untouched.
+- **Three New Chat buttons (mirrors Claude Code), every one a real chat panel** — in the
+  chats list's toolbar, the editor title bar, and the secondary-sidebar chat header. Each one
+  opens or creates a chat **in the location chosen in Settings**. When the target area has
+  **no chat**, you get the **"What can I do for you?"** home — a chat whose default is also
+  the history chooser (recent chats, plus the prompt input at the bottom to start a new
+  task). When a chat is **already there**, a **new, independent chat** opens beside it and
+  the existing one keeps running, untouched. (The left activity-bar icon itself opens the
+  chats list — see below.)
 - **Multiple chat sessions side by side** — each chat is keyed to its own conversation, so
   several run at once and each shows its own work. The sidebar hosts one chat at full height;
   further chats open as editor tabs, which you can arrange side by side. A chat lives in one

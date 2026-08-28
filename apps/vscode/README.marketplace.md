@@ -38,15 +38,16 @@ raw image bytes.
 
 ## Chat layout (mirrors Claude Code)
 
-Three chat buttons are always visible — the Cline Cubed icon in the left activity bar, at
-the top of the Editor, and at the top of the Secondary sidebar chat. Every one opens or
-creates a chat **in the location chosen in Settings**.
+Three New Chat buttons are always within reach — in the chats list's toolbar, at the top of
+the Editor, and at the top of the Secondary sidebar chat. Every one opens or creates a chat
+**in the location chosen in Settings**. (The Cline Cubed icon in the left activity bar opens
+your chats list rather than a chat — see "Your chats, listed" below.)
 
-Every button behaves the same way. When the target area has **no chat**, it shows the
+Every button behaves the same way. When the target area has **no chat**, you get the
 **"What can I do for you?"** home — a chat whose default is also the history chooser
 (recent chats, plus the prompt input at the bottom to start a new task). When a chat is
-**already there**, the button opens a **new, independent chat beside it** and leaves the
-existing one running, untouched.
+**already there**, a **new, independent chat** opens beside it and the existing one keeps
+running, untouched.
 
 That gives you **multiple chat sessions side by side** — each keyed to its own
 conversation, each showing its own work. The sidebar hosts one chat at full height;

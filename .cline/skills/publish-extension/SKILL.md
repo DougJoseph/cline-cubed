@@ -5,6 +5,30 @@ description: Use when releasing the Cline VS Code extension — stable (currentl
 
 # VS Code Extension Release
 
+> ## ⚠️ THIS FORK (`DougJoseph.cline-cubed`) DOES NOT USE THE WORKFLOWS BELOW
+>
+> Everything after this box describes **upstream Cline's** GitHub Actions release process. The
+> fork publishes **manually, from this machine**. Read `.clinerules/running-the-fork.md` for that
+> flow. The two things that matter most:
+>
+> **The Marketplace PAT** — when one is needed, tell Doug to search his password manager for
+> **`vsce-marketplace token`**. Do not send him hunting for it, do not re-explain how to mint one
+> he already holds, and never ask him to paste it into a chat: reading it transmits it to the model
+> API and writes it into the on-disk transcript. Better still, have him run
+> `./node_modules/.bin/vsce login DougJoseph` once, which stores it in the macOS Keychain so no
+> later publish passes a token at all.
+>
+> **A "Failed to open credential store" warning is a stop sign**, not noise: vsce cannot reach the
+> Keychain and is about to write that PAT to `~/.vsce` in clear text. `bun install` repairs the
+> cause automatically via `apps/vscode/scripts/ensure-keytar.mjs`.
+>
+> Publish command (from `apps/vscode/`):
+> `./node_modules/.bin/vsce publish --no-dependencies --allow-package-secrets sendgrid`
+> — `--allow-package-secrets sendgrid` is required; `--packagePath <file>.vsix` publishes an
+> already-built artifact without rebuilding; never `bun run publish:marketplace` (it also runs
+> `ovsx`, and Open VSX is not set up).
+
+
 Use this skill when the user asks to release, publish, or ship the VS Code extension — stable, nightly, or a legacy hotfix — or to dial the rollout, or to cut over to the SDK extension permanently.
 
 > Working directory: repo root. All workflows are dispatched from `main` (GitHub requires the workflow file on the default branch; each workflow checks out the refs it actually builds).

@@ -4,28 +4,6 @@
 
 ### Added
 
-- **Editor tabs are named after their chat.** A chat tab used to read "Cline Cubed" whatever was
-  in it, so two chats side by side were two identical tabs. Each tab now carries its chat's
-  name — the name you gave it, or its first prompt if you have not renamed it — so every tab is
-  distinguishable, not only renamed ones. A long first prompt is shortened to fit the tab strip.
-  A tab with no chat in it yet still reads "Cline Cubed".
-- The tab keeps up with the chat: it takes its name the moment a new chat's first prompt lands,
-  relabels the instant you rename the chat from its own header or from any history row, falls
-  back to the first prompt when you clear a name, and returns to "Cline Cubed" when you close the
-  chat inside it.
-
-### Changed
-
-- Isolated further remnants of stock Cline's deeply rooted "single active session" mindset, which
-  by definition constituted bugs for support of running multiple chats concurrently. Fixed the
-  underlying issues. Even more bug fixes found along the way are included.
-- New chats open in the editor by default, as a tab in the editor area. Choose the secondary
-  sidebar in Settings if you prefer it there.
-
-## [4.1.19]
-
-### Added
-
 - **Three New Chat buttons, every one a real chat panel.** In the chats list's toolbar, the
   editor title bar, and the secondary-sidebar chat header. Each opens or creates a chat **in
   the location chosen in Settings**. When the target area has **no chat**, you get the
@@ -38,10 +16,10 @@
   further chats open as editor tabs, which you can arrange side by side.
 - **A chat lives in one place.** Opening an existing chat somewhere else moves it there — the
   spot it left cleanly returns to the "What can I do for you?" home.
-- **"Where new chat sessions open" setting** (Settings → General) — **Secondary sidebar**
-  (typically right — the default) or **Editor area** (new tab). Every chat button follows it;
+- **"Where new chat sessions open" setting** (Settings → General) — **Editor area**
+  (new tab — the default) or **Secondary sidebar** (typically right). Every chat button follows it;
   chats already open stay where they are.
-- **Start-up chooser** — the chat home shows the same three-choice picker, so new users can
+- **Start-up chooser** — the chat home shows the same picker, so new users can
   pick the chat location without hunting through settings. A gear button in the chat input row
   opens Settings quickly (restores the settings affordance stock Cline removed from the VS Code
   panel).
@@ -75,6 +53,24 @@
 - **The extension is now simply "Cline Cubed"** — the trailing "(image bridge)" is gone, since
   the fork does considerably more than bridge images — with a new icon across the activity bar,
   the chat home, and the marketplace listing.
+
+- **Editor tabs are named after their chat.** A chat tab used to read "Cline Cubed" whatever was
+  in it, so two chats side by side were two identical tabs. Each tab now carries its chat's
+  name — the name you gave it, or its first prompt if you have not renamed it — so every tab is
+  distinguishable, not only renamed ones. A long first prompt is shortened to fit the tab strip.
+  A tab with no chat in it yet still reads "Cline Cubed".
+- The tab keeps up with the chat: it takes its name the moment a new chat's first prompt lands,
+  relabels the instant you rename the chat from its own header or from any history row, falls
+  back to the first prompt when you clear a name, and returns to "Cline Cubed" when you close the
+  chat inside it.
+
+### Changed
+
+- Isolated further remnants of stock Cline's deeply rooted "single active session" mindset, which
+  by definition constituted bugs for support of running multiple chats concurrently. Fixed the
+  underlying issues. Even more bug fixes found along the way are included.
+- New chats open in the editor by default, as a tab in the editor area. Choose the secondary
+  sidebar in Settings if you prefer it there.
 
 ## [4.1.15]
 

@@ -58,8 +58,8 @@ the home.
 New chat sessions open in the location picked by the **"Where new chat sessions open"**
 setting (Settings → General, or the chooser right on the chat home):
 
-- **Secondary sidebar** (typically right) — the default
-- **Editor area** (new tab)
+- **Editor area** (new tab) — the default
+- **Secondary sidebar** (typically right)
 
 The setting governs where new chats open; chats you already have open stay where they
 are. A gear button in the chat input row opens Settings quickly.
@@ -88,9 +88,16 @@ and clearing the box restores the first prompt, so a rename is always undoable.
 
 Renaming never rewrites what you actually typed: the name is stored in a field of its own, and your
 first prompt stays intact in the chat's expanded details. The name shows everywhere the chat is
-listed — the header at the top of the chat, history rows, the home screen's recent list, and the
-chats list — and fuzzy search matches it as well as the prompt, so a renamed chat is findable by
-its new name.
+listed — the header at the top of the chat, history rows, the home screen's recent list, the chats
+list, and its **editor tab** — and fuzzy search matches it as well as the prompt, so a renamed chat
+is findable by its new name.
+
+**Editor tabs are named too**, which is what makes several open chats worth having: a tab carries
+its chat's name, or its first prompt if you have not renamed it, so every tab is distinguishable
+rather than a row of identical ones. A long prompt is shortened to fit the tab strip, and a tab
+with no chat in it yet reads "Cline Cubed". Tabs keep up on their own — a new chat's tab takes its
+name as soon as the first prompt lands, a rename relabels the tab at once, and closing the chat
+inside a tab returns it to "Cline Cubed".
 
 ## Setup
 

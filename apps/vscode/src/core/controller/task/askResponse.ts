@@ -18,12 +18,21 @@ export async function askResponse(controller: Controller, request: AskResponseRe
 		// session of the surface it was sent from, and it is delivered to that session's task —
 		// the focused chat is never consulted, so a reply cannot land in a different conversation.
 		// A session that is not resident is brought back first; only then does it receive the
-		// response.
+		// response. A named session that STILL cannot be resolved is refused outright: falling
+		// back to the focused task would deliver the message into a different conversation. The
+		// bare `controller.task` branch below is the surface-less legacy contract (standalone
+		// host, tests), where no session was named.
 		const targetSessionId = request.sessionId?.trim()
 		let task = targetSessionId ? controller.getTaskForSession(targetSessionId) : controller.task
 		if (targetSessionId && !task) {
 			await controller.reinitExistingTaskFromId(targetSessionId)
-			task = controller.getTaskForSession(targetSessionId) ?? controller.task
+			task = controller.getTaskForSession(targetSessionId)
+			if (!task) {
+				Logger.error(
+					`askResponse: Session ${targetSessionId} could not be revived; dropping the response rather than delivering it to another chat`,
+				)
+				return Empty.create()
+			}
 		}
 
 		if (!task) {

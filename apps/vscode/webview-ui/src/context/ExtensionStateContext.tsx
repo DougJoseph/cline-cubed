@@ -537,7 +537,19 @@ export const ExtensionStateContextProvider: React.FC<{
 								broadcastTaskId !== undefined &&
 								surfaceBoundTaskIdRef.current !== broadcastTaskId
 							) {
-								surfaceBoundTaskIdRef.current = broadcastTaskId
+								// Adopt a snapshot's session ONLY while this surface holds no binding of
+								// its own (the host just bound it — e.g. a sidebar adopting a session —
+								// and the snapshot is how the webview learns which). A surface that IS
+								// bound keeps its binding: the ref stamps every outgoing message with its
+								// target conversation, so silently rebinding it to whatever a snapshot
+								// claims would route the next typed message into a different chat.
+								if (surfaceBoundTaskIdRef.current == null) {
+									surfaceBoundTaskIdRef.current = broadcastTaskId
+								} else {
+									console.warn(
+										`[cline-cubed] Surface bound to ${surfaceBoundTaskIdRef.current} received a snapshot for ${broadcastTaskId}; keeping the binding`,
+									)
+								}
 							}
 
 							// Versioning logic for autoApprovalSettings

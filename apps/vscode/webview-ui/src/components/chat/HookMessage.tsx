@@ -1,6 +1,7 @@
 import { ClineMessage } from "@shared/ExtensionMessage"
-import { EmptyRequest } from "@shared/proto/cline/common"
+import { StringRequest } from "@shared/proto/cline/common"
 import { memo, useMemo, useState } from "react"
+import { useExtensionState } from "@/context/ExtensionStateContext"
 import { TaskServiceClient } from "@/services/grpc-client"
 import { CHAT_ROW_EXPANDED_BG_COLOR } from "../common/CodeBlock"
 import { HOOK_OUTPUT_STRING } from "./constants"
@@ -81,6 +82,8 @@ interface HookMetadata {
  * - Running hooks: Always shows pending tool info
  */
 const HookMessage = memo(({ message, CommandOutput }: HookMessageProps) => {
+	// Cline Cubed: this surface's bound session — stamped onto the cancel request below.
+	const { getSurfaceBoundTaskId } = useExtensionState()
 	// Parse hook metadata and output
 	const { metadata, output } = useMemo(() => {
 		const splitMessage = (text: string) => {
@@ -147,7 +150,8 @@ const HookMessage = memo(({ message, CommandOutput }: HookMessageProps) => {
 					style={{
 						color: normalColor,
 						marginBottom: "-1.5px",
-					}}></span>
+					}}
+				/>
 				<span style={{ color: normalColor, fontWeight: "bold" }}>Hook:</span>
 				<span style={{ color: normalColor }}>{metadata.hookName}</span>
 				{metadata.toolName && (
@@ -223,10 +227,12 @@ const HookMessage = memo(({ message, CommandOutput }: HookMessageProps) => {
 						<button
 							onClick={(e) => {
 								e.stopPropagation()
-								// Cancel the task - cancelling a hook always cancels the entire task
-								TaskServiceClient.cancelTask(EmptyRequest.create({})).catch((err) =>
-									console.error("Failed to cancel task:", err),
-								)
+								// Cancel the task - cancelling a hook always cancels the entire task.
+								// Cline Cubed: names THIS surface's session so the host aborts this
+								// chat, never whichever chat is active.
+								TaskServiceClient.cancelTask(
+									StringRequest.create({ value: getSurfaceBoundTaskId() ?? "" }),
+								).catch((err) => console.error("Failed to cancel task:", err))
 							}}
 							onMouseEnter={(e) => {
 								e.currentTarget.style.background = "var(--vscode-button-secondaryHoverBackground)"

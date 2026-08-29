@@ -9,11 +9,14 @@ type HistoryPreviewProps = {
 }
 
 const HistoryPreview = ({ showHistoryView }: HistoryPreviewProps) => {
-	const { taskHistory, setSurfaceBoundTaskId } = useExtensionState()
+	const { taskHistory, setSurfaceBoundTaskId, navigateToChat } = useExtensionState()
 	const handleHistorySelect = (id: string) => {
 		// Cline Cubed: bind this surface to the chosen task so its broadcast renders
 		// HERE — the per-surface gate would otherwise ignore it and the click would do nothing.
+		// Navigation is local too (the RPC is unary and carries no surface identity, so the host
+		// cannot aim a navigate event at the clicking surface without guessing).
 		setSurfaceBoundTaskId(id)
+		navigateToChat()
 		TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
 			console.error("Error showing task:", error),
 		)

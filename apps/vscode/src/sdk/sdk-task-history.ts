@@ -4,6 +4,7 @@ import type { ClineCoreListHistoryOptions, SessionHistoryRecord } from "@cline/c
 import type { MessageWithMetadata as SdkMessage } from "@cline/llms"
 import { formatDisplayUserInput, parseUserInputMode } from "@cline/shared"
 import { resolveSessionDataDir } from "@cline/shared/storage"
+import { notifyChatTitleChanged } from "@core/controller/chat-surfaces"
 import type { ClineMessage } from "@shared/ExtensionMessage"
 import type { HistoryItem } from "@shared/HistoryItem"
 import getFolderSize from "get-folder-size"
@@ -596,6 +597,11 @@ export class SdkTaskHistory {
 
 	async updateTaskHistoryItem(item: HistoryItem): Promise<void> {
 		await this.updateSession(item.id, item)
+		// Cline Cubed: this is where a brand-new chat first gets a record, and therefore a name —
+		// its first prompt. Anything showing that chat outside a webview (an editor tab title)
+		// cannot learn the name any earlier, because the webview announces its session from the
+		// state post that this call FOLLOWS. Announcing the id is enough; listeners re-resolve.
+		notifyChatTitleChanged(item.id)
 	}
 
 	/**

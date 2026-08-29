@@ -504,7 +504,8 @@ describe("provider model catalog handlers", () => {
 				modelId: "deepseek-v4-flash",
 				overrides: ModelOverrides.create({ capabilities: ["prompt-cache"] }),
 			}),
-		).rejects.toThrow('mode must be "plan" or "act"')
+			// Cline Cubed adds a third mode, so the rejection message names all three.
+		).rejects.toThrow('mode must be "plan", "act", or "image"')
 		expect(store.commitSelection).not.toHaveBeenCalled()
 	})
 })

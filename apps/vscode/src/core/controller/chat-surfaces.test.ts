@@ -3,6 +3,8 @@ import {
 	__resetChatSurfacesForTest,
 	bindChatSurfaceToSession,
 	chatSurfaceForSession,
+	notifyChatTitleChanged,
+	onChatTitleChanged,
 	registerChatSurface,
 	sessionForChatSurface,
 	streamAcceptsSession,
@@ -120,6 +122,35 @@ describe("chat surface registry", () => {
 			bindChatSurfaceToSession("a", "session-1")
 			unregisterChatSurface("a")
 			expect(streamAcceptsSession(stream, "session-2")).toBe(true)
+		})
+	})
+
+	describe("chat name notifications", () => {
+		it("tells every listener which chat changed", () => {
+			const heard: string[] = []
+			onChatTitleChanged((sessionId) => heard.push(`a:${sessionId}`))
+			onChatTitleChanged((sessionId) => heard.push(`b:${sessionId}`))
+			notifyChatTitleChanged("session-1")
+			expect(heard).toEqual(["a:session-1", "b:session-1"])
+		})
+
+		it("stops telling a listener that has unsubscribed", () => {
+			const heard: string[] = []
+			const unsubscribe = onChatTitleChanged((sessionId) => heard.push(sessionId))
+			notifyChatTitleChanged("session-1")
+			unsubscribe()
+			notifyChatTitleChanged("session-2")
+			expect(heard).toEqual(["session-1"])
+		})
+
+		it("carries the session id ONLY — a listener resolves the name itself", () => {
+			// Deliberate: a rename that CLEARS a name has no name to send, and a history write is
+			// handed an item whose `title` is routinely undefined even for a named chat. Sending
+			// either would relabel a tab wrongly, so listeners take one argument and look it up.
+			const seen: unknown[][] = []
+			onChatTitleChanged((...args) => seen.push(args))
+			notifyChatTitleChanged("session-1")
+			expect(seen).toEqual([["session-1"]])
 		})
 	})
 })

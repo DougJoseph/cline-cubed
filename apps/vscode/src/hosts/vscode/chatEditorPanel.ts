@@ -2,6 +2,7 @@ import {
 	bindChatSurfaceToSession,
 	chatSurfaceForSession,
 	getActiveChatSurface,
+	onChatTitleChanged,
 	registerChatSurface,
 	setActiveChatSurface,
 	setChatSurfaceEvictionNotifier,
@@ -19,6 +20,31 @@ import { WebviewMessage } from "@/shared/WebviewMessage"
 import { VscodeWebviewProvider } from "./VscodeWebviewProvider"
 
 const CHAT_PANEL_VIEW_TYPE = "cline-cubed-ChatPanel"
+
+/** What an editor chat tab is called before it holds a chat — a New Chat tab, sitting on the home. */
+const CHAT_PANEL_DEFAULT_TITLE = "Cline Cubed"
+/** Tab titles are one short line; VS Code shrinks the strip further as tabs multiply. */
+const CHAT_PANEL_TITLE_MAX = 40
+
+/**
+ * Cline Cubed: an editor chat tab's label.
+ *
+ * Telling side-by-side chat tabs apart is the whole point of naming a chat, so a tab shows its
+ * chat's DISPLAY name — the name if it has been renamed, otherwise its first prompt — resolved by
+ * the one shared helper every other label surface uses (`chatDisplayTitle`). A tab with no chat in
+ * it yet keeps the extension's name.
+ *
+ * A first prompt is prose: it can be paragraphs long and contain newlines, neither of which a tab
+ * strip can show. Whitespace is collapsed to single spaces and the result is truncated, so the tab
+ * carries the opening words rather than a wall of text or a mangled one-liner.
+ */
+export function chatPanelTitle(displayName: string | undefined): string {
+	const name = displayName?.replace(/\s+/g, " ").trim()
+	if (!name) {
+		return CHAT_PANEL_DEFAULT_TITLE
+	}
+	return name.length > CHAT_PANEL_TITLE_MAX ? `${name.slice(0, CHAT_PANEL_TITLE_MAX - 1).trimEnd()}\u2026` : name
+}
 
 /** Handle for posting a targeted host→webview message to ONE chat surface (e.g. showOnboarding):
  *  only the TARGET surface receives it — the other open chats stay untouched. */
@@ -49,6 +75,56 @@ const panelSurfaceIds = new WeakMap<vscode.WebviewPanel, string>()
 /** Cline Cubed: the routing id of an editor chat panel. */
 export function surfaceIdForChatPanel(panel: vscode.WebviewPanel): string | undefined {
 	return panelSurfaceIds.get(panel)
+}
+
+/**
+ * Cline Cubed: put a chat's name on its tab.
+ *
+ * Asynchronous because the name is resolved from task history. The binding is re-checked after the
+ * lookup: a tab can be rebound (or closed) while the read is in flight, and a late answer must not
+ * relabel a tab that has since moved on. A failed lookup leaves the tab as it is.
+ */
+async function applyChatPanelTitle(panel: vscode.WebviewPanel, provider: VscodeWebviewProvider, taskId: string): Promise<void> {
+	try {
+		const displayName = await provider.controller.getChatDisplayTitle(taskId)
+		const next = chatPanelTitle(displayName)
+		// Still this tab's chat, and actually different: the notification also rides ordinary
+		// history writes, most of which do not change the name at all.
+		if (panelTaskIds.get(panel) === taskId && panel.title !== next) {
+			panel.title = next
+		}
+	} catch (error) {
+		Logger.error("Failed to read a chat's name for its editor tab:", error)
+	}
+}
+
+/**
+ * Cline Cubed: record that an editor tab now shows a given session, and label the tab with it.
+ *
+ * The two bookkeeping maps and the tab title are one fact stated three ways, so they are written
+ * in one place — they drifted apart when only the open-a-known-session path maintained them, which
+ * left a chat STARTED in a tab absent from `taskChatPanels` entirely.
+ */
+function bindChatPanelToTask(panel: vscode.WebviewPanel, provider: VscodeWebviewProvider, taskId: string): void {
+	panelTaskIds.set(panel, taskId)
+	taskChatPanels.set(taskId, panel)
+	if (unboundChatPanel === panel) {
+		unboundChatPanel = undefined
+	}
+	void applyChatPanelTitle(panel, provider, taskId)
+}
+
+/** Cline Cubed: the tab no longer shows a chat — drop its claim and return it to the default name. */
+function releaseChatPanelTask(panel: vscode.WebviewPanel): void {
+	const previousTaskId = panelTaskIds.get(panel)
+	if (previousTaskId !== undefined && taskChatPanels.get(previousTaskId) === panel) {
+		taskChatPanels.delete(previousTaskId)
+	}
+	panelTaskIds.delete(panel)
+	panel.title = CHAT_PANEL_DEFAULT_TITLE
+	// Deliberately NOT claiming the `unboundChatPanel` slot. That slot only decides whether opening
+	// a session REUSES an empty tab instead of making a new one, and this function runs on paths
+	// that never claimed it before — changing that would quietly redirect where the next chat opens.
 }
 
 /**
@@ -88,8 +164,7 @@ export function openChatInEditorPanel(
 	}
 
 	if (taskId) {
-		panelTaskIds.set(panel, taskId)
-		taskChatPanels.set(taskId, panel)
+		bindChatPanelToTask(panel, provider, taskId)
 		// Cline Cubed: this panel now shows that session; any other surface claiming it releases it.
 		const surfaceId = panelSurfaceIds.get(panel)
 		if (surfaceId) {
@@ -142,11 +217,7 @@ function createChatPanel(
 	// otherwise focusing the tab would re-bind the session and steal it right back — then tell
 	// the webview to step back to the home rather than freeze on a stale copy of the moved chat.
 	setChatSurfaceEvictionNotifier(surfaceId, () => {
-		const movedTaskId = panelTaskIds.get(panel)
-		if (movedTaskId !== undefined && taskChatPanels.get(movedTaskId) === panel) {
-			taskChatPanels.delete(movedTaskId)
-		}
-		panelTaskIds.delete(panel)
+		releaseChatPanelTask(panel)
 		void panel.webview.postMessage({ type: "showNewChatHome" })
 	})
 	// A new panel opens focused — it is the chat in front of the user from creation.
@@ -179,9 +250,18 @@ function createChatPanel(
 				// transcript here, and release any other surface that was claiming it.
 				bindChatSurfaceToSession(surfaceId, message.sessionId ?? null)
 				if (typeof message.sessionId === "string") {
+					// This is where a chat STARTED in a tab becomes a real session: the tab opened
+					// unbound on the home, and the first prompt created the session announced here.
+					// So the tab's own bookkeeping and its label are set from this message too, not
+					// only from the open-a-known-session path.
+					bindChatPanelToTask(panel, provider, message.sessionId)
 					// A surface binding AFTER a session's opening state post would miss that
 					// snapshot — repost that session's state so the first render cannot be skipped.
 					await provider.controller.postStateToWebview(message.sessionId)
+				} else {
+					// Unbound again (the in-chat close): the tab is back on the home, so it drops
+					// its task claim and its name with it.
+					releaseChatPanelTask(panel)
 				}
 				break
 			}
@@ -196,8 +276,19 @@ function createChatPanel(
 			}
 		}
 	})
+	// Cline Cubed: renaming a chat anywhere — its own header, or a row in any history list —
+	// relabels the tab showing it. Scoped per panel and read at fire time from `panelTaskIds`,
+	// because a tab's chat changes over its life; disposed with the panel, so no listener outlives
+	// its tab.
+	const titleListener = onChatTitleChanged((changedTaskId) => {
+		if (panelTaskIds.get(panel) === changedTaskId) {
+			void applyChatPanelTitle(panel, provider, changedTaskId)
+		}
+	})
+
 	panel.onDidDispose(() => {
 		messageListener.dispose()
+		titleListener()
 		unregisterChatSurface(surfaceId)
 		for (const [boundTaskId, p] of taskChatPanels) {
 			if (p === panel) {

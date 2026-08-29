@@ -20,12 +20,13 @@ import {
 	type UserInstructionConfigService,
 } from "@cline/core"
 import { formatDisplayUserInput, type RemoteConfig, type RemoteConfigBundle } from "@cline/shared"
+import { bindChatSurfaceToSession, chatSurfaceForSession, notifyChatTitleChanged } from "@core/controller/chat-surfaces"
 import type { ApiConfiguration } from "@shared/api"
 import type { ChatContent } from "@shared/ChatContent"
 import { CLINE_ACCOUNT_AUTH_ERROR_MESSAGE } from "@shared/ClineAccount"
 import { mentionRegexGlobal } from "@shared/context-mentions"
-import type { ClineApiReqInfo, ClineMessage, ExtensionState } from "@shared/ExtensionMessage"
-import type { HistoryItem } from "@shared/HistoryItem"
+import type { ClineApiReqInfo, ClineMessage, ExtensionState, TurnPhase } from "@shared/ExtensionMessage"
+import { chatDisplayTitle, type HistoryItem } from "@shared/HistoryItem"
 import { DeleteAllTaskHistoryCount, type GetTaskHistoryRequest, TaskHistoryArray, TaskResponse } from "@shared/proto/cline/task"
 import type { Settings } from "@shared/storage/state-keys"
 import type { Mode } from "@shared/storage/types"
@@ -376,11 +377,15 @@ export class Controller {
 		this.interactions = new SdkInteractionCoordinator({
 			messages: this.messages,
 			getSessionId: () => this.sessions.getActiveSession()?.sessionId ?? "",
-			postStateToWebview: () => this.postStateToWebview(),
+			// Validate an ask's claimed identity against the live-session map before keying a
+			// pending under it. `this.sessions` is assigned later in this constructor; the
+			// closure only runs at ask time, long after construction completes.
+			isLiveSession: (sessionId) => !!this.sessions.getLiveSession(sessionId),
+			postStateToWebview: (sessionId) => this.postStateToWebview(sessionId),
 			// Share the single id/seq/epoch authority so interaction-minted ids (tool-approval
 			// asks, ask_question, user_feedback) never collide with translator-minted ids.
 			getMinter: () => this.messageTranslatorState.getMinter(),
-			setTurnPhase: (phase, anchorTs) => this.turnStateTracker.set(phase, anchorTs),
+			setTurnPhase: (phase, anchorTs, sessionId) => this.setPhaseForSession(phase, anchorTs, sessionId),
 			// Open the diff editor preview before the approval buttons render.
 			onToolApprovalAsk: (request) => this.diffEdits.openForApproval(request.toolCallId, request.toolName, request.input),
 			recordApprovedToolMessage: (toolCallId, messageTs) =>
@@ -454,7 +459,9 @@ export class Controller {
 			onSendError: async (error, sessionId) => {
 				// A turn failed — the UI shows error recovery (Retry / Sign In / Add Credits).
 				void this.diffEdits.discardAllPreviews("turn error")
-				this.turnStateTracker.set("error")
+				// The FAILING session's phase — a background chat's turn failure must not mark
+				// the focused chat "error".
+				this.setPhaseForSession("error", undefined, sessionId)
 				const errorMessage = error instanceof Error ? error.message : String(error)
 				const providerId = this.getSessionProviderId(sessionId) ?? this.getActiveProviderId()
 				const isClineAuthError =
@@ -590,7 +597,10 @@ export class Controller {
 				await this.sessionRebuilds.waitUntilSettled()
 			},
 			runExclusive: (operation) => this.sessionRebuilds.runExclusive(operation),
-			getTask: () => this.task,
+			// `sessionId` selects that session's OWN proxy. A zero-arg wiring here silently
+			// discards the parameter, which turns every "per-session" lookup in the follow-up
+			// coordinator into a read of the focused task.
+			getTask: (sessionId) => (sessionId ? this.taskProxies.get(sessionId) : this.task),
 			createTempSessionHost: () => this.createRemoteConfigAwareSessionHost(),
 			getWorkspaceRoot: () => this.getWorkspaceRoot(),
 			loadInitialMessages: (sessionHost, taskId) => this.sessionHistory.loadInitialMessages(sessionHost, taskId),
@@ -598,18 +608,24 @@ export class Controller {
 			resolveContextMentions: (text) => this.resolveContextMentions(text),
 			isClineManagedProviderActive: () => this.isClineManagedProviderActive(),
 			emitClineAuthError: () => this.emitClineAuthErrorWithTelemetry(),
-			resetMessageTranslator: () => this.resetMessageTranslatorAndFence(),
-			postStateToWebview: () => this.postStateToWebview(),
-			onResumeFailed: () => {
-				this.turnStateTracker.set("error")
+			resetMessageTranslator: (sessionId) => this.resetMessageTranslatorAndFence(sessionId),
+			postStateToWebview: (sessionId) => this.postStateToWebview(sessionId),
+			onResumeFailed: (sessionId) => {
+				this.setPhaseForSession("error", undefined, sessionId)
 			},
-			onFollowUpAbandoned: () => {
+			onFollowUpAbandoned: (sessionId) => {
 				// Settle the streaming phase askResponse pre-set, unless a turn
 				// (for example on the newly displayed task) has actually started.
-				if (this.turnStateTracker.currentPhase === "streaming" && !this.sessions.getActiveSession()?.isRunning) {
-					this.turnStateTracker.set("idle")
+				const tracker = this.getTurnStateTrackerFor(sessionId)
+				const stillRunning = sessionId
+					? !!this.sessions.getLiveSession(sessionId)?.isRunning
+					: !!this.sessions.getActiveSession()?.isRunning
+				if (tracker.currentPhase === "streaming" && !stillRunning) {
+					this.setPhaseForSession("idle", undefined, sessionId)
 				}
 			},
+			onSessionIdChanged: (previousSessionId, newSessionId, task) =>
+				this.handleSessionIdChanged(previousSessionId, newSessionId, task),
 		})
 		this.taskControl = new SdkTaskControlCoordinator({
 			sessions: this.sessions,
@@ -635,8 +651,9 @@ export class Controller {
 			// Bump the epoch synchronously before abort so straggler events from the cancelled
 			// turn carry the old epoch and are dropped by the webview. The resumable phase is set
 			// in SdkController.cancelTask before this runs.
-			raiseCancelFence: () => {
-				this.messageTranslatorState.clearApprovedToolMessageTs()
+			raiseCancelFence: (sessionId) => {
+				// The CANCELLED session's own translator state; the epoch fence stays global.
+				this.getTranslatorFor(sessionId).clearApprovedToolMessageTs()
 				this.messageTranslatorState.getMinter().bumpEpoch()
 			},
 			setTurnPhase: (phase, anchorTs) => this.turnStateTracker.set(phase, anchorTs),
@@ -669,7 +686,7 @@ export class Controller {
 				files: string[] | undefined,
 				sessionId?: string,
 			) => this.askResponse(text, images, files, sessionId),
-			onCancelTask: () => this.cancelTask(),
+			onCancelTask: (sessionId) => this.cancelTask(sessionId),
 			getWorkspaceRoot: () => this.getWorkspaceRoot(),
 			createTempSessionHost: () => this.createRemoteConfigAwareSessionHost(),
 			loadInitialMessages: (reader, taskId) => this.sessionHistory.loadInitialMessages(reader, taskId),
@@ -678,6 +695,8 @@ export class Controller {
 			emitClineAuthError: (task) => this.emitClineAuthErrorWithTelemetry(task),
 			captureProviderApiError: (event) => this.captureProviderFailure(event),
 			postStateToWebview: () => this.postStateToWebview(),
+			onSessionIdChanged: (previousSessionId, newSessionId, task) =>
+				this.handleSessionIdChanged(previousSessionId, newSessionId, task),
 		})
 		this.compaction = new SdkCompactionCoordinator({
 			stateManager: this.stateManager,
@@ -693,7 +712,6 @@ export class Controller {
 			postStateToWebview: () => this.postStateToWebview(),
 		})
 		this.sessionEvents = new SdkSessionEventCoordinator({
-			messageTranslatorState: this.messageTranslatorState,
 			getTranslatorFor: (sessionId) => this.getTranslatorFor(sessionId),
 			sessions: this.sessions,
 			messages: this.messages,
@@ -979,6 +997,10 @@ export class Controller {
 		await this.statePostDebouncer.dispose()
 		await this.invalidateUserInstructionService()
 		this.messages.cancelPendingSave()
+		// Every session's pending ask/approval is settled on disposal so no agent run stays
+		// suspended on a promise nothing can resolve. (clearTask below clears only the focused
+		// session's; disposal is the one place a blanket clear is correct.)
+		this.interactions.clearAllPending("Controller disposed")
 		// Clear MCP tool list change callback before disposing McpHub
 		this.mcpHub?.clearToolListChangeCallback()
 		await this.diffEdits.discardAllPreviews("controller dispose")
@@ -1314,8 +1336,9 @@ export class Controller {
 		if (!this.task) {
 			this.task = createTaskProxy(
 				`auth-error-${ts}`,
-				(text?: string, images?: string[], files?: string[]) => this.askResponse(text, images, files),
-				() => this.cancelTask(),
+				(text?: string, images?: string[], files?: string[], proxySessionId?: string) =>
+					this.askResponse(text, images, files, proxySessionId),
+				(proxySessionId?: string) => this.cancelTask(proxySessionId),
 			)
 		}
 
@@ -1506,17 +1529,23 @@ export class Controller {
 
 	async reinitExistingTaskFromId(taskId: string): Promise<void> {
 		await this.waitForInitialRemoteConfig()
+		// The reinstated session's own phase and turn outcome — plus the focused tracker, which
+		// identity-less consumers read (reinit focuses the session it revives).
 		this.turnStateTracker.set("streaming")
+		this.getTurnStateTrackerFor(taskId).set("streaming")
+		this.getTranslatorFor(taskId).clearTurnOutcome()
 		this.messageTranslatorState.clearTurnOutcome()
 		await this.taskStart.reinitExistingTaskFromId(taskId)
 	}
 
-	async cancelTask(): Promise<void> {
+	async cancelTask(sessionId?: string): Promise<void> {
 		// Fence first: mark resumable before aborting so any straggler events from the aborted
 		// turn land on the wrong side of the UI mode. (Full fence-before-abort epoch bump lands
 		// in S6; this sets the authoritative phase now.)
-		this.turnStateTracker.set("resumable")
-		await this.taskControl.cancelTask()
+		// Cline Cubed: `sessionId` names the chat being cancelled — its own phase, its own
+		// session. Omitted = the focused session (surface-less legacy callers).
+		this.setPhaseForSession("resumable", undefined, sessionId)
+		await this.taskControl.cancelTask(sessionId)
 	}
 
 	async cancelBackgroundCommand(): Promise<void> {
@@ -1610,9 +1639,10 @@ export class Controller {
 		// scroll-arrow default). Mirrors initTask(). The webview gates turnState by seq, and the
 		// session-event coordinator will set the terminal phase (completed/awaiting_followup/error)
 		// when this turn ends.
-		phaseTracker.set("streaming")
-		// Clear the previous turn's completion signal so this new turn's phase is computed fresh.
-		this.messageTranslatorState.clearTurnOutcome()
+		this.setPhaseForSession("streaming", undefined, targetSessionId)
+		// Clear the previous turn's completion signal so this new turn's phase is computed fresh —
+		// on the TARGET session's own translator, not the focused chat's.
+		this.getTranslatorFor(targetSessionId).clearTurnOutcome()
 		// The webview only learns the phase through a full state post. Without one here it would
 		// keep the stale terminal phase (and hide the thinking indicator) until the first session
 		// event of the new turn posts state — a visible delay after every follow-up/approval.
@@ -1737,7 +1767,8 @@ export class Controller {
 			// approval / ask_question exactly like cancelTask does. Without this,
 			// the old run stays suspended forever on a promise nothing can
 			// resolve, and the stale parked resolver intercepts later responses.
-			this.interactions.clearPending("Superseded by an edited message")
+			// Scoped to the session being replaced; other chats' pendings stay live.
+			this.interactions.clearPending("Superseded by an edited message", sourceSessionId)
 
 			const { startResult, sdkHost } = await this.sessions.startNewSession(startInput)
 
@@ -1747,8 +1778,9 @@ export class Controller {
 
 			const task = createTaskProxy(
 				startResult.sessionId,
-				(text?: string, images?: string[], files?: string[]) => this.askResponse(text, images, files),
-				() => this.cancelTask(),
+				(text?: string, images?: string[], files?: string[], proxySessionId?: string) =>
+					this.askResponse(text, images, files, proxySessionId ?? startResult.sessionId),
+				(proxySessionId?: string) => this.cancelTask(proxySessionId ?? startResult.sessionId),
 			)
 			this.task = task
 
@@ -1792,7 +1824,7 @@ export class Controller {
 			throw new Error("No active task to restore")
 		}
 		if (activeSession.isRunning) {
-			await this.cancelTask()
+			await this.cancelTask(activeSession.sessionId)
 		}
 
 		const currentMessages = currentTask.messageStateHandler.getClineMessages()
@@ -1849,8 +1881,9 @@ export class Controller {
 
 		const task = createTaskProxy(
 			restored.sessionId,
-			(text?: string, images?: string[], files?: string[]) => this.askResponse(text, images, files),
-			() => this.cancelTask(),
+			(text?: string, images?: string[], files?: string[], proxySessionId?: string) =>
+				this.askResponse(text, images, files, proxySessionId ?? restored.sessionId),
+			(proxySessionId?: string) => this.cancelTask(proxySessionId ?? restored.sessionId),
 		)
 		this.task = task
 
@@ -2293,7 +2326,24 @@ export class Controller {
 			const trimmed = title.trim()
 			this.activeTaskCustomTitle = trimmed ? trimmed : undefined
 		}
+		// Anything outside a webview that carries this chat's name in its own chrome — an editor
+		// tab title — hears about it here and re-resolves the name for itself.
+		notifyChatTitleChanged(taskId)
 		await this.postStateToWebview()
+	}
+
+	/**
+	 * Cline Cubed: a chat's displayed name — its own name if it has been renamed, otherwise its
+	 * first prompt. `undefined` when the chat is not in history (a brand-new chat that has not
+	 * been saved yet), which callers render as their own default.
+	 */
+	async getChatDisplayTitle(taskId: string): Promise<string | undefined> {
+		try {
+			const item = await this.taskHistory.findHistoryItem(taskId)
+			return item ? chatDisplayTitle(item) : undefined
+		} catch {
+			return undefined
+		}
 	}
 
 	/** Cline Cubed: the active chat's own name for the state broadcast; undefined when unnamed. */
@@ -2376,10 +2426,40 @@ export class Controller {
 	 * mode rebuild, new-session follow-up). Bumping the epoch BEFORE the new state is pushed
 	 * means any straggler message/state from the previous task or render carries an older epoch
 	 * and is dropped by the webview. Order matters: bump synchronously here, before any await.
+	 *
+	 * Cline Cubed: `sessionId` resets that session's OWN translator (chats run side by side, so
+	 * a background chat's boundary must not clear the focused chat's streaming state); omitted
+	 * resets the focused translator, exactly as before.
 	 */
-	resetMessageTranslatorAndFence(): void {
-		this.messageTranslatorState.reset()
+	resetMessageTranslatorAndFence(sessionId?: string): void {
+		this.getTranslatorFor(sessionId).reset()
 		this.messageTranslatorState.getMinter().bumpEpoch()
+	}
+
+	/**
+	 * Cline Cubed: set a session's authoritative turn phase. Writes the session's own tracker,
+	 * and — when that session is also the focused one — mirrors the focused tracker, which is
+	 * what identity-less consumers (standalone host, CLI) read.
+	 */
+	private setPhaseForSession(phase: TurnPhase, anchorTs?: number, sessionId?: string): void {
+		this.getTurnStateTrackerFor(sessionId).set(phase, anchorTs)
+		if (sessionId && this.task?.taskId === sessionId) {
+			this.turnStateTracker.set(phase, anchorTs)
+		}
+	}
+
+	/**
+	 * Cline Cubed: a resume was forced onto a NEW SDK session id. Re-key the bindings that still
+	 * carry the previous id: alias the proxy under the new id (the old entry stays, so responses
+	 * stamped with the history id still resolve to the same proxy) and move the chat-surface
+	 * registry binding so state and transcript keep flowing to the surface showing this chat.
+	 */
+	private handleSessionIdChanged(previousSessionId: string, newSessionId: string, task: TaskProxy): void {
+		this.taskProxies.set(newSessionId, task)
+		const surfaceId = chatSurfaceForSession(previousSessionId)
+		if (surfaceId) {
+			bindChatSurfaceToSession(surfaceId, newSessionId)
+		}
 	}
 
 	async getStateToPostToWebview(sessionId?: string): Promise<ExtensionState> {
@@ -2396,6 +2476,11 @@ export class Controller {
 				task,
 				stateManager: this.stateManager,
 				mcpHub: this.mcpHub,
+				// The active chat's own name — meaningful only when THIS snapshot is the focused
+				// chat's (activeTaskCustomTitle tracks the focused task alone). A per-session
+				// snapshot for another chat gets its name from currentTaskItem.title instead.
+				...(!sessionId || sessionId === this.task?.taskId ? { getActiveTaskTitle: () => this.getActiveTaskTitle() } : {}),
+				checkpointRestoreInput: this.checkpointRestoreInput,
 				backgroundCommandRunning: this.backgroundCommandRunning,
 				backgroundCommandTaskId: this.backgroundCommandTaskId,
 				foregroundCommandRunning: this.foregroundCommands.isRunning,

@@ -20,10 +20,14 @@ function normalizeModelId(modelId: string): string {
 type AgentFailureTelemetry = Pick<ProviderFailureTelemetry, "sessionId" | "error" | "errorType"> | undefined
 
 export interface SdkSessionEventCoordinatorOptions {
-	messageTranslatorState: MessageTranslatorState
 	/**
 	 * Cline Cubed: the translator belonging to a session. Chats stream side by side, and the
 	 * translator holds single-stream bookkeeping, so each session translates through its own.
+	 *
+	 * This is the ONLY way to reach a translator from here. A `messageTranslatorState` field —
+	 * the focused chat's translator, from the single-chat design — sat beside it unread until
+	 * 2026-08-28 and was deleted: it read like the right object and silently was not, which is
+	 * exactly the mistake two of this file's own tests had made.
 	 */
 	getTranslatorFor: (sessionId?: string) => MessageTranslatorState
 	sessions: SdkSessionLifecycle

@@ -10,8 +10,10 @@ option java_multiple_files = true;
 option java_package = "bot.cline.proto";
 
 service TaskService {
-  // Cancels the currently running task
-  rpc cancelTask(EmptyRequest) returns (Empty);
+  // Cancels a running task. The string is the SESSION ID of the chat whose task to cancel —
+  // chats run side by side, so the webview stamps its own bound session (like askResponse).
+  // Empty = the focused session (legacy surface-less callers).
+  rpc cancelTask(StringRequest) returns (Empty);
   // Cancels a queued prompt by ID
   rpc cancelQueuedPrompt(StringRequest) returns (Empty);
   // Cancels the currently running background command

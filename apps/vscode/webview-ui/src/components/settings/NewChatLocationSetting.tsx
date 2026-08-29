@@ -3,9 +3,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { updateSetting } from "./utils/settingsHandlers"
 
+// The default first — it is where chats open until someone chooses otherwise.
 const NEW_CHAT_LOCATION_OPTIONS = [
-	{ value: "secondarySidebar", label: "Secondary sidebar (typically right)" },
 	{ value: "editor", label: "Editor area (new tab)" },
+	{ value: "secondarySidebar", label: "Secondary sidebar (typically right)" },
 ] as const
 
 const NewChatLocationSetting: React.FC = () => {
@@ -22,7 +23,7 @@ const NewChatLocationSetting: React.FC = () => {
 					// they are. Every new-chat button reads the persisted value live.
 					updateSetting("newChatLocation", newLocation)
 				}}
-				value={newChatLocation || "secondarySidebar"}>
+				value={newChatLocation || "editor"}>
 				<SelectTrigger className="w-full" id="new-chat-location-dropdown">
 					<SelectValue />
 				</SelectTrigger>

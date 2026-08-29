@@ -47,7 +47,8 @@ export interface SdkTaskStartCoordinatorOptions {
 	clearTask: (options?: { stopActiveSession?: boolean }) => Promise<void>
 	setTask: (task: TaskProxy | undefined) => void
 	onAskResponse: (text?: string, images?: string[], files?: string[], sessionId?: string) => Promise<void>
-	onCancelTask: () => Promise<void>
+	/** Cline Cubed: `sessionId` names the chat being cancelled — the proxy always passes its own. */
+	onCancelTask: (sessionId?: string) => Promise<void>
 	getWorkspaceRoot: () => Promise<string>
 	createTempSessionHost: () => Promise<SdkSessionHost>
 	loadInitialMessages: (reader: SdkSessionHost, taskId: string) => Promise<unknown[] | undefined>
@@ -56,6 +57,12 @@ export interface SdkTaskStartCoordinatorOptions {
 	emitClineAuthError: (task?: string) => void
 	captureProviderApiError?: (event: ProviderFailureTelemetry) => void
 	postStateToWebview: () => Promise<void>
+	/**
+	 * Cline Cubed: a resume was forced onto a NEW SDK session id (the runtime declined the
+	 * requested one). Every binding outside this coordinator — the proxies map, the chat-surface
+	 * registry — still keys the previous id, so the controller re-keys them here.
+	 */
+	onSessionIdChanged?: (previousSessionId: string, newSessionId: string, task: TaskProxy) => void
 }
 
 export class SdkTaskStartCoordinator {
@@ -138,8 +145,14 @@ export class SdkTaskStartCoordinator {
 				Logger.warn(
 					`[SdkController] SDK returned session id ${startResult.sessionId} after requested id ${taskSessionId}`,
 				)
+				const requestedSessionId = taskSessionId
 				task.taskId = startResult.sessionId
 				taskSessionId = startResult.sessionId
+				// Same re-key as the resume paths: alias the proxy under the live id and let the
+				// controller move any chat-surface binding, or later lookups by one of the two
+				// ids miss and fall into fallback routing.
+				this.options.setTask(task)
+				this.options.onSessionIdChanged?.(requestedSessionId, startResult.sessionId, task)
 			}
 
 			const newHistoryItem = this.options.createHistoryItemFromSession(
@@ -215,6 +228,13 @@ export class SdkTaskStartCoordinator {
 			const initialMessages = await this.options.loadInitialMessages(tempManager, taskId)
 			await tempManager.dispose("readMessages")
 
+			// Cline Cubed: resume UNDER THE TASK'S OWN ID (the same pin
+			// prepareTaskResumeStartInput applies on the follow-up resume path). Without it the
+			// runtime minted a fresh id for the resumed session while the surface registry, the
+			// webview's message stamp, and the proxies map all still keyed the history id — so
+			// every later lookup missed and fell into fallback routing.
+			config.sessionId = taskId
+
 			const { startResult } = await this.options.sessions.startNewSession({
 				config,
 				interactive: true,
@@ -222,7 +242,17 @@ export class SdkTaskStartCoordinator {
 				sessionMetadata: historyItemToSessionMetadata(historyItem, config.modelId),
 			})
 
-			this.createAndSetTask(startResult.sessionId)
+			const task = this.createAndSetTask(taskId)
+			if (startResult.sessionId !== taskId) {
+				// The runtime declined the requested id — the exception, not the rule. Re-key the
+				// proxy under the live id (the old entry stays as an alias, so responses stamped
+				// with the history id still resolve to this proxy) and let the controller re-bind
+				// the chat-surface registry.
+				Logger.warn(`[SdkController] SDK returned session id ${startResult.sessionId} after requested id ${taskId}`)
+				task.taskId = startResult.sessionId
+				this.options.setTask(task)
+				this.options.onSessionIdChanged?.(taskId, startResult.sessionId, task)
+			}
 			await this.options.postStateToWebview()
 
 			Logger.log(`[SdkController] Task resumed: ${taskId} → ${startResult.sessionId}`)
@@ -241,7 +271,7 @@ export class SdkTaskStartCoordinator {
 			sessionId,
 			(text?: string, images?: string[], files?: string[], proxySessionId?: string) =>
 				this.options.onAskResponse(text, images, files, proxySessionId ?? sessionId),
-			() => this.options.onCancelTask(),
+			(proxySessionId?: string) => this.options.onCancelTask(proxySessionId ?? sessionId),
 		)
 		this.options.setTask(task)
 		return task

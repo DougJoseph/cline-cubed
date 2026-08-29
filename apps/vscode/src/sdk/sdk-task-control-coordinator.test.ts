@@ -25,14 +25,50 @@ describe("SdkTaskControlCoordinator", () => {
 
 		await coordinator.cancelTask()
 
-		expect(options.interactions.clearPending).toHaveBeenCalledWith("Task cancelled")
+		expect(options.interactions.clearPending).toHaveBeenCalledWith("Task cancelled", "session-123")
 		expect(activeSession.sdkHost.abort).toHaveBeenCalledWith("session-123")
-		expect(options.sessions.setRunning).toHaveBeenCalledWith(false)
+		expect(options.sessions.setRunning).toHaveBeenCalledWith(false, "session-123")
 		expect(options.messages.appendAndEmit).toHaveBeenCalledWith(
 			[expect.objectContaining({ type: "ask", ask: "resume_task" })],
 			{ type: "status", payload: { sessionId: "session-123", status: "cancelled" } },
 		)
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
+	})
+
+	it("cancels a NAMED background session — never the active one", async () => {
+		// Cancel pressed in a background chat's UI names that chat's session; the ACTIVE
+		// session (a different chat, mid-stream) must be left completely alone.
+		const activeSession = makeActiveSession()
+		const { coordinator, options } = makeCoordinator({ activeSession })
+		const backgroundSession = {
+			sessionId: "background-task",
+			sdkHost: { abort: vi.fn().mockResolvedValue(undefined) },
+			isRunning: true,
+		}
+		options.sessions.getLiveSession.mockImplementation((sessionId: string) =>
+			sessionId === "background-task" ? backgroundSession : undefined,
+		)
+
+		await coordinator.cancelTask("background-task")
+
+		expect(backgroundSession.sdkHost.abort).toHaveBeenCalledWith("background-task")
+		expect(activeSession.sdkHost.abort).not.toHaveBeenCalled()
+		expect(options.interactions.clearPending).toHaveBeenCalledWith("Task cancelled", "background-task")
+		expect(options.sessions.setRunning).toHaveBeenCalledWith(false, "background-task")
+		expect(options.messages.appendAndEmit).toHaveBeenCalledWith(
+			[expect.objectContaining({ type: "ask", ask: "resume_task" })],
+			{ type: "status", payload: { sessionId: "background-task", status: "cancelled" } },
+		)
+	})
+
+	it("cancelling a NAMED session that is not live cancels NOTHING (no active-session fallback)", async () => {
+		const activeSession = makeActiveSession()
+		const { coordinator, options } = makeCoordinator({ activeSession })
+
+		await coordinator.cancelTask("gone-task")
+
+		expect(activeSession.sdkHost.abort).not.toHaveBeenCalled()
+		expect(options.interactions.clearPending).not.toHaveBeenCalled()
 	})
 
 	it("cancels a running Cline task when the user signs out", async () => {
@@ -42,7 +78,7 @@ describe("SdkTaskControlCoordinator", () => {
 		await coordinator.cancelClineTaskOnSignOut(true)
 
 		expect(activeSession.sdkHost.abort).toHaveBeenCalledWith("session-123")
-		expect(options.sessions.setRunning).toHaveBeenCalledWith(false)
+		expect(options.sessions.setRunning).toHaveBeenCalledWith(false, "session-123")
 	})
 
 	it("does not cancel a non-Cline task when the user signs out", async () => {
@@ -78,7 +114,7 @@ describe("SdkTaskControlCoordinator", () => {
 
 		await coordinator.clearTask()
 
-		expect(options.interactions.clearPending).toHaveBeenCalledWith("Task cleared")
+		expect(options.interactions.clearPending).toHaveBeenCalledWith("Task cleared", "session-123")
 		expect(options.sessions.endActiveSession).toHaveBeenCalledWith("clearTask")
 		expect(options.messages.finalizeMessagesForSave).not.toHaveBeenCalled()
 		expect(options.messages.cancelPendingSave).toHaveBeenCalledOnce()
@@ -137,7 +173,11 @@ describe("SdkTaskControlCoordinator", () => {
 		await coordinator.showTaskWithId("task-1")
 
 		expect(options.taskHistory.findHistoryItem).toHaveBeenCalledWith("task-1")
-		expect(options.sessions.endActiveSession).toHaveBeenCalledWith("showTaskWithId", { awaitStop: false })
+		// Cline Cubed: the running session belongs to a DIFFERENT chat, and chats coexist — so
+		// opening this one must leave that one alone. This assertion used to be the opposite
+		// (`endActiveSession` called), which was the single-chat behaviour: opening any task tore
+		// down whatever was running. See the two tests below for the cases that DO tear down.
+		expect(options.sessions.endActiveSession).not.toHaveBeenCalled()
 		expect(existingTask.messageStateHandler.clear).toHaveBeenCalledOnce()
 		expect(options.resetMessageTranslator).toHaveBeenCalledOnce()
 		expect(state.task?.taskId).toBe("task-1")
@@ -150,7 +190,58 @@ describe("SdkTaskControlCoordinator", () => {
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
 	})
 
-	it("clears a pending approval when switching tasks so the new task input is not consumed", async () => {
+	it("tears down the session being reopened when it is active but NO LONGER live", async () => {
+		// The one teardown that survives concurrency: the chat being reopened is the active one and
+		// its session is dead, so it is stopped and rebuilt from history. `awaitStop: true` matters
+		// — the persisted session status is read next, and it must reflect how the last turn really
+		// ended rather than a transient non-terminal status.
+		const { coordinator, options } = makeCoordinator({
+			activeSession: makeActiveSession(),
+			hasHistoryItem: true,
+			sessionStatus: "completed",
+		})
+
+		await coordinator.showTaskWithId("session-123")
+
+		expect(options.sessions.endActiveSession).toHaveBeenCalledWith("showTaskWithId", { awaitStop: true })
+	})
+
+	it("focuses a LIVE session in place instead of stopping it", async () => {
+		// Revisiting a chat that is mid-stream must never interrupt it.
+		const { coordinator, options } = makeCoordinator({
+			activeSession: makeActiveSession(),
+			hasHistoryItem: true,
+			liveSessionIds: ["session-123"],
+			sessionStatus: "completed",
+		})
+
+		await coordinator.showTaskWithId("session-123")
+
+		expect(options.sessions.endActiveSession).not.toHaveBeenCalled()
+	})
+
+	it("does NOT wipe the outgoing chat's transcript while its session is still live", async () => {
+		// A task switch is bookkeeping. Wiping the outgoing chat's messages would gut a chat that
+		// is still streaming — the defect that made two open chats blank each other.
+		const existingTask = makeTask("old-task")
+		const { coordinator } = makeCoordinator({
+			activeSession: makeActiveSession(),
+			task: existingTask,
+			hasHistoryItem: true,
+			liveSessionIds: ["old-task"],
+			sessionStatus: "completed",
+		})
+
+		await coordinator.showTaskWithId("task-1")
+
+		expect(existingTask.messageStateHandler.clear).not.toHaveBeenCalled()
+	})
+
+	it("leaves ANOTHER chat's pending approval untouched when opening a different task", async () => {
+		// Cline Cubed: chats run side by side — opening one chat says nothing about the others.
+		// The old contract settled EVERY pending on any task switch ("Task switched"), which
+		// silently denied a still-streaming chat's approval; the pending must instead stay
+		// resolvable by ITS OWN session and only its own.
 		const pendingTask = createTaskProxy("old-task", vi.fn(), vi.fn())
 		const interactions = new SdkInteractionCoordinator({
 			messages: new SdkMessageCoordinator({ getTask: () => pendingTask }),
@@ -165,7 +256,7 @@ describe("SdkTaskControlCoordinator", () => {
 		const coordinator = new SdkTaskControlCoordinator({ ...options, interactions })
 		const approvalPromise = interactions.handleRequestToolApproval({
 			agentId: "agent",
-			conversationId: "conversation",
+			conversationId: "old-task",
 			iteration: 1,
 			toolCallId: "tool-call",
 			toolName: "read_files",
@@ -176,11 +267,14 @@ describe("SdkTaskControlCoordinator", () => {
 
 		await coordinator.showTaskWithId("new-task")
 
-		await expect(approvalPromise).resolves.toEqual({ approved: false, reason: "Task switched" })
-		expect(interactions.resolvePendingToolApproval("next task input", "noButtonClicked")).toBe(false)
+		// Still pending: a response from a DIFFERENT session resolves nothing…
+		expect(interactions.resolvePendingToolApproval("new-task", undefined, "yesButtonClicked")).toBe(false)
+		// …and the asking session's own response still lands.
+		expect(interactions.resolvePendingToolApproval("old-task", undefined, "yesButtonClicked")).toBe(true)
+		await expect(approvalPromise).resolves.toEqual({ approved: true })
 	})
 
-	it("settles a pending question when switching tasks so the outgoing run can unwind", async () => {
+	it("leaves ANOTHER chat's pending question untouched when opening a different task", async () => {
 		const pendingTask = createTaskProxy("old-task", vi.fn(), vi.fn())
 		const interactions = new SdkInteractionCoordinator({
 			messages: new SdkMessageCoordinator({ getTask: () => pendingTask }),
@@ -193,13 +287,63 @@ describe("SdkTaskControlCoordinator", () => {
 			clineMessages: [],
 		})
 		const coordinator = new SdkTaskControlCoordinator({ ...options, interactions })
-		const questionPromise = interactions.handleAskQuestion("Which option?", ["A", "B"], {})
+		const questionPromise = interactions.handleAskQuestion("Which option?", ["A", "B"], { sessionId: "old-task" })
 		await vi.waitFor(() => expect(pendingTask.messageStateHandler.getClineMessages()).toHaveLength(1))
 
 		await coordinator.showTaskWithId("new-task")
 
-		await expect(questionPromise).resolves.toBe("")
-		expect(interactions.resolvePendingAskQuestion("late answer")).toBe(false)
+		expect(interactions.resolvePendingAskQuestion("new-task", "late answer")).toBe(false)
+		expect(interactions.resolvePendingAskQuestion("old-task", "the real answer")).toBe(true)
+		await expect(questionPromise).resolves.toBe("the real answer")
+	})
+
+	it("settles the reopened session's OWN pending when tearing it down (same-task reopen)", async () => {
+		// The one legitimate settle on a task open: reopening the non-live ACTIVE session tears
+		// it down first, and the torn-down session's pending must unwind — scoped to that
+		// session alone.
+		const pendingTask = createTaskProxy("session-123", vi.fn(), vi.fn())
+		const interactions = new SdkInteractionCoordinator({
+			messages: new SdkMessageCoordinator({ getTask: () => pendingTask }),
+			getSessionId: () => pendingTask.taskId,
+			postStateToWebview: vi.fn().mockResolvedValue(undefined),
+		})
+		const { options } = makeCoordinator({
+			activeSession: makeActiveSession(),
+			hasHistoryItem: true,
+			clineMessages: [],
+		})
+		const coordinator = new SdkTaskControlCoordinator({ ...options, interactions })
+		const approvalPromise = interactions.handleRequestToolApproval({
+			agentId: "agent",
+			conversationId: "session-123",
+			iteration: 1,
+			toolCallId: "tool-call",
+			toolName: "read_files",
+			input: {},
+			policy: { autoApprove: false },
+		})
+		await vi.waitFor(() => expect(pendingTask.messageStateHandler.getClineMessages()).toHaveLength(1))
+
+		await coordinator.showTaskWithId("session-123")
+
+		await expect(approvalPromise).resolves.toEqual({ approved: false, reason: "Task switched" })
+		expect(interactions.resolvePendingToolApproval("session-123", undefined, "yesButtonClicked")).toBe(false)
+	})
+
+	it("forwards the session id on responses from a history-opened chat's proxy", async () => {
+		// The proxy must forward its 4th callback argument: without it a message typed into a
+		// history-opened chat routes with NO session, and lands in the focused chat instead.
+		const { coordinator, options, state } = makeCoordinator({
+			hasHistoryItem: true,
+			clineMessages: [{ ts: 1, type: "say", say: "task", text: "hello" }],
+			sessionStatus: "completed",
+		})
+
+		await coordinator.showTaskWithId("task-1")
+		const proxy = state.task as unknown as ReturnType<typeof createTaskProxy>
+		await proxy.handleWebviewAskResponse("messageResponse", "hi again", ["img.png"], ["file.ts"])
+
+		expect(options.onAskResponse).toHaveBeenCalledWith("hi again", ["img.png"], ["file.ts"], "task-1")
 	})
 
 	it("shows a legacy task with a warning and a resume ask", async () => {
@@ -449,6 +593,13 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 			getActiveSession: vi.fn(() => input.activeSession),
 			endActiveSession: vi.fn().mockResolvedValue(input.activeSession),
 			setRunning: vi.fn(),
+			// Cline Cubed: chats coexist, so "is this session still live?" is asked before any
+			// teardown — a live session is focused in place, never stopped, and its transcript is
+			// never wiped. Nothing is live unless a test says so, which is the single-chat world
+			// the assertions below were written in.
+			getLiveSession: vi.fn((sessionId: string) =>
+				(input.liveSessionIds ?? []).includes(sessionId) ? { sessionId, isRunning: true } : undefined,
+			),
 		},
 		interactions: {
 			clearPending: vi.fn(),
@@ -499,6 +650,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 			getActiveSession: ReturnType<typeof vi.fn>
 			endActiveSession: ReturnType<typeof vi.fn>
 			setRunning: ReturnType<typeof vi.fn>
+			getLiveSession: ReturnType<typeof vi.fn>
 		}
 		interactions: SdkTaskControlCoordinatorOptions["interactions"] & { clearPending: ReturnType<typeof vi.fn> }
 		messages: SdkTaskControlCoordinatorOptions["messages"] & {
@@ -534,6 +686,8 @@ interface MakeCoordinatorInput {
 	clineMessages: ClineMessage[]
 	isLegacyTask: boolean
 	sessionStatus: string
+	/** Session ids that are still LIVE — a live chat is focused in place, never torn down. */
+	liveSessionIds: string[]
 }
 
 function makeActiveSession() {

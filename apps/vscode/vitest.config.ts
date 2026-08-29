@@ -9,6 +9,7 @@ export default defineConfig({
 		include: [
 			"src/sdk/**/*.test.ts",
 			"src/hosts/vscode/VscodeEditPreview.test.ts",
+			"src/hosts/vscode/chatEditorPanel.test.ts",
 			"src/shared/vsCodeSelectorUtils.test.ts",
 			"src/shared/proto-conversions/models/**/*.test.ts",
 			"src/core/storage/remote-config/**/*.test.ts",
@@ -16,6 +17,7 @@ export default defineConfig({
 			"src/core/controller/remoteConfig/**/*.test.ts",
 			"src/core/controller/state/**/*.test.ts",
 			"src/core/controller/slash/**/*.test.ts",
+			"src/core/controller/task/askResponse.test.ts",
 			"src/services/mcp/__tests__/settingsLock.test.ts",
 			"src/shared/model-catalog/provider-helpers.test.ts",
 			"src/core/controller/models/__tests__/providerCatalogHandlers.test.ts",

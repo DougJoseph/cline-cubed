@@ -293,7 +293,11 @@ const USER_SETTINGS_FIELDS = {
 	worktreesEnabled: { default: false as boolean },
 	preferredLanguage: { default: "English" as string },
 	// Cline Cubed: where a new chat session opens ("secondarySidebar" | "editor").
-	newChatLocation: { default: "secondarySidebar" as NewChatLocation },
+	// Defaults to the EDITOR, matching Claude Code (whose `preferredLocation` defaults to its
+	// editor-area "panel"), and because the editor path is the one that always works: the
+	// secondary-sidebar view container does not register on some VS Code versions the manifest
+	// still claims support for, where revealing it fails and no chat opens at all.
+	newChatLocation: { default: "editor" as NewChatLocation },
 	mode: { default: "act" as Mode },
 	focusChainSettings: { default: DEFAULT_FOCUS_CHAIN_SETTINGS as FocusChainSettings },
 	backgroundEditEnabled: { default: false as boolean },

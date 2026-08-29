@@ -641,7 +641,7 @@ describe("SdkModeCoordinator", () => {
 
 		await coordinator.rebuildSessionForMode("act")
 
-		expect(options.interactions.clearPending).toHaveBeenCalledWith("Mode changed")
+		expect(options.interactions.clearPending).toHaveBeenCalledWith("Mode changed", "old-session")
 		expect(options.messages.cancelPendingSave).toHaveBeenCalledOnce()
 		expect(activeSession.sdkHost.abort).toHaveBeenCalledWith("old-session")
 		expect(options.sessions.setRunning).toHaveBeenCalledWith(false)

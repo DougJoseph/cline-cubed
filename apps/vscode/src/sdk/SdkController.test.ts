@@ -252,6 +252,9 @@ describe("SDK remote-config coordination", () => {
 		const controller = {
 			waitForInitialRemoteConfig: vi.fn(async () => events.push("policy")),
 			turnStateTracker: { set: vi.fn() },
+			// Reinit now also primes the reinstated session's OWN tracker and translator.
+			getTurnStateTrackerFor: vi.fn(() => ({ set: vi.fn() })),
+			getTranslatorFor: vi.fn(() => ({ clearTurnOutcome: vi.fn() })),
 			messageTranslatorState: { clearTurnOutcome: vi.fn() },
 			taskStart: { reinitExistingTaskFromId: vi.fn(async () => events.push("resume")) },
 		}

@@ -11,6 +11,11 @@ export class SecretStore implements vscode.SecretStorage {
 
 	readonly onDidChange: vscode.Event<vscode.SecretStorageChangeEvent> = this._onDidChange.event
 
+	/** Required by VS Code's SecretStorage as of 1.106; backed by the same JSON store as get/store. */
+	keys(): Thenable<string[]> {
+		return Promise.resolve(Array.from(this.data.keys()))
+	}
+
 	get(key: string): Thenable<string | undefined> {
 		return Promise.resolve(this.data.get(key))
 	}

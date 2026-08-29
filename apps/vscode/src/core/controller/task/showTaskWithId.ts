@@ -2,20 +2,19 @@ import { StringRequest } from "@shared/proto/cline/common"
 import { TaskResponse } from "@shared/proto/cline/task"
 import { Logger } from "@/shared/services/Logger"
 import { Controller } from ".."
-import { getActiveChatSurface } from "../chat-surfaces"
-import { sendChatButtonClickedEvent } from "../ui/subscribeToChatButtonClicked"
 
 /**
  * Shows a task with the specified ID by loading its messages from disk.
  * Task lookup/loading is delegated to the SDK-backed controller.
+ *
+ * Cline Cubed: this unary RPC carries NO surface identity, so the host cannot know which chat
+ * surface asked — it used to fire a chatButtonClicked at `getActiveChatSurface()`, a guess from a
+ * global that panel focus mutates, which could navigate a DIFFERENT surface to its chat view. The
+ * CALLER navigates itself instead (it knows it clicked); the host only loads the task.
  */
 export async function showTaskWithId(controller: Controller, request: StringRequest): Promise<TaskResponse> {
 	try {
-		const response = await controller.showTaskWithId(request.value)
-		// Cline Cubed: show the chat view in the surface that requested this task — the other
-		// open chats keep whatever they are showing.
-		await sendChatButtonClickedEvent(getActiveChatSurface())
-		return response
+		return await controller.showTaskWithId(request.value)
 	} catch (error) {
 		Logger.error("Error in showTaskWithId:", error)
 		throw error

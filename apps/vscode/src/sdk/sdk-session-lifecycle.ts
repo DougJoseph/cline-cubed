@@ -60,6 +60,43 @@ export interface SdkSessionLifecycleOptions {
 	onDidBecomeIdle?: () => void
 }
 
+/**
+ * Cline Cubed: the session id a mistake-limit context belongs to.
+ *
+ * The SDK's ConsecutiveMistakeLimitContext carries no session identity, so the id is stamped on
+ * as the session starts (see {@link bindMistakeLimitToSession}) and read back through this key.
+ */
+export const MISTAKE_LIMIT_SESSION_ID = "__clineCubedSessionId"
+
+/** A mistake-limit context carrying the session it belongs to. */
+export type MistakeLimitContextWithSession = { [MISTAKE_LIMIT_SESSION_ID]?: string }
+
+/** Read the session a mistake-limit context was stamped with, if any. */
+export function mistakeLimitSessionId(context: unknown): string | undefined {
+	const stamped = (context as MistakeLimitContextWithSession | undefined)?.[MISTAKE_LIMIT_SESSION_ID]
+	return typeof stamped === "string" && stamped.trim() ? stamped.trim() : undefined
+}
+
+/**
+ * Cline Cubed: bind a session config's mistake-limit callback to ONE session.
+ *
+ * Chats run side by side, so the error row a limit produces must land in the chat whose run hit
+ * the limit. The context itself names no session, and by the time the callback fires the focused
+ * chat may be a different conversation entirely — so the id is captured here, at start, where it
+ * is known for certain. Returns the config unchanged when it declares no callback.
+ */
+function bindMistakeLimitToSession<T extends { onConsecutiveMistakeLimitReached?: unknown }>(config: T, sessionId: string): T {
+	const handler = config.onConsecutiveMistakeLimitReached
+	if (typeof handler !== "function") {
+		return config
+	}
+	return {
+		...config,
+		onConsecutiveMistakeLimitReached: (context: object) =>
+			(handler as (c: object) => unknown)({ ...context, [MISTAKE_LIMIT_SESSION_ID]: sessionId }),
+	}
+}
+
 export class SdkSessionLifecycle {
 	private activeSession: ActiveSession | undefined
 	/** Cline Cubed: ALL live sessions, keyed by sessionId. The SDK core already runs
@@ -195,8 +232,15 @@ export class SdkSessionLifecycle {
 
 		const sdkHost = await this.getOrCreateSharedHost()
 
+		// Cline Cubed: the mistake-limit callback's context carries no session identity, so bind
+		// it to THIS session as the session starts — the one moment the id is known for certain.
+		// Without it the resulting error row is attributed to whichever chat is focused when the
+		// limit trips, which puts one chat's error in another chat's transcript.
+		const config = requestedSessionId ? bindMistakeLimitToSession(startInput.config, requestedSessionId) : startInput.config
+
 		const startResult = await sdkHost.start({
 			...startInput,
+			config,
 			...(toolPolicies ? { toolPolicies } : {}),
 		})
 		this.activeSession = {

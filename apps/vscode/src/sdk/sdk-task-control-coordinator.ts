@@ -15,9 +15,12 @@ export interface SdkTaskControlCoordinatorOptions {
 	taskHistory: SdkTaskHistory
 	getTask: () => TaskProxy | undefined
 	setTask: (task: TaskProxy | undefined) => void
-	onAskResponse: (text?: string, images?: string[], files?: string[]) => Promise<void>
+	/** Cline Cubed: `sessionId` names the conversation the response belongs to — never omitted
+	 *  by the proxy this coordinator builds, or the response routes by focus instead. */
+	onAskResponse: (text?: string, images?: string[], files?: string[], sessionId?: string) => Promise<void>
 	resetMessageTranslator: () => void
-	postStateToWebview: () => Promise<void>
+	/** Cline Cubed: `sessionId` scopes the post to that chat; omitted = the focused one. */
+	postStateToWebview: (sessionId?: string) => Promise<void>
 	/**
 	 * Drops the StateManager's task-scoped settings overlay (persisting pending
 	 * writes first). Task settings — e.g. autoApprovalSettings written by
@@ -41,8 +44,9 @@ export interface SdkTaskControlCoordinatorOptions {
 	 * straggler events the SDK emits after the abort request carry the old epoch (and are dropped
 	 * by the webview), and mark the active turn cancelled so the session-event coordinator
 	 * suppresses its remaining DISPLAY output (usage is still accounted).
+	 * Cline Cubed: `sessionId` scopes the translator-state clear to the CANCELLED session.
 	 */
-	raiseCancelFence?: () => void
+	raiseCancelFence?: (sessionId?: string) => void
 }
 
 export class SdkTaskControlCoordinator {
@@ -65,23 +69,32 @@ export class SdkTaskControlCoordinator {
 		await this.cancelTask()
 	}
 
-	async cancelTask(): Promise<void> {
-		this.options.interactions.clearPending("Task cancelled")
-
-		const activeSession = this.options.sessions.getActiveSession()
-		if (!activeSession) {
-			Logger.warn("[SdkController] cancelTask: No active session")
+	async cancelTask(targetSessionId?: string): Promise<void> {
+		// Cline Cubed: cancel the NAMED chat's session — Cancel pressed in one chat must abort
+		// that chat's turn, never whichever chat is active. No name = the focused session
+		// (surface-less legacy callers).
+		const targetSession = targetSessionId
+			? this.options.sessions.getLiveSession(targetSessionId)
+			: this.options.sessions.getActiveSession()
+		if (!targetSession) {
+			Logger.warn(
+				targetSessionId
+					? `[SdkController] cancelTask: Session ${targetSessionId} is not live; nothing to cancel`
+					: "[SdkController] cancelTask: No active session",
+			)
 			return
 		}
 
-		const { sdkHost, sessionId } = activeSession
+		const { sdkHost, sessionId } = targetSession
+		// Cline Cubed: only the cancelled session's pendings — other chats' asks stay live.
+		this.options.interactions.clearPending("Task cancelled", sessionId)
 
 		// FENCE FIRST: raise the cancel fence synchronously BEFORE awaiting the abort. Any event
 		// the SDK emits after this point carries the old epoch (dropped by the webview) and is
 		// marked cancelled (display suppressed by the session-event coordinator; usage still
 		// accounted). Order matters — aborting first would leave a window where a straggler gets
-		// the new epoch.
-		this.options.raiseCancelFence?.()
+		// the new epoch. Scoped to the cancelled session's own translator state.
+		this.options.raiseCancelFence?.(sessionId)
 
 		try {
 			await sdkHost.abort(sessionId)
@@ -93,7 +106,7 @@ export class SdkTaskControlCoordinator {
 			}
 		}
 
-		this.options.sessions.setRunning(false)
+		this.options.sessions.setRunning(false, sessionId)
 
 		const resumeMessage: ClineMessage = {
 			ts: Date.now(),
@@ -104,7 +117,7 @@ export class SdkTaskControlCoordinator {
 		}
 		this.options.messages.appendAndEmit([resumeMessage], { type: "status", payload: { sessionId, status: "cancelled" } })
 
-		await this.options.postStateToWebview()
+		await this.options.postStateToWebview(sessionId)
 		Logger.log(`[SdkController] Task cancelled: ${sessionId}`)
 	}
 
@@ -112,11 +125,17 @@ export class SdkTaskControlCoordinator {
 		// Supersede any in-flight showTaskWithId so it cannot re-install a task
 		// after the user cleared the view (e.g. clicked New Task).
 		this.taskViewGeneration++
-		this.options.interactions.clearPending("Task cleared")
 
 		// Cline Cubed: a genuine user clear stops the focused SDK session; reinit of a
-		// live session (focus-without-stop) must NOT stop any other session.
+		// live session (focus-without-stop) must NOT stop any other session. Pendings are
+		// cleared only for the session actually being stopped — a bookkeeping clear (task
+		// switch) leaves the outgoing chat's pending ask live, because that chat is still
+		// running and its question still awaits ITS answer.
 		if (options.stopActiveSession !== false) {
+			const endingSessionId = this.options.sessions.getActiveSession()?.sessionId
+			if (endingSessionId) {
+				this.options.interactions.clearPending("Task cleared", endingSessionId)
+			}
 			await this.options.sessions.endActiveSession("clearTask")
 		}
 
@@ -182,23 +201,22 @@ export class SdkTaskControlCoordinator {
 		}
 
 		try {
-			// Reject any outstanding approval before tearing down the old session. Approval
-			// resolvers live on the shared interaction coordinator, so ending the session
-			// alone does not discard them; if one leaks across this task switch, the first
-			// message sent in the newly selected task is consumed as the old task's response.
-			this.options.interactions.clearPending("Task switched")
-
 			// When reopening the task that is currently active, wait for its stop to
 			// land so the persisted session status read below reflects how the last
 			// turn actually ended (completed vs cancelled) instead of a transient
 			// non-terminal status.
 			// Cline Cubed: a live session is focused in place — never stopped — so opening or
 			// revisiting one chat leaves every other chat streaming. Only a session that is not
-			// live is torn down here, and only when it is the one being reopened.
+			// live is torn down here, and only when it is the one being reopened — and ONLY that
+			// session's pending ask/approval is discarded with it. Opening a chat used to clear
+			// EVERY chat's pendings ("Task switched"), which silently answered another chat's
+			// question with an empty string; under concurrency, opening one chat says nothing
+			// about the others.
 			const liveTarget = this.options.sessions.getLiveSession(taskId)
 			if (!liveTarget) {
 				const activeSession = this.options.sessions.getActiveSession()
 				if (activeSession?.sessionId === taskId) {
+					this.options.interactions.clearPending("Task switched", taskId)
 					await this.options.sessions.endActiveSession("showTaskWithId", { awaitStop: true })
 				}
 			}
@@ -246,8 +264,12 @@ export class SdkTaskControlCoordinator {
 
 			const task = createTaskProxy(
 				taskId,
-				(text?: string, images?: string[], files?: string[]) => this.options.onAskResponse(text, images, files),
-				() => this.cancelTask(),
+				// Cline Cubed: forward the proxy's session id (4th argument). Without it a message
+				// typed into a history-opened chat routes session-blind, and the focused-chat
+				// fallbacks decide where it lands.
+				(text?: string, images?: string[], files?: string[], proxySessionId?: string) =>
+					this.options.onAskResponse(text, images, files, proxySessionId ?? taskId),
+				(proxySessionId?: string) => this.cancelTask(proxySessionId ?? taskId),
 			)
 			if (cleanedMessages.length > 0) {
 				task.messageStateHandler.addMessages(cleanedMessages)

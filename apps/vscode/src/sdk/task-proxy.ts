@@ -156,7 +156,8 @@ export type AskResponseCallback = (text?: string, images?: string[], files?: str
 /**
  * Callback type for delegating task cancellation to the controller.
  */
-export type CancelTaskCallback = () => Promise<void>
+/** Cline Cubed: carries the proxy's session id so Cancel aborts THIS chat, not the active one. */
+export type CancelTaskCallback = (sessionId?: string) => Promise<void>
 
 /**
  * Create a task proxy that delegates to the SdkController.
@@ -231,7 +232,8 @@ export function createTaskProxy(
 		},
 
 		async abortTask(): Promise<void> {
-			await onCancelTask()
+			// Cline Cubed: cancel THIS proxy's session — never whichever chat is active.
+			await onCancelTask(currentSessionId)
 		},
 
 		get api(): TaskProxyApi {

@@ -1,5 +1,27 @@
 # Changelog
 
+## [4.1.20]
+
+### Added
+
+- **Editor tabs are named after their chat.** A chat tab used to read "Cline Cubed" whatever was
+  in it, so two chats side by side were two identical tabs. Each tab now carries its chat's
+  name — the name you gave it, or its first prompt if you have not renamed it — so every tab is
+  distinguishable, not only renamed ones. A long first prompt is shortened to fit the tab strip.
+  A tab with no chat in it yet still reads "Cline Cubed".
+- The tab keeps up with the chat: it takes its name the moment a new chat's first prompt lands,
+  relabels the instant you rename the chat from its own header or from any history row, falls
+  back to the first prompt when you clear a name, and returns to "Cline Cubed" when you close the
+  chat inside it.
+
+### Changed
+
+- Isolated further remnants of stock Cline's deeply rooted "single active session" mindset, which
+  by definition constituted bugs for support of running multiple chats concurrently. Fixed the
+  underlying issues. Even more bug fixes found along the way are included.
+- New chats open in the editor by default, as a tab in the editor area. Choose the secondary
+  sidebar in Settings if you prefer it there.
+
 ## [4.1.19]
 
 ### Added

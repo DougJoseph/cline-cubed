@@ -52,7 +52,7 @@ const HistoryViewItem = ({
 		[item.id, item.isFavorited, pendingFavoriteToggles],
 	)
 
-	const { setSurfaceBoundTaskId } = useExtensionState()
+	const { setSurfaceBoundTaskId, navigateToChat } = useExtensionState()
 
 	const handleShowTaskWithId = useCallback(
 		(id: string) => {
@@ -63,13 +63,17 @@ const HistoryViewItem = ({
 				return
 			}
 			// Cline Cubed: this webview chose the task — bind to it so its broadcast renders
-			// here and no other open chat surface switches to it.
+			// here and no other open chat surface switches to it, and navigate THIS surface to
+			// the chat view. The navigation is local on purpose: the RPC is unary and carries no
+			// surface identity, so the host-side chatButtonClicked it used to fire was aimed at
+			// the ACTIVE surface — a guess that could navigate a different chat.
 			setSurfaceBoundTaskId(id)
+			navigateToChat()
 			TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
 				console.error("Error showing task:", error),
 			)
 		},
-		[setSurfaceBoundTaskId, onSelectTask],
+		[setSurfaceBoundTaskId, navigateToChat, onSelectTask],
 	)
 
 	const formatDate = useCallback((timestamp: number) => {

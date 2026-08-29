@@ -42,8 +42,10 @@ export interface SdkFollowupCoordinatorOptions {
 	resolveContextMentions: (text: string) => Promise<string>
 	isClineManagedProviderActive: () => boolean
 	emitClineAuthError: () => void
-	resetMessageTranslator: () => void
-	postStateToWebview: () => Promise<void>
+	/** Cline Cubed: `sessionId` resets that session's own translator; omitted = the focused one. */
+	resetMessageTranslator: (sessionId?: string) => void
+	/** Cline Cubed: `sessionId` scopes the post to that chat; omitted = the focused one. */
+	postStateToWebview: (sessionId?: string) => Promise<void>
 	/** Resolves once no session rebuild is in flight. */
 	waitForPendingRebuilds: () => Promise<void>
 	/** Serializes transcript preparation and session start with rebuilds and displayed-task compaction. */
@@ -52,14 +54,23 @@ export interface SdkFollowupCoordinatorOptions {
 	 * Called when resuming a task fails. askResponse moved the turn phase to
 	 * streaming before delegating here, so the failure must move it to a
 	 * terminal phase or the footer stays stuck on Thinking/Cancel.
+	 * Cline Cubed: `sessionId` names the session whose phase to settle — the one the
+	 * follow-up targeted, never whichever chat is focused.
 	 */
-	onResumeFailed: () => void
+	onResumeFailed: (sessionId?: string) => void
 	/**
 	 * Called when a follow-up ends without starting a turn (the displayed task
 	 * changed, or no session could be chosen). Settles the streaming phase that
 	 * askResponse pre-set, for the same reason as onResumeFailed.
 	 */
-	onFollowUpAbandoned: () => void
+	onFollowUpAbandoned: (sessionId?: string) => void
+	/**
+	 * Cline Cubed: a resume was forced onto a NEW SDK session id (the runtime declined the
+	 * requested one). Every binding outside this coordinator — the proxies map, the chat-surface
+	 * registry — still keys the previous id, so the controller re-keys them here. Without this,
+	 * later lookups by the old id miss and fall into fallback routing.
+	 */
+	onSessionIdChanged?: (previousSessionId: string, newSessionId: string, task: TaskProxy) => void
 }
 
 export class SdkFollowupCoordinator {
@@ -78,18 +89,26 @@ export class SdkFollowupCoordinator {
 		 */
 		targetSessionId?: string,
 	): Promise<void> {
-		if (this.options.interactions.resolvePendingToolApproval(prompt, askResponse, images, files)) {
+		// Cline Cubed: a pending ask belongs to ONE session, and only a response for THAT session
+		// may resolve it. A response with no named target (legacy surface-less callers) resolves
+		// against the focused chat's pendings — the single-chat contract those callers still use.
+		const pendingSessionId = targetSessionId ?? this.options.getTask()?.taskId
+		if (this.options.interactions.resolvePendingToolApproval(pendingSessionId, prompt, askResponse, images, files)) {
 			return
 		}
 
-		if (this.options.interactions.resolvePendingAskQuestion(prompt)) {
+		if (this.options.interactions.resolvePendingAskQuestion(pendingSessionId, prompt)) {
 			return
 		}
 
-		// Cline Cubed: address the response's own session when one is named and still live.
-		const targetSession = targetSessionId ? this.options.sessions.getLiveSession(targetSessionId) : undefined
-		const activeSession = targetSession ?? this.options.sessions.getActiveSession()
-		const task = targetSessionId ? (this.options.getTask(targetSessionId) ?? this.options.getTask()) : this.options.getTask()
+		// Cline Cubed: a NAMED target is routed to its own session and NOWHERE else. When the
+		// target has no live session it is resumed from history below — it is NEVER substituted
+		// with the active session, which is a different conversation. Only a target-less
+		// (legacy) response may address the active session.
+		const activeSession = targetSessionId
+			? this.options.sessions.getLiveSession(targetSessionId)
+			: this.options.sessions.getActiveSession()
+		const task = targetSessionId ? this.options.getTask(targetSessionId) : this.options.getTask()
 		const submittedDuringActiveTurn = turnPhaseAtSubmit === "streaming" || turnPhaseAtSubmit === "awaiting_approval"
 		if (activeSession && (activeSession.isRunning || submittedDuringActiveTurn)) {
 			await this.queueToActiveSession(activeSession, prompt, images, files)
@@ -104,17 +123,19 @@ export class SdkFollowupCoordinator {
 			// Task navigation does not use the rebuild scheduler. Do not deliver a
 			// prompt submitted from one task into a task selected while we waited.
 			// Compare by taskId: reloading the same task allocates a new TaskProxy,
-			// and the user's follow-up should survive that.
-			if (task && this.options.getTask()?.taskId !== task.taskId) {
+			// and the user's follow-up should survive that. A NAMED target is exempt:
+			// its destination is fixed by the message itself, so the focused chat
+			// changing underneath is irrelevant to it.
+			if (!targetSessionId && task && this.options.getTask()?.taskId !== task.taskId) {
 				await this.abandonFollowUp(
 					`askResponse: Task changed while waiting to resume ${task.taskId}; cancelling follow-up`,
 				)
 				return
 			}
 
-			const currentSession =
-				(targetSessionId ? this.options.sessions.getLiveSession(targetSessionId) : undefined) ??
-				this.options.sessions.getActiveSession()
+			const currentSession = targetSessionId
+				? this.options.sessions.getLiveSession(targetSessionId)
+				: this.options.sessions.getActiveSession()
 			if (currentSession && (currentSession.isRunning || submittedDuringActiveTurn)) {
 				await this.queueToActiveSession(currentSession, prompt, images, files)
 				return
@@ -132,12 +153,16 @@ export class SdkFollowupCoordinator {
 
 			if (task) {
 				Logger.log(`[SdkController] askResponse: Resuming task ${task.taskId} before follow-up`)
-				await this.tryResumeSessionFromTask(task, prompt, images, files)
+				await this.tryResumeSessionFromTask(task, prompt, images, files, targetSessionId)
 				return
 			}
 
-			Logger.error("[SdkController] askResponse: No active session")
-			await this.abandonFollowUp("askResponse: No active session to receive the follow-up")
+			Logger.error(
+				targetSessionId
+					? `[SdkController] askResponse: Session ${targetSessionId} has no live session and no proxy; dropping the follow-up rather than delivering it to another chat`
+					: "[SdkController] askResponse: No active session",
+			)
+			await this.abandonFollowUp("askResponse: No session to receive the follow-up", targetSessionId)
 		})
 	}
 
@@ -151,7 +176,7 @@ export class SdkFollowupCoordinator {
 		const { sdkHost, sessionId } = activeSession
 		Logger.log(`[SdkController] Session is running - queuing follow-up message for session: ${sessionId}`)
 
-		this.options.sessions.setRunning(true)
+		this.options.sessions.setRunning(true, sessionId)
 		const resolvedPrompt = prompt ? await this.options.resolveContextMentions(prompt) : ""
 		this.options.sessions.fireAndForgetSend(sdkHost, sessionId, resolvedPrompt, images, files, "queue")
 	}
@@ -173,22 +198,30 @@ export class SdkFollowupCoordinator {
 		const { sdkHost, sessionId } = activeSession
 		Logger.log(`[SdkController] Continuing idle session for follow-up: ${sessionId}`)
 
-		this.options.sessions.setRunning(true)
+		this.options.sessions.setRunning(true, sessionId)
 		if (prompt?.trim() || images?.length || files?.length) {
 			this.emitUserFeedback(sessionId, prompt, images, files)
 		}
-		this.options.resetMessageTranslator()
+		// Reset the SESSION's own translator: a named-target continue must not clear the
+		// streaming state of whichever chat happens to be focused.
+		this.options.resetMessageTranslator(sessionId)
 
 		const effectivePrompt = prompt?.trim() || TASK_RESUMPTION_PROMPT
 		const resolvedPrompt = await this.options.resolveContextMentions(effectivePrompt)
 		this.options.sessions.fireAndForgetSend(sdkHost, sessionId, resolvedPrompt, images, files)
 	}
 
-	private async tryResumeSessionFromTask(task: TaskProxy, prompt?: string, images?: string[], files?: string[]): Promise<void> {
+	private async tryResumeSessionFromTask(
+		task: TaskProxy,
+		prompt?: string,
+		images?: string[],
+		files?: string[],
+		targetSessionId?: string,
+	): Promise<void> {
 		try {
-			await this.resumeSessionFromTask(task, prompt, images, files)
+			await this.resumeSessionFromTask(task, prompt, images, files, targetSessionId)
 		} catch (error) {
-			if (this.options.getTask()?.taskId !== task.taskId) {
+			if (!targetSessionId && this.options.getTask()?.taskId !== task.taskId) {
 				// Settle the pre-set streaming phase, but do not emit the stale
 				// failure into the newly displayed task's transcript.
 				await this.abandonFollowUp(`Suppressing resume failure for task no longer displayed: ${task.taskId}`)
@@ -219,22 +252,34 @@ export class SdkFollowupCoordinator {
 					{ type: "status", payload: { sessionId: task.taskId, status: "error" } },
 				)
 			}
-			this.options.onResumeFailed()
-			await this.options.postStateToWebview()
+			this.options.onResumeFailed(targetSessionId ?? task.taskId)
+			await this.options.postStateToWebview(targetSessionId ?? task.taskId)
 		}
 	}
 
-	private async resumeSessionFromTask(task: TaskProxy, prompt?: string, images?: string[], files?: string[]): Promise<void> {
+	private async resumeSessionFromTask(
+		task: TaskProxy,
+		prompt?: string,
+		images?: string[],
+		files?: string[],
+		targetSessionId?: string,
+	): Promise<void> {
 		const taskId = task.taskId
 		Logger.log(`[SdkController] Resuming session from task: ${taskId}`)
+
+		// Cline Cubed: a NAMED-target resume is superseded only when ITS OWN proxy is replaced —
+		// the focused chat changing underneath is irrelevant to it. A target-less (legacy)
+		// resume keeps the focused-task fence.
+		const superseded = (): boolean =>
+			targetSessionId ? this.options.getTask(targetSessionId) !== task : this.options.getTask()?.taskId !== taskId
 
 		const historyItem = await this.options.taskHistory.findHistoryItem(taskId)
 		const resumeStart = await prepareTaskResumeStartInput(this.options, taskId)
 		// Targeting checks below compare by taskId (logical identity): reloading
 		// the same task allocates a new TaskProxy and must not cancel the
 		// follow-up. Cleanup (endStartedResume) uses object identity instead.
-		if (this.options.getTask()?.taskId !== taskId) {
-			await this.abandonFollowUp(`Task changed before resume start for ${taskId}; cancelling follow-up`)
+		if (superseded()) {
+			await this.abandonFollowUp(`Task changed before resume start for ${taskId}; cancelling follow-up`, targetSessionId)
 			return
 		}
 
@@ -245,9 +290,9 @@ export class SdkFollowupCoordinator {
 			interactive: true,
 		})
 
-		if (this.options.getTask()?.taskId !== taskId) {
+		if (superseded()) {
 			await this.endStartedResume(sdkHost, startResult.sessionId)
-			await this.abandonFollowUp(`Task changed during resume start for ${taskId}; cancelled follow-up`)
+			await this.abandonFollowUp(`Task changed during resume start for ${taskId}; cancelled follow-up`, targetSessionId)
 			return
 		}
 
@@ -256,25 +301,36 @@ export class SdkFollowupCoordinator {
 				historyItem.ts = Date.now()
 				historyItem.modelId = resumeStart.config.modelId
 				await this.options.taskHistory.updateTaskHistoryItem(historyItem)
-				if (this.options.getTask()?.taskId !== taskId) {
+				if (superseded()) {
 					await this.endStartedResume(sdkHost, startResult.sessionId)
-					await this.abandonFollowUp(`Task changed while updating history for ${taskId}; cancelled follow-up`)
+					await this.abandonFollowUp(
+						`Task changed while updating history for ${taskId}; cancelled follow-up`,
+						targetSessionId,
+					)
 					return
 				}
 			}
 
 			const effectivePrompt = prompt?.trim() || TASK_RESUMPTION_PROMPT
 			const resolvedPrompt = await this.options.resolveContextMentions(effectivePrompt)
-			if (this.options.getTask()?.taskId !== taskId) {
+			if (superseded()) {
 				await this.endStartedResume(sdkHost, startResult.sessionId)
-				await this.abandonFollowUp(`Task changed while resolving mentions for ${taskId}; cancelled follow-up`)
+				await this.abandonFollowUp(
+					`Task changed while resolving mentions for ${taskId}; cancelled follow-up`,
+					targetSessionId,
+				)
 				return
 			}
 
 			if (task.taskId !== startResult.sessionId) {
+				// The runtime declined the requested id (prepareTaskResumeStartInput pins
+				// config.sessionId = taskId, so this is the exception, not the rule). Every
+				// binding outside this coordinator still keys the old id — let the controller
+				// re-key them before anything routes by the new one.
 				task.taskId = startResult.sessionId
+				this.options.onSessionIdChanged?.(taskId, startResult.sessionId, task)
 			}
-			this.options.resetMessageTranslator()
+			this.options.resetMessageTranslator(startResult.sessionId)
 
 			// Echo whenever the user supplied content, including attachment-only
 			// resumes, and include the attachments in the bubble. This also keeps the
@@ -285,12 +341,19 @@ export class SdkFollowupCoordinator {
 				this.emitUserFeedback(startResult.sessionId, prompt, images, files)
 			}
 
-			await this.options.postStateToWebview()
+			await this.options.postStateToWebview(startResult.sessionId)
 			// Compare against the original taskId: a proxy reloaded from history
 			// carries it, while task.taskId may have been reassigned above.
-			if (this.options.getTask()?.taskId !== taskId && this.options.getTask() !== task) {
+			if (
+				!targetSessionId
+					? this.options.getTask()?.taskId !== taskId && this.options.getTask() !== task
+					: this.options.getTask(startResult.sessionId) !== task && this.options.getTask(taskId) !== task
+			) {
 				await this.endStartedResume(sdkHost, startResult.sessionId)
-				await this.abandonFollowUp(`Task changed while posting resumed state for ${taskId}; cancelled follow-up`)
+				await this.abandonFollowUp(
+					`Task changed while posting resumed state for ${taskId}; cancelled follow-up`,
+					targetSessionId,
+				)
 				return
 			}
 
@@ -311,10 +374,10 @@ export class SdkFollowupCoordinator {
 	}
 
 	/** Settle the pre-set streaming phase for a follow-up that started no turn. */
-	private async abandonFollowUp(detail: string): Promise<void> {
+	private async abandonFollowUp(detail: string, sessionId?: string): Promise<void> {
 		Logger.log(`[SdkController] ${detail}`)
-		this.options.onFollowUpAbandoned()
-		await this.options.postStateToWebview()
+		this.options.onFollowUpAbandoned(sessionId)
+		await this.options.postStateToWebview(sessionId)
 	}
 
 	private emitUserFeedback(sessionId: string, prompt?: string, images?: string[], files?: string[]): void {

@@ -64,8 +64,8 @@ so non-vision models get full image context without ever receiving raw image byt
   several run at once and each shows its own work. The sidebar hosts one chat at full height;
   further chats open as editor tabs, which you can arrange side by side. A chat lives in one
   place: open it somewhere else and it moves there, with its old spot returning to the home.
-- **"Where new chat sessions open" setting** — choose where a new chat lands: **Secondary
-  sidebar** (typically right — the default) or **Editor area** (new tab). Every chat button
+- **"Where new chat sessions open" setting** — choose where a new chat lands: **Editor area**
+  (new tab — the default) or **Secondary sidebar** (typically right). Every chat button
   follows it; chats already open stay where they are. A start-up chooser on the chat home
   shows the same options, and a gear button in the chat input row opens Settings.
 - **Gear button in the chat input row** — restores the settings affordance stock Cline
@@ -87,6 +87,12 @@ so non-vision models get full image context without ever receiving raw image byt
   actually typed — the name is a field of its own and the first prompt stays intact in the
   chat's expanded details. The name shows everywhere the chat is listed, and fuzzy search
   matches it as well as the prompt.
+- **Editor tabs are named after their chat** — a tab carries its chat's name, or its first
+  prompt if you have not renamed it, so several open chats are distinguishable instead of a row
+  of identical tabs. Long prompts are shortened to fit the tab strip; a tab with no chat in it
+  yet reads "Cline Cubed". Tabs keep up on their own — a new chat's tab takes its name as soon
+  as the first prompt lands, a rename relabels it at once, and closing the chat inside a tab
+  returns it to "Cline Cubed".
 
 ## Install
 

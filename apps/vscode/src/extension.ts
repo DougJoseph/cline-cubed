@@ -98,7 +98,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	// so a value stored by an earlier build coerces to the default here, and every read site
 	// sees only current values.
 	if ((webview.controller.stateManager.getGlobalSettingsKey("newChatLocation") as string) === "primarySidebar") {
-		webview.controller.stateManager.setGlobalState("newChatLocation", "secondarySidebar")
+		webview.controller.stateManager.setGlobalState("newChatLocation", "editor")
 	}
 
 	// 5. Register services and commands specific to VS Code

@@ -120,7 +120,10 @@ describe("SdkSessionEventCoordinator", () => {
 				turnComplete: true,
 			},
 		})
-		options.messageTranslatorState.setErrorSeen()
+		// The flag must be set on the EVENT'S OWN translator — the phase is resolved from
+		// `getTranslatorFor(sessionId)`, not from the focused one, so that a concurrent chat's
+		// error cannot decide this chat's phase.
+		options.getTranslatorFor("session-123").setErrorSeen()
 
 		await coordinator.handleSessionEvent(event)
 
@@ -137,7 +140,9 @@ describe("SdkSessionEventCoordinator", () => {
 				turnComplete: false,
 			},
 		})
-		const clearTurnOutcome = vi.spyOn(options.messageTranslatorState, "clearTurnOutcome")
+		// Spy on the SESSION'S translator: a queued prompt clears the outcome of the turn it
+		// belongs to, never the focused chat's.
+		const clearTurnOutcome = vi.spyOn(options.getTranslatorFor("session-123"), "clearTurnOutcome")
 		const event: CoreSessionEvent = {
 			type: "pending_prompt_submitted",
 			payload: {
@@ -404,8 +409,25 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 		},
 	} as unknown as CoreSessionEvent
 	const activeSession = input.activeSession ?? makeActiveSession()
+	// Cline Cubed: chats stream side by side and the translator holds single-stream bookkeeping,
+	// so each session translates through its OWN. The harness mirrors that with a per-session map
+	// rather than handing every session the same instance — sharing one here would let a test pass
+	// while the real defect (concurrent streams overwriting each other's in-flight rows) survives.
+	const translatorsBySession = new Map<string, MessageTranslatorState>()
+	const focusedTranslator = new MessageTranslatorState()
+	const getTranslatorFor = vi.fn((sessionId?: string) => {
+		if (sessionId === undefined) {
+			return focusedTranslator
+		}
+		let translator = translatorsBySession.get(sessionId)
+		if (!translator) {
+			translator = new MessageTranslatorState()
+			translatorsBySession.set(sessionId, translator)
+		}
+		return translator
+	})
 	const options = {
-		messageTranslatorState: new MessageTranslatorState(),
+		getTranslatorFor,
 		sessions: {
 			// V7: the coordinator accepts events for ANY live session; only closed/replaced
 			// sessions are gated out.
@@ -437,13 +459,14 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 		captureProviderApiError: ReturnType<typeof vi.fn>
 		beginProviderFailureTelemetryTurn: ReturnType<typeof vi.fn>
 		translateSessionEvent: ReturnType<typeof vi.fn>
-		messageTranslatorState: MessageTranslatorState
+		getTranslatorFor: ReturnType<typeof vi.fn>
 	}
 
 	return {
 		coordinator: new SdkSessionEventCoordinator(options),
 		options,
 		event,
+		translatorsBySession,
 	}
 }
 

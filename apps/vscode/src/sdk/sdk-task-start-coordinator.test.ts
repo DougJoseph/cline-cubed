@@ -194,7 +194,10 @@ describe("SdkTaskStartCoordinator", () => {
 		expect(options.loadInitialMessages).toHaveBeenCalledWith(tempHost, "task-1")
 		expect(tempHost.dispose).toHaveBeenCalledWith("readMessages")
 		expect(options.sessions.startNewSession).toHaveBeenCalledWith({
-			config: expect.objectContaining({ providerId: "anthropic", modelId: "model" }),
+			// Cline Cubed: the resume REQUESTS the task's own id (the harness echoes an honored
+			// request). Minting a fresh id here detached the resumed session from every binding
+			// still keyed on the history id — surface registry, webview stamp, proxies map.
+			config: expect.objectContaining({ providerId: "anthropic", modelId: "model", sessionId: "task-1" }),
 			interactive: true,
 			initialMessages: [{ role: "user", content: "hello" }],
 			sessionMetadata: expect.objectContaining({
@@ -202,7 +205,7 @@ describe("SdkTaskStartCoordinator", () => {
 				modelId: "model",
 			}),
 		})
-		expect(state.task?.taskId).toBe("session-123")
+		expect(state.task?.taskId).toBe("task-1")
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
 	})
 

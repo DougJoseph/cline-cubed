@@ -85,7 +85,19 @@ describe("WebviewGrpcBridge", () => {
 
 			await bridge.pushStateUpdateFromController(async () => mockState)
 
-			expect(sendStateUpdate).toHaveBeenCalledWith(mockState)
+			// Cline Cubed: the session id rides along so the snapshot reaches the surface showing
+			// that chat. Undefined here means "not addressed to one session", which every surface
+			// still accepts — the unaddressed case, not a missing argument.
+			expect(sendStateUpdate).toHaveBeenCalledWith(mockState, undefined)
+		})
+
+		it("passes the session id through, so the snapshot reaches that chat's surface", async () => {
+			const { sendStateUpdate } = await import("@core/controller/state/subscribeToState")
+			const mockState = { version: "1.0.0", mode: "act" } as unknown as ExtensionState
+
+			await bridge.pushStateUpdateFromController(async () => mockState, "session-123")
+
+			expect(sendStateUpdate).toHaveBeenCalledWith(mockState, "session-123")
 		})
 
 		it("should handle errors from the state getter", async () => {

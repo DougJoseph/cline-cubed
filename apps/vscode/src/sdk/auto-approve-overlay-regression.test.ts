@@ -56,7 +56,15 @@ describe("auto-approve settings after New Task (#13260)", () => {
 
 	const makeCoordinator = () =>
 		new SdkTaskControlCoordinator({
-			sessions: { endActiveSession: async () => {} },
+			sessions: {
+				endActiveSession: async () => {},
+				// Cline Cubed: clearTask asks whether the outgoing chat's session is still live
+				// before wiping its transcript, and which session is active (to scope its
+				// pending-interaction clear). Nothing is live or active in this fixture — it
+				// exercises the settings overlay, not concurrency.
+				getLiveSession: () => undefined,
+				getActiveSession: () => undefined,
+			},
 			interactions: { clearPending: () => {} },
 			messages: { cancelPendingSave: () => {} },
 			taskHistory: {},

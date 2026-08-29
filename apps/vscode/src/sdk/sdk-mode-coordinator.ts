@@ -396,7 +396,8 @@ export class SdkModeCoordinator {
 	}
 
 	private async cancelRunningTurnForModeChange(oldManager: SdkSessionHost, oldSessionId: string): Promise<void> {
-		this.options.interactions.clearPending("Mode changed")
+		// Cline Cubed: only the rebuilt session's pendings — other chats' asks stay live.
+		this.options.interactions.clearPending("Mode changed", oldSessionId)
 		this.options.messages.cancelPendingSave()
 		try {
 			await oldManager.abort(oldSessionId)

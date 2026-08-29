@@ -61,6 +61,37 @@ function notifySurfacesChanged(): void {
 	}
 }
 
+/**
+ * Listeners told that a chat's DISPLAYED NAME may have changed.
+ *
+ * This lives beside the surface registry for the same reason the eviction notifier does: the host
+ * layer owns things that carry a chat's name in their own chrome — an editor tab title — and the
+ * controller must be able to say "this chat's name moved" without importing `vscode`.
+ *
+ * It carries the session id ONLY, deliberately. Two callers fire it and neither is holding the
+ * resolved name: a rename knows the raw input (which is empty when a name is CLEARED, and the
+ * displayed name is then the first prompt), and a history write is handed a `HistoryItem` whose
+ * `title` is routinely undefined even for a named chat — announcing that item's display name would
+ * wipe a real name off the tab. So each listener resolves the name itself, which also means the
+ * lookup is paid only when something is actually showing that chat.
+ */
+const chatTitleListeners = new Set<(sessionId: string) => void>()
+
+/** Subscribe to chat-name changes. Returns an unsubscribe function. */
+export function onChatTitleChanged(listener: (sessionId: string) => void): () => void {
+	chatTitleListeners.add(listener)
+	return () => {
+		chatTitleListeners.delete(listener)
+	}
+}
+
+/** Announce that a chat's displayed name may have changed; listeners re-resolve it. */
+export function notifyChatTitleChanged(sessionId: string): void {
+	for (const listener of chatTitleListeners) {
+		listener(sessionId)
+	}
+}
+
 /** Every surface that currently displays a session, as `[surfaceId, sessionId]` pairs. */
 export function openChatSurfaces(): Array<{ surfaceId: string; sessionId: string }> {
 	const open: Array<{ surfaceId: string; sessionId: string }> = []
@@ -216,5 +247,6 @@ export function __resetChatSurfacesForTest(): void {
 	surfaceSessions.clear()
 	evictionNotifiers.clear()
 	surfacesChangedListeners.clear()
+	chatTitleListeners.clear()
 	activeChatSurfaceId = undefined
 }

@@ -499,7 +499,10 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 								console.error("Failed to cancel background command:", err),
 							)
 						}
-						await TaskServiceClient.cancelTask(EmptyRequest.create({}))
+						// Cline Cubed: cancel THIS surface's chat — chats run side by side, so the
+						// request names its session (like askResponse) rather than letting the
+						// host abort whichever chat is active.
+						await TaskServiceClient.cancelTask(StringRequest.create({ value: getSurfaceBoundTaskId() ?? "" }))
 					} finally {
 						cancelInFlightRef.current = false
 						// Clear any pending state that might interfere with resume

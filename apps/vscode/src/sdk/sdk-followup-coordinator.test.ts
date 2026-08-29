@@ -22,6 +22,7 @@ describe("SdkFollowupCoordinator", () => {
 		await coordinator.askResponse("yes", undefined, undefined, "yesButtonClicked")
 
 		expect(options.interactions.resolvePendingToolApproval).toHaveBeenCalledWith(
+			undefined,
 			"yes",
 			"yesButtonClicked",
 			undefined,
@@ -36,7 +37,7 @@ describe("SdkFollowupCoordinator", () => {
 
 		await coordinator.askResponse("answer")
 
-		expect(options.interactions.resolvePendingAskQuestion).toHaveBeenCalledWith("answer")
+		expect(options.interactions.resolvePendingAskQuestion).toHaveBeenCalledWith(undefined, "answer")
 		expect(options.sessions.fireAndForgetSend).not.toHaveBeenCalled()
 	})
 
@@ -46,7 +47,7 @@ describe("SdkFollowupCoordinator", () => {
 
 		await coordinator.askResponse("hello @file", ["image.png"], ["a.ts"])
 
-		expect(options.sessions.setRunning).toHaveBeenCalledWith(true)
+		expect(options.sessions.setRunning).toHaveBeenCalledWith(true, "session-123")
 		expect(options.messages.appendAndEmit).toHaveBeenCalledWith(
 			[
 				expect.objectContaining({
@@ -124,6 +125,7 @@ describe("SdkFollowupCoordinator", () => {
 		)
 
 		expect(options.interactions.resolvePendingToolApproval).toHaveBeenCalledWith(
+			"session-123",
 			"do the next thing after this",
 			"messageResponse",
 			undefined,
@@ -239,6 +241,7 @@ describe("SdkFollowupCoordinator", () => {
 		await coordinator.askResponse("just give me an answer", undefined, undefined, "messageResponse")
 
 		expect(options.interactions.resolvePendingToolApproval).toHaveBeenCalledWith(
+			undefined,
 			"just give me an answer",
 			"messageResponse",
 			undefined,
@@ -435,7 +438,7 @@ describe("SdkFollowupCoordinator", () => {
 
 		expect(options.sessions.startNewSession).not.toHaveBeenCalled()
 		expect(options.loadInitialMessages).not.toHaveBeenCalled()
-		expect(options.sessions.setRunning).toHaveBeenCalledWith(true)
+		expect(options.sessions.setRunning).toHaveBeenCalledWith(true, "session-123")
 		expect(options.sessions.fireAndForgetSend).toHaveBeenCalledOnce()
 		const [sdkHost, sessionId, sentPrompt] = options.sessions.fireAndForgetSend.mock.calls[0]
 		expect(sdkHost).toBe(activeSession.sdkHost)
@@ -579,6 +582,98 @@ describe("SdkFollowupCoordinator", () => {
 			{ type: "status", payload: { sessionId: "task-1", status: "error" } },
 		)
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
+	})
+})
+
+describe("SdkFollowupCoordinator — named-target routing", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	it("never queues a named target's message into the ACTIVE session — resumes the TARGET instead", async () => {
+		// The focused chat ("session-123") is streaming; the message targets a DIFFERENT chat
+		// whose session is not live. It must be resumed and addressed on its own, never queued
+		// into the focused chat's running turn.
+		const activeSession = makeActiveSession({ isRunning: true })
+		const targetTask = makeTask("target-task")
+		const { coordinator, options } = makeCoordinator({ activeSession })
+		options.sessions.getLiveSession = vi.fn(() => undefined)
+		options.getTask = vi.fn((sessionId?: string) =>
+			sessionId === "target-task" ? targetTask : undefined,
+		) as unknown as typeof options.getTask
+		options.sessions.startNewSession.mockImplementation(async (startInput: { config?: { sessionId?: string } }) => ({
+			startResult: { sessionId: startInput?.config?.sessionId ?? "resumed-session" },
+			sdkHost: { send: vi.fn() },
+		}))
+
+		await coordinator.askResponse("hello", undefined, undefined, "messageResponse", "idle", "target-task")
+
+		// Nothing was delivered into the focused chat's session.
+		for (const call of options.sessions.fireAndForgetSend.mock.calls) {
+			expect(call[1]).not.toBe("session-123")
+		}
+		// The TARGET was resumed under its own id and received the message.
+		expect(options.sessions.startNewSession).toHaveBeenCalledOnce()
+		expect(options.sessions.fireAndForgetSend).toHaveBeenCalledWith(
+			expect.anything(),
+			"target-task",
+			"resolved: hello",
+			undefined,
+			undefined,
+		)
+	})
+
+	it("queues into the target's OWN live session even while another chat is focused", async () => {
+		const focusedSession = makeActiveSession({ isRunning: true })
+		const targetSession = { sessionId: "target-task", sdkHost: { send: vi.fn() }, isRunning: true }
+		const { coordinator, options } = makeCoordinator({ activeSession: focusedSession })
+		options.sessions.getLiveSession = vi.fn((sessionId: string) =>
+			sessionId === "target-task" ? targetSession : undefined,
+		) as unknown as typeof options.sessions.getLiveSession
+		options.getTask = vi.fn((sessionId?: string) =>
+			sessionId === "target-task" ? makeTask("target-task") : undefined,
+		) as unknown as typeof options.getTask
+
+		await coordinator.askResponse("more work", undefined, undefined, "messageResponse", "streaming", "target-task")
+
+		expect(options.sessions.fireAndForgetSend).toHaveBeenCalledWith(
+			targetSession.sdkHost,
+			"target-task",
+			"resolved: more work",
+			undefined,
+			undefined,
+			"queue",
+		)
+		expect(options.sessions.setRunning).toHaveBeenCalledWith(true, "target-task")
+	})
+
+	it("drops a named target's message with an error when the target has no session and no proxy — never cross-delivers", async () => {
+		const activeSession = makeActiveSession({ isRunning: true })
+		const { coordinator, options } = makeCoordinator({ activeSession })
+		options.sessions.getLiveSession = vi.fn(() => undefined)
+		options.getTask = vi.fn(() => undefined)
+
+		await coordinator.askResponse("orphaned", undefined, undefined, "messageResponse", "idle", "gone-task")
+
+		expect(options.sessions.fireAndForgetSend).not.toHaveBeenCalled()
+		expect(options.sessions.startNewSession).not.toHaveBeenCalled()
+		expect(options.onFollowUpAbandoned).toHaveBeenCalledWith("gone-task")
+	})
+
+	it("resolves pendings only for the named target's session", async () => {
+		const { coordinator, options } = makeCoordinator()
+		options.interactions.resolvePendingToolApproval.mockReturnValue(true)
+
+		await coordinator.askResponse("yes", undefined, undefined, "yesButtonClicked", undefined, "target-task")
+
+		expect(options.interactions.resolvePendingToolApproval).toHaveBeenCalledWith(
+			"target-task",
+			"yes",
+			"yesButtonClicked",
+			undefined,
+			undefined,
+		)
+		expect(options.sessions.fireAndForgetSend).not.toHaveBeenCalled()
 	})
 })
 

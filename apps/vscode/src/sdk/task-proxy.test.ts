@@ -59,7 +59,7 @@ describe("createTaskProxy", () => {
 
 		await proxy.handleWebviewAskResponse("messageResponse", "hello", ["img1"], ["file1"])
 
-		expect(onAskResponse).toHaveBeenCalledWith("hello", ["img1"], ["file1"])
+		expect(onAskResponse).toHaveBeenCalledWith("hello", ["img1"], ["file1"], "session-123")
 	})
 
 	it("should delegate yesButtonClicked to onAskResponse", async () => {
@@ -69,7 +69,7 @@ describe("createTaskProxy", () => {
 
 		await proxy.handleWebviewAskResponse("yesButtonClicked", "", [], [])
 
-		expect(onAskResponse).toHaveBeenCalledWith("", [], [])
+		expect(onAskResponse).toHaveBeenCalledWith("", [], [], "session-123")
 	})
 
 	it("should delegate noButtonClicked to onAskResponse", async () => {
@@ -79,7 +79,7 @@ describe("createTaskProxy", () => {
 
 		await proxy.handleWebviewAskResponse("noButtonClicked", "", [], [])
 
-		expect(onAskResponse).toHaveBeenCalledWith("", [], [])
+		expect(onAskResponse).toHaveBeenCalledWith("", [], [], "session-123")
 	})
 
 	it("should delegate unknown askResponse types to onAskResponse", async () => {
@@ -90,7 +90,21 @@ describe("createTaskProxy", () => {
 		// biome-ignore lint/suspicious/noExplicitAny: testing unknown ask response type
 		await proxy.handleWebviewAskResponse("command" as any, "ls -la", [], [])
 
-		expect(onAskResponse).toHaveBeenCalledWith("ls -la", [], [])
+		expect(onAskResponse).toHaveBeenCalledWith("ls -la", [], [], "session-123")
+	})
+
+	it("stamps every reply with the proxy's CURRENT session id, tracking a reassignment", async () => {
+		// Cline Cubed: chats run side by side, so a reply has to name the session it belongs to —
+		// this 4th argument is what stops an answer landing in whichever chat happens to be
+		// focused. The id is read live, because a session can be restarted (an MCP tool reload
+		// reassigns `taskId`) and replies must follow it.
+		const onAskResponse = vi.fn().mockResolvedValue(undefined)
+		const proxy = createTaskProxy("session-123", onAskResponse, vi.fn())
+
+		proxy.taskId = "session-456"
+		await proxy.handleWebviewAskResponse("messageResponse", "after restart", [], [])
+
+		expect(onAskResponse).toHaveBeenCalledWith("after restart", [], [], "session-456")
 	})
 
 	it("should store askResponse in taskState", async () => {
@@ -103,14 +117,16 @@ describe("createTaskProxy", () => {
 		expect(proxy.taskState.askResponse).toBe("messageResponse")
 	})
 
-	it("should delegate abortTask to onCancelTask", async () => {
+	it("should delegate abortTask to onCancelTask WITH the proxy's own session id", async () => {
+		// Cline Cubed: chats run side by side — Cancel must abort THIS proxy's session, never
+		// whichever chat happens to be active.
 		const onAskResponse = vi.fn()
 		const onCancelTask = vi.fn().mockResolvedValue(undefined)
 		const proxy = createTaskProxy("session-123", onAskResponse, onCancelTask)
 
 		await proxy.abortTask()
 
-		expect(onCancelTask).toHaveBeenCalled()
+		expect(onCancelTask).toHaveBeenCalledWith("session-123")
 	})
 
 	it("should provide a stub API handler", () => {

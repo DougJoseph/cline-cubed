@@ -568,10 +568,17 @@ class DebugHarness {
 		for (const frame of this.page.frames()) {
 			if (frame.isDetached()) continue
 			try {
-				const title = await frame.title()
-				if (title.startsWith("Cline")) {
-					found.push({ frame, url: frame.url() })
-				}
+				// Classify by the injected routing id ONLY — never by title. Every chat surface
+				// injects `__CLINE_CUBED_SURFACE_ID__`; the chats LIST mints ids prefixed
+				// "chats-list" and is excluded (counting it shifted every `surface:<n>` index).
+				// A title check ("Cline…") breaks the moment a chat gets a name: editor tabs are
+				// titled after their chat, the webview document title follows the tab, and a
+				// renamed chat then drops out of frame discovery mid-scenario.
+				const surfaceId = await frame
+					.evaluate(() => (window as unknown as { __CLINE_CUBED_SURFACE_ID__?: string }).__CLINE_CUBED_SURFACE_ID__)
+					.catch(() => undefined)
+				if (typeof surfaceId !== "string" || surfaceId.startsWith("chats-list")) continue
+				found.push({ frame, url: frame.url() })
 			} catch {}
 		}
 		found.sort((a, b) => a.url.localeCompare(b.url))

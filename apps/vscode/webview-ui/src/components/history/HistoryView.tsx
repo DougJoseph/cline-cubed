@@ -142,6 +142,15 @@ const HistoryView = ({ onDone, hideDone, onSelectTask, embedded }: HistoryViewPr
 		loadTaskHistory(0)
 	}, [loadTaskHistory, showFavoritesOnly, showCurrentWorkspaceOnly])
 
+	// Cline Cubed: this page fetches its rows over the RPC, so a state push updating
+	// `taskHistory` used to change nothing here — a chat finishing a turn kept its old
+	// date until the page was reopened. Re-fetch the first page whenever the pushed
+	// history changes; page 0 merges by id into the loaded map, so pagination and scroll
+	// survive and rows update in place.
+	useEffect(() => {
+		loadTaskHistory(0)
+	}, [loadTaskHistory, taskHistory])
+
 	const toggleFavorite = useCallback(
 		async (taskId: string, currentValue: boolean) => {
 			const nextValue = !currentValue

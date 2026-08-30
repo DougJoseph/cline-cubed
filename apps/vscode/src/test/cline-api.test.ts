@@ -67,17 +67,22 @@ describe("ClineAPI Core Functionality", () => {
 			sinon.assert.calledWith(mockController.initTask, taskDescription, images)
 		})
 
+		// `startNewTask` does not hand its arguments straight to `initTask`. Every prompt goes
+		// through the image bridge first (`intercept(task || "", images || [])`), which is what
+		// lets a text-only Plan/Act model receive a description of an image. Normalising away
+		// `undefined` is part of that: the bridge is always given a string and an array, so
+		// `initTask` receives `""` and `[]` rather than the caller's omissions.
 		it("should handle undefined task description", async () => {
 			await api.startNewTask(undefined, [])
 
 			sinon.assert.called(mockController.clearTask)
-			sinon.assert.calledWith(mockController.initTask, undefined, [])
+			sinon.assert.calledWith(mockController.initTask, "", [])
 		})
 
 		it("should handle task with no images", async () => {
 			await api.startNewTask("Task without images")
 
-			sinon.assert.calledWith(mockController.initTask, "Task without images", undefined)
+			sinon.assert.calledWith(mockController.initTask, "Task without images", [])
 		})
 	})
 

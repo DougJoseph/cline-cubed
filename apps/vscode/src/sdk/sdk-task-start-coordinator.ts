@@ -1,7 +1,7 @@
 import { getProviderAuthStorageId } from "@cline/core"
 import { createSessionId } from "@cline/shared"
 import { CLINE_ACCOUNT_AUTH_ERROR_MESSAGE } from "@shared/ClineAccount"
-import type { ClineMessage } from "@shared/ExtensionMessage"
+import type { ClineMessage, TurnPhase } from "@shared/ExtensionMessage"
 import type { HistoryItem } from "@shared/HistoryItem"
 import type { Settings } from "@shared/storage/state-keys"
 import type { Mode } from "@shared/storage/types"
@@ -57,6 +57,13 @@ export interface SdkTaskStartCoordinatorOptions {
 	emitClineAuthError: (task?: string) => void
 	captureProviderApiError?: (event: ProviderFailureTelemetry) => void
 	postStateToWebview: () => Promise<void>
+	/**
+	 * Cline Cubed: set the authoritative turn phase for ONE session. A chat's snapshot reads its
+	 * OWN session's phase — a write to the focused tracker alone never reaches the webview — so a
+	 * new task's "streaming" must be stamped on the session itself, and it must happen the moment
+	 * the session id exists, before anything renders. Optional for tests.
+	 */
+	setTurnPhase?: (phase: TurnPhase, anchorTs?: number, sessionId?: string) => void
 	/**
 	 * Cline Cubed: a resume was forced onto a NEW SDK session id (the runtime declined the
 	 * requested one). Every binding outside this coordinator — the proxies map, the chat-surface
@@ -114,6 +121,10 @@ export class SdkTaskStartCoordinator {
 			}
 
 			taskSessionId = config.sessionId?.trim() || createSessionId()
+			// This session's own turn phase, stamped at the moment its id exists. The chat's
+			// snapshot reads the per-session tracker, so without this the whole first turn runs
+			// at phase "idle" — no thinking indicator, no Cancel control, and a live input.
+			this.options.setTurnPhase?.("streaming", undefined, taskSessionId)
 			const configWithSessionId = {
 				...config,
 				sessionId: taskSessionId,
@@ -132,10 +143,11 @@ export class SdkTaskStartCoordinator {
 			const task = this.createAndSetTask(taskSessionId)
 			this.emitInitialTaskMessage(taskSessionId, prompt ?? "", images, files)
 
-			// The turn phase was already set to "streaming" (in SdkController.initTask), but the
-			// webview only learns the phase through a full state post. Ship one now, in parallel
-			// with the potentially slow session startup below, so the chat shows the thinking
-			// indicator as soon as the task message lands instead of after startNewSession settles.
+			// The session's phase was stamped "streaming" above, at the moment its id was minted,
+			// but the webview only learns the phase through a full state post. Ship one now, in
+			// parallel with the potentially slow session startup below, so the chat shows the
+			// thinking indicator (and offers Cancel) as soon as the task message lands instead of
+			// after startNewSession settles.
 			this.options.postStateToWebview().catch((error) => {
 				Logger.error("[SdkController] Failed to post state after emitting initial task message:", error)
 			})

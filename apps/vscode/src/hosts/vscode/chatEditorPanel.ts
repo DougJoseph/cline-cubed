@@ -4,6 +4,7 @@ import {
 	getActiveChatSurface,
 	onChatTitleChanged,
 	registerChatSurface,
+	sessionForChatSurface,
 	setActiveChatSurface,
 	setChatSurfaceEvictionNotifier,
 	unregisterChatSurface,
@@ -170,6 +171,11 @@ export function openChatInEditorPanel(
 		if (surfaceId) {
 			bindChatSurfaceToSession(surfaceId, taskId)
 		}
+		// Cline Cubed: a FRESH panel boots already bound — its session is in the HTML. A REUSED
+		// panel does not: it booted as the empty New Chat home and nothing above tells its webview
+		// otherwise, so binding alone left the click showing the home instead of the chat. Tell the
+		// webview which chat it now holds; it binds and navigates on this message.
+		void panel.webview.postMessage({ type: "bindTaskToSurface", sessionId: taskId })
 	} else {
 		unboundChatPanel = panel
 	}
@@ -245,6 +251,22 @@ function createChatPanel(
 				}
 				break
 			}
+			case "openSessionHere": {
+				if (typeof message.sessionId === "string") {
+					const { openedHere } = await openSessionInRequestingSurface(
+						context,
+						provider,
+						surfaceId,
+						webviewHandle(panel.webview),
+						message.sessionId,
+					)
+					if (openedHere) {
+						// The tab's own bookkeeping and label, exactly as a bindSurfaceSession would set.
+						bindChatPanelToTask(panel, provider, message.sessionId)
+					}
+				}
+				break
+			}
 			case "bindSurfaceSession": {
 				// Cline Cubed: this surface now shows that session — deliver its state and
 				// transcript here, and release any other surface that was claiming it.
@@ -289,6 +311,12 @@ function createChatPanel(
 	panel.onDidDispose(() => {
 		messageListener.dispose()
 		titleListener()
+		// Cline Cubed: closing the tab is the user closing this chat — record the ending at the
+		// moment it happens, instead of leaving the session to linger unended until a teardown
+		// sweep invents a time for it. Captured BEFORE unregistering, then checked AFTER: if any
+		// other surface still claims the session, the chat was MOVED (bind transfer), not closed,
+		// and its new surface owns it.
+		const closingSessionId = sessionForChatSurface(surfaceId)
 		unregisterChatSurface(surfaceId)
 		for (const [boundTaskId, p] of taskChatPanels) {
 			if (p === panel) {
@@ -297,6 +325,11 @@ function createChatPanel(
 		}
 		if (unboundChatPanel === panel) {
 			unboundChatPanel = undefined
+		}
+		if (typeof closingSessionId === "string" && chatSurfaceForSession(closingSessionId) === undefined) {
+			provider.controller.closeSession(closingSessionId).catch((error) => {
+				Logger.error(`Failed to end session ${closingSessionId} on tab close:`, error)
+			})
 		}
 	})
 
@@ -420,8 +453,31 @@ export async function openExistingSession(
 	if (location === "editor") {
 		openChatInEditorPanel(context, provider, { taskId: sessionId })
 	} else {
-		const handle = await revealChatSurface(context, provider, location, sessionId)
-		handle?.postMessage({ type: "bindTaskToSurface", sessionId })
+		// Cline Cubed: the sidebar holds ONE chat. If it is already showing a different live
+		// chat, the selected chat overflows to its own editor tab — same rule as the New Chat
+		// buttons — instead of rebinding the sidebar and destroying the view of the chat it held.
+		const sidebarSurfaceId = provider.getSurfaceId()
+		const sidebarOccupant = sessionForChatSurface(sidebarSurfaceId)
+		if (typeof sidebarOccupant === "string" && sidebarOccupant !== sessionId) {
+			openChatInEditorPanel(context, provider, { taskId: sessionId })
+		} else {
+			// Bind BEFORE revealing. A CLOSED sidebar has no webview yet — VS Code resolves it
+			// asynchronously after the reveal command — so a message posted now reaches nobody
+			// and the fresh sidebar boots as an unbound home. The provider bakes the surface's
+			// current binding into the webview's HTML at resolve, so binding first makes a cold
+			// sidebar boot already holding the chat. A still-open sidebar gets the message as
+			// before; if the webview is mid-resolve, wait briefly for it.
+			bindChatSurfaceToSession(sidebarSurfaceId, sessionId)
+			const handle = await revealChatSurface(context, provider, location, sessionId)
+			if (handle) {
+				handle.postMessage({ type: "bindTaskToSurface", sessionId })
+			} else {
+				for (let waited = 0; waited < 3000 && !provider.getWebview(); waited += 150) {
+					await new Promise((resolve) => setTimeout(resolve, 150))
+				}
+				webviewHandle(provider.getWebview()?.webview)?.postMessage({ type: "bindTaskToSurface", sessionId })
+			}
+		}
 	}
 
 	// Binding only says WHICH chat the surface owns — it does not load it, which is why a click
@@ -433,6 +489,62 @@ export async function openExistingSession(
 	} catch (error) {
 		Logger.error("Failed to open session from the chats list:", error)
 	}
+}
+
+/**
+ * Open an existing chat from a CHAT surface's own history/recent list.
+ *
+ * The rule (Doug, 2026-08-29): accidentally reopening a chat that is already open must never
+ * move it. If another surface shows this session, that surface is revealed, a small notice says
+ * so, and the asking surface is left exactly as it was. Only a session open NOWHERE opens in the
+ * asking surface — the host binds it (this channel knows the sender, unlike a unary RPC) and
+ * answers with "bindTaskToSurface" so the webview adopts the session and navigates itself.
+ */
+export async function openSessionInRequestingSurface(
+	context: { extensionUri: vscode.Uri },
+	provider: VscodeWebviewProvider,
+	requestingSurfaceId: string,
+	requesterHandle: ChatSurfaceHandle | undefined,
+	sessionId: string,
+): Promise<{ openedHere: boolean }> {
+	const existing = chatSurfaceForSession(sessionId)
+	if (existing !== undefined && existing !== requestingSurfaceId) {
+		const location = provider.controller.stateManager.getGlobalSettingsKey("newChatLocation")
+		const revealed = await revealChatSurfaceById(context, provider, existing, location)
+		// Only a reveal of the surface that actually holds the chat counts. The fallback inside
+		// revealChatSurfaceById reveals the CONFIGURED location when the id is gone — that is a
+		// different surface, and treating it as success would toast over a dead click.
+		if (revealed.surfaceId === existing && revealed.handle) {
+			vscode.window.showInformationMessage("This chat is already open — brought it into view.")
+			return { openedHere: false }
+		}
+		// The claiming surface's webview is gone; fall through and open here instead.
+	}
+
+	// Cline Cubed: never steal a live chat's window. The clicking surface fills in place ONLY
+	// when it is empty (a home) — nothing is lost there, and a new tab would strand a dead home.
+	// A surface already showing a chat keeps it: the selected chat opens in its OWN editor tab,
+	// so three history clicks give three windows, not one window rebound three times.
+	const occupant = sessionForChatSurface(requestingSurfaceId)
+	if (typeof occupant === "string" && occupant !== sessionId) {
+		openChatInEditorPanel(context, provider, { taskId: sessionId })
+		try {
+			await provider.controller.showTaskWithId(sessionId)
+		} catch (error) {
+			Logger.error("Failed to open a session in a new editor tab from a history list:", error)
+		}
+		return { openedHere: false }
+	}
+
+	bindChatSurfaceToSession(requestingSurfaceId, sessionId)
+	requesterHandle?.postMessage({ type: "bindTaskToSurface", sessionId })
+	// Binding only says WHICH chat the surface owns — hydrate so the transcript is delivered.
+	try {
+		await provider.controller.showTaskWithId(sessionId)
+	} catch (error) {
+		Logger.error("Failed to open a session from a chat surface's history list:", error)
+	}
+	return { openedHere: true }
 }
 
 /**

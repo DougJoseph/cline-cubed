@@ -1,4 +1,5 @@
 import { readdirSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type * as LlmsProviders from "@cline/llms";
@@ -1182,27 +1183,53 @@ export class LocalRuntimeHost implements RuntimeHost {
 		});
 	}
 
+	// LOCAL PATCH (2026-08-30): a dispose is a teardown sweep, not a user action. A session
+	// it closes out gets its transcript's last-write time as its end — the last moment the
+	// chat actually did work (transcripts are written only at iteration_end) — never the
+	// sweep's own clock, which once stamped every lingering chat with the same shutdown
+	// moment. Falls back to the wall clock only when the transcript cannot be statted.
+	private async transcriptMtimeIso(
+		session: ActiveSession,
+	): Promise<string | undefined> {
+		const messagesPath = session.artifacts?.messagesPath;
+		if (!messagesPath) return undefined;
+		try {
+			return (await stat(messagesPath)).mtime.toISOString();
+		} catch {
+			return undefined;
+		}
+	}
+
 	async dispose(reason = "session_manager_dispose"): Promise<void> {
 		const sessions = [...this.sessions.values()];
 		if (sessions.length === 0) return;
 		await Promise.allSettled(
-			sessions.map((session) =>
-				session.interactive && !isNonTerminalSessionStatus(session.status)
-					? this.releaseSessionRuntime(session, reason)
-					: session.interactive && session.agent.canStartRun()
-						? this.shutdownSession(session, {
-								status: this.resolveInteractiveStopStatus(session),
-								exitCode: this.resolveInteractiveStopExitCode(session),
-								shutdownReason: reason,
-								endReason: "disposed",
-							})
-						: this.shutdownSession(session, {
-								status: "cancelled",
-								exitCode: 0,
-								shutdownReason: reason,
-								endReason: "disposed",
-							}),
-			),
+			sessions.map(async (session) => {
+				if (
+					session.interactive &&
+					!isNonTerminalSessionStatus(session.status)
+				) {
+					return this.releaseSessionRuntime(session, reason);
+				}
+				// LOCAL PATCH (2026-08-30): see transcriptMtimeIso above.
+				const endedAtHint = await this.transcriptMtimeIso(session);
+				if (session.interactive && session.agent.canStartRun()) {
+					return this.shutdownSession(session, {
+						status: this.resolveInteractiveStopStatus(session),
+						exitCode: this.resolveInteractiveStopExitCode(session),
+						shutdownReason: reason,
+						endReason: "disposed",
+						endedAtHint,
+					});
+				}
+				return this.shutdownSession(session, {
+					status: "cancelled",
+					exitCode: 0,
+					shutdownReason: reason,
+					endReason: "disposed",
+					endedAtHint,
+				});
+			}),
 		);
 		this.usageBySession.clear();
 		this.aggregateUsageBySession.clear();
@@ -2244,6 +2271,8 @@ export class LocalRuntimeHost implements RuntimeHost {
 			exitCode: number | null;
 			shutdownReason: string;
 			endReason: string;
+			/** LOCAL PATCH (2026-08-30): truthful end time from the teardown sweep. */
+			endedAtHint?: string;
 		},
 	): Promise<void> {
 		// Fallback `task.completed` emission for completed sessions that did
@@ -2294,7 +2323,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 		if (session.artifacts) {
 			await this.refreshActiveSessionGitMetadata(session);
 			try {
-				await this.updateStatus(session, input.status, input.exitCode);
+				await this.updateStatus(session, input.status, input.exitCode, input.endedAtHint);
 			} catch (error) {
 				recordCleanupError("update_status", error);
 			}
@@ -2401,13 +2430,18 @@ export class LocalRuntimeHost implements RuntimeHost {
 		session: ActiveSession,
 		status: SessionStatus,
 		exitCode?: number | null,
+		endedAtHint?: string,
 	): Promise<void> {
 		if (!session.artifacts) return;
+		// LOCAL PATCH (2026-08-30): the hint argument is appended ONLY when present, so
+		// every non-sweep call keeps stock's exact argument shape.
+		const statusArgs: unknown[] = [session.sessionId, status, exitCode];
+		if (endedAtHint !== undefined) {
+			statusArgs.push(endedAtHint);
+		}
 		const result = await this.invoke<{ updated: boolean; endedAt?: string }>(
 			"updateSessionStatus",
-			session.sessionId,
-			status,
-			exitCode,
+			...statusArgs,
 		);
 		if (!result.updated) return;
 		const latestManifest = await this.mutateSessionManifest(

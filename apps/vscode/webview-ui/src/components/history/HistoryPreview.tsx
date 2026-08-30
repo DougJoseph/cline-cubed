@@ -1,25 +1,19 @@
 import { chatDisplayTitle } from "@shared/HistoryItem"
-import { StringRequest } from "@shared/proto/cline/common"
 import { memo } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { TaskServiceClient } from "@/services/grpc-client"
 
 type HistoryPreviewProps = {
 	showHistoryView: () => void
 }
 
 const HistoryPreview = ({ showHistoryView }: HistoryPreviewProps) => {
-	const { taskHistory, setSurfaceBoundTaskId, navigateToChat } = useExtensionState()
+	const { taskHistory, openSessionHere } = useExtensionState()
 	const handleHistorySelect = (id: string) => {
-		// Cline Cubed: bind this surface to the chosen task so its broadcast renders
-		// HERE — the per-surface gate would otherwise ignore it and the click would do nothing.
-		// Navigation is local too (the RPC is unary and carries no surface identity, so the host
-		// cannot aim a navigate event at the clicking surface without guessing).
-		setSurfaceBoundTaskId(id)
-		navigateToChat()
-		TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
-			console.error("Error showing task:", error),
-		)
+		// Cline Cubed: through the host, which knows where every chat lives. A chat already open
+		// on another surface is revealed THERE — clicking it here must never evict it (evicting
+		// blanks its panel mid-use, and a message typed into that blanked panel silently starts a
+		// NEW chat). A chat open nowhere opens here, exactly as before.
+		openSessionHere(id)
 	}
 
 	const formatDate = (timestamp: number) => {

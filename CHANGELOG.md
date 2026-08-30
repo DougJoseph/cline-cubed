@@ -1,5 +1,61 @@
 # Changelog
 
+## [4.1.21]
+
+This release is the result of a colossal validation testing pass. The test harness — the pre-flight
+suite run before a release — came from stock Cline, built for its concept of one chat at a time
+rather than Cline Cubed's concurrent chat sessions, so it needed more than an update: it was
+overhauled around chat identity and given a deterministic stub provider in place of a live model, so
+each scenario can be handed the exact response or failure it needs to test. Nine end-to-end
+scenarios now run against a real editor, and all of them pass. The long list of major enhancements
+from the previous release is still the big news.
+
+### Fixed
+
+- **Clicking multiple chats in the primary chat history list now works like you'd expect, opening
+  them stacked side by side.** This fixed a lingering stock Cline concept in which each chat
+  replaced the previous one in a single, reused window — yet another remnant of stock Cline's
+  single-active-session design, where there was only ever one place a chat could go.
+
+- **A chat's date is now the truth, on every path.** A chat's date in the history list is its
+  recorded end time, and two paths were writing dishonest ones: closing the editor tab or sidebar
+  view holding a chat ended nothing — the chat lived on unseen — and the extension's next shutdown
+  then stamped every such chat with its own moment, so chats last used hours apart could all
+  surface dated the same instant. One more remnant of stock Cline's single-active-session design,
+  where "when the extension stopped" and "when the chat was last used" were nearly the same
+  moment; with concurrent chats they are not. Now closing a chat — by its tab, its sidebar view, or
+  the chat's own close button — marks it ended right then; moving a chat between sidebars still
+  preserves it; and a chat whose session was left behind — swept up at shutdown, or discovered at
+  a later launch after the editor was killed without one — is dated by the last moment it actually
+  did work, never by whatever the clock said when it was cleaned up.
+
+- **Attempting by mistake to reopen a chat that's already open now brings it into view instead of
+  it disappearing and reappearing somewhere else.** Before, if you lost track of an open chat's
+  tab, perhaps even with an unsent message in it, and then tried to reopen it from a chat history
+  list, it would hide the opened instance and reopen it for you elsewhere — the window it left
+  behind fell back to the Home screen, with your unsent message still sitting in its box, where
+  sending it would have started a brand-new chat. Now the chat's lost window comes into view with
+  a brief "toast" notice that it was already open.
+
+- **A chat is no longer briefly named `{}`.** Each turn opens with a bookkeeping entry the chat
+  never displays, and the chat's name was taken from whichever entry happened to be first. With
+  several chats running, that could be the bookkeeping entry, so a chat would show `{}` as its name
+  and body instead of the prompt you typed. The name is now taken from the prompt itself, wherever
+  it sits.
+
+- **A new chat's first turn now shows its thinking indicator and can be cancelled.** One more
+  remnant of stock Cline's deeply rooted "single active session" design: a brand-new chat did not
+  report its busy state to itself, so its very first turn ran with no thinking indicator and no
+  Cancel button. Every chat now reports its own state from the moment it starts, so both appear on
+  the first response, in the chat actually doing the work.
+
+### Changed
+
+- **"Where new chat sessions open" is clearer, and no longer repeated above every new chat.** The
+  note under the setting now states the part that matters — a sidebar holds one chat, so further
+  chats open as editor tabs whichever location you choose — and the picker lives in Settings →
+  General and on Get Started rather than on every chat's home screen.
+
 ## [4.1.20]
 
 ### Added

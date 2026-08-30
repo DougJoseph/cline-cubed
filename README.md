@@ -64,18 +64,28 @@ so non-vision models get full image context without ever receiving raw image byt
   several run at once and each shows its own work. The sidebar hosts one chat at full height;
   further chats open as editor tabs, which you can arrange side by side. A chat lives in one
   place: open it somewhere else and it moves there, with its old spot returning to the home.
+- **Every chat owns its own busy state** — each one shows its own thinking indicator while it
+  works and its own Cancel button, from its very first response onward. Cancelling one chat
+  stops that chat and leaves every other chat running.
 - **"Where new chat sessions open" setting** — choose where a new chat lands: **Editor area**
   (new tab — the default) or **Secondary sidebar** (typically right). Every chat button
-  follows it; chats already open stay where they are. A start-up chooser on the chat home
-  shows the same options, and a gear button in the chat input row opens Settings.
+  follows it; chats already open stay where they are. A sidebar holds one chat, so further
+  chats open as editor tabs whichever you pick. Get Started offers the same choice, and a
+  gear button in the chat input row opens Settings.
 - **Gear button in the chat input row** — restores the settings affordance stock Cline
   removed from the VS Code panel.
 - **A chats list in the activity bar** — the left icon opens a list of your chats rather than
   a chat: the ones open right now at the top, each labelled with where it is, then the full
   history. A New Chat button sits above them, and Settings, Account, and Marketplace open
   right there in the panel instead of commandeering one of your running chats.
-- **Redesigned history rows** — clicking a row opens that chat; the per-row controls (details,
-  favorite, delete) appear on hover at the right. No checkbox column, no full-width red delete
+- **Redesigned history rows** — clicking a row opens that chat, and if that chat is already
+  open somewhere it is brought into view where it already lives rather than moved: the panel
+  it is running in comes forward, a brief notice says it was already open, and the panel you
+  clicked in is left exactly as it was. A chat that is open nowhere opens in the surface you
+  clicked from when that surface is an empty home, and in a new editor tab when it is already
+  showing a chat — so clicking three chats gives three windows, and the chat you are working
+  in is never taken from you. The per-row controls (details, favorite, delete) appear on hover at the
+  right. No checkbox column, no full-width red delete
   button — clearing the whole history is one quiet control under the list. The chats list and
   the in-chat history panel are the same component, so both behave identically.
 - **Even editor widths** — opening a chat into a new editor column evens the column widths, so

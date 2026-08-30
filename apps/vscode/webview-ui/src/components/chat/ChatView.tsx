@@ -98,9 +98,29 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 		setPendingResponse((current) => (current?.id === pendingResponse.id ? undefined : current))
 	}, [messages.length, pendingResponse, setPendingResponse, turnState])
 
-	//const task = messages.length > 0 ? (messages[0].say === "task" ? messages[0] : undefined) : undefined) : undefined
-	const task = useMemo(() => displayMessages.at(0), [displayMessages]) // leaving this less safe version here since if the first message is not a task, then the extension is in a bad state and needs to be debugged (see Cline.abort)
+	// The task is selected by WHAT IT IS first, position second. A transcript's first row is not
+	// always the task: every turn opens with an api_req_started bookkeeping row (whose text is a
+	// JSON blob), and a snapshot merge can land one at index 0 — rendering position-0 as "the
+	// task" then displays that blob as the chat's name. Selecting by kind keeps the header on the
+	// real first prompt whatever order a merge produced.
+	//
+	// The fallback to the first row is LOAD-BEARING, not politeness. `task` gates the whole
+	// surface — falsy renders the Welcome home and unmounts the message list — and a replica can
+	// legitimately hold rows with NO say:"task" row at all (a translator-built snapshot). A
+	// kind-only selection turned such a mid-conversation chat into a home screen; falling back to
+	// the first row keeps this selection total, exactly as broad as the position-only rule it
+	// replaced.
+	const task = useMemo(
+		() => displayMessages.find((m) => m.type === "say" && m.say === "task") ?? displayMessages.at(0),
+		[displayMessages],
+	)
 	const modifiedMessages = useMemo(() => {
+		// The list drops ONLY index 0 — deliberately not "the task row". Whenever ordering puts
+		// the task row elsewhere, the list is a place it still renders, and displays have relied
+		// on that: excluding the found task row here instead once made a reopened chat's first
+		// prompt vanish, because the header shows the task as one collapsible line and cannot be
+		// its only home. In a scrambled ordering the task text may therefore show twice (header
+		// and list); truthful duplication over lost content.
 		const slicedMessages = displayMessages.slice(1)
 		// Only combine hook sequences if hooks are enabled
 		const withHooks = hooksEnabled ? combineHookSequences(slicedMessages) : slicedMessages

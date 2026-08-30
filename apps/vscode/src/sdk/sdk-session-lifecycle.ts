@@ -57,6 +57,14 @@ export interface SdkSessionLifecycleOptions {
 	/** Cline Cubed: called when a session is ended/stopped, so owners can drop
 	 *  per-session bookkeeping (task proxies, turn-state trackers). */
 	onSessionEnded?: (sessionId: string) => void
+	/**
+	 * Cline Cubed: fires when a session's STOP has fully landed — its terminal status and end
+	 * time are on disk. Every ender funnels through here, so a state post wired to this hook
+	 * refreshes the history lists with the row that just landed instead of racing the write
+	 * (the X, tab close, sidebar close, new-task-over-old, retarget, settings toggle — and the
+	 * awaitStop timeout leak — all in one place).
+	 */
+	onSessionStopped?: (sessionId: string) => void
 	onDidBecomeIdle?: () => void
 }
 
@@ -179,6 +187,8 @@ export class SdkSessionLifecycle {
 
 		this.safeUnsubscribe(session, reason)
 		const stopPromise = this.trackSessionStop(session.sdkHost, session.sessionId, reason)
+		// See onSessionStopped: the post that follows the LANDED write, for every ender.
+		void stopPromise.then(() => this.options.onSessionStopped?.(session.sessionId))
 		if (options.awaitStop) {
 			const timeoutMs = options.timeoutMs ?? 3000
 			const stopped = await this.waitForStop(stopPromise, timeoutMs)
@@ -327,6 +337,7 @@ export class SdkSessionLifecycle {
 			this.sessions.delete(sourceSessionId)
 			this.options.onSessionEnded?.(sourceSessionId)
 			const stopPromise = this.trackSessionStop(activeSession.sdkHost, sourceSessionId, "restoreActiveSession")
+			void stopPromise.then(() => this.options.onSessionStopped?.(sourceSessionId))
 			stopPromise.catch((error) => {
 				Logger.warn(`[SdkController] Failed to stop source session after checkpoint restore: ${sourceSessionId}`, error)
 			})

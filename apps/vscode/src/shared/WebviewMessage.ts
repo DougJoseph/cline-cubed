@@ -9,6 +9,12 @@ export interface WebviewMessage {
 		// Cline Cubed: the chats list asks the host to open an existing chat — revealed where it
 		// already lives, or opened in the configured location if it is not open anywhere.
 		| "openSession"
+		// Cline Cubed: a CHAT surface asks the host to open an existing chat from its own
+		// history/recent list. Already open on another surface → that surface is revealed and
+		// NOTHING moves (accidentally reopening a chat must never evict it from where it lives).
+		// Not open anywhere → it opens in the ASKING surface, which the host binds and then
+		// answers with "bindTaskToSurface" so the webview adopts and navigates.
+		| "openSessionHere"
 		// Cline Cubed: the chats list's New Chat button, routed through the same
 		// openOrCreateChat every chat button uses.
 		| "newChatFromList"

@@ -3,7 +3,7 @@ import { DEFAULT_BROWSER_SETTINGS } from "@shared/BrowserSettings"
 import { DEFAULT_PLATFORM, type ExtensionState } from "@shared/ExtensionMessage"
 import { DEFAULT_MCP_DISPLAY_MODE } from "@shared/McpDisplayMode"
 import type { UserInfo } from "@shared/proto/cline/account"
-import { EmptyRequest } from "@shared/proto/cline/common"
+import { EmptyRequest, StringRequest } from "@shared/proto/cline/common"
 import type { OpenRouterCompatibleModelInfo, ProviderModelsResponse } from "@shared/proto/cline/models"
 import { OnboardingModelGroup, type TerminalProfile } from "@shared/proto/cline/state"
 import { convertProtoToClineMessage } from "@shared/proto-conversions/cline-message"
@@ -27,7 +27,13 @@ import {
 	applyMessage as reducerApplyMessage,
 	applyStateSnapshot as reducerApplyStateSnapshot,
 } from "../components/chat/chat-view/messageReducer"
-import { McpServiceClient, ModelsServiceClient, StateServiceClient, UiServiceClient } from "../services/grpc-client"
+import {
+	McpServiceClient,
+	ModelsServiceClient,
+	StateServiceClient,
+	TaskServiceClient,
+	UiServiceClient,
+} from "../services/grpc-client"
 
 export type ProviderId = string
 
@@ -146,6 +152,9 @@ export interface ExtensionStateContextType extends ExtensionState {
 	/** Bind this surface to a task (or to none / New Chat home). Writing the binding also
 	 *  applies the cached snapshot if it was already broadcast (covers the RPC race). */
 	setSurfaceBoundTaskId: (taskId: string | null | undefined) => void
+	/** Open an existing chat from this surface's history list, via the host: revealed where it
+	 *  already lives (nothing moves), or opened here if it is not open anywhere. */
+	openSessionHere: (sessionId: string) => void
 	/** Current binding (ref-backed — stable across renders). */
 	getSurfaceBoundTaskId: () => string | null | undefined
 	/** Cline Cubed: leave the Get Started screen in THIS surface. */
@@ -374,6 +383,29 @@ export const ExtensionStateContextProvider: React.FC<{
 		}
 	}, [])
 	const getSurfaceBoundTaskId = useCallback(() => surfaceBoundTaskIdRef.current, [])
+
+	/**
+	 * Cline Cubed: open an existing chat from THIS surface's history/recent list, through the
+	 * host. Already open on another surface → the host reveals that surface and nothing here
+	 * changes (accidentally reopening a chat must never evict it from where it lives). Not open
+	 * anywhere → the host binds THIS surface and answers with "bindTaskToSurface", which adopts
+	 * the session and navigates. A surface with no routing id (no host channel for this) falls
+	 * back to the old local claim so the click still works.
+	 */
+	const openSessionHere = useCallback(
+		(sessionId: string) => {
+			if (window.__CLINE_CUBED_SURFACE_ID__ !== undefined) {
+				PLATFORM_CONFIG.postMessage({ type: "openSessionHere", sessionId })
+				return
+			}
+			setSurfaceBoundTaskId(sessionId)
+			navigateToChat()
+			TaskServiceClient.showTaskWithId(StringRequest.create({ value: sessionId })).catch((error) =>
+				console.error("Error showing task:", error),
+			)
+		},
+		[setSurfaceBoundTaskId, navigateToChat],
+	)
 
 	/**
 	 * Cline Cubed: put THIS surface on the "What can I do for you?" home, locally and at once.
@@ -979,9 +1011,12 @@ export const ExtensionStateContextProvider: React.FC<{
 		const onHostMessage = (event: MessageEvent) => {
 			const data = event.data as { type?: string; sessionId?: string }
 			if (data?.type === "bindTaskToSurface" && typeof data.sessionId === "string") {
-				// Cline Cubed: the host opened this sidebar to show an existing chat picked from
-				// the chats list. Adopt it — the sidebar reveal path carries no task id of its own.
+				// Cline Cubed: the host bound this surface to an existing chat (picked from the
+				// chats list, or from this surface's own history via openSessionHere). Adopt it
+				// and leave any history/settings view, or the chat renders behind the list that
+				// opened it.
 				setSurfaceBoundTaskId(data.sessionId)
+				navigateToChat()
 			} else if (data?.type === "showNewChatHome") {
 				// Cline Cubed: this surface's session was evicted — it moved to another surface.
 				// Step back to the home instead of freezing on a stale copy of the moved chat.
@@ -1045,6 +1080,7 @@ export const ExtensionStateContextProvider: React.FC<{
 		// Cline Cubed: per-surface task binding
 		surfaceBoundTaskId,
 		setSurfaceBoundTaskId,
+		openSessionHere,
 		getSurfaceBoundTaskId,
 		getLatestActiveTaskId,
 

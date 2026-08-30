@@ -419,6 +419,11 @@ export class Controller {
 			},
 			onDidBecomeIdle: () => this.handleSessionBecameIdle(),
 			// Drop per-session bookkeeping when a session ends.
+			// Refresh every surface once a session's stop has LANDED — the post that carries the
+			// final row, where a post fired beside the write would race it.
+			onSessionStopped: () => {
+				this.postStateToWebview().catch(() => {})
+			},
 			onSessionEnded: (sessionId) => {
 				this.taskProxies.delete(sessionId)
 				this.turnStateTrackers.delete(sessionId)
@@ -695,6 +700,7 @@ export class Controller {
 			emitClineAuthError: (task) => this.emitClineAuthErrorWithTelemetry(task),
 			captureProviderApiError: (event) => this.captureProviderFailure(event),
 			postStateToWebview: () => this.postStateToWebview(),
+			setTurnPhase: (phase, anchorTs, sessionId) => this.setPhaseForSession(phase, anchorTs, sessionId),
 			onSessionIdChanged: (previousSessionId, newSessionId, task) =>
 				this.handleSessionIdChanged(previousSessionId, newSessionId, task),
 		})
@@ -1464,7 +1470,11 @@ export class Controller {
 		taskSettings?: Partial<Settings>,
 	): Promise<string | undefined> {
 		await this.waitForInitialRemoteConfig()
-		// A new task is starting — the agent is about to stream.
+		// A new task is starting — the agent is about to stream. This write covers the FOCUSED
+		// tracker only, for identity-less consumers (the new task becomes the focused one moments
+		// later, in the coordinator's createAndSetTask). The phase the webview actually renders is
+		// per-session, and the task-start coordinator stamps it the moment the session id is
+		// minted — this line does not reach the webview and must not be mistaken for doing so.
 		this.turnStateTracker.set("streaming")
 		// Clear the previous turn's completion signal so this turn's phase is computed fresh.
 		this.messageTranslatorState.clearTurnOutcome()

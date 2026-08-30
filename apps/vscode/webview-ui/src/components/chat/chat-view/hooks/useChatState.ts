@@ -31,8 +31,11 @@ export function useChatState(messages: ClineMessage[]): ChatState {
 	const secondLastMessage = useMemo(() => messages.at(-2), [messages])
 	const clineAsk = useMemo(() => (lastMessage?.type === "ask" ? lastMessage.ask : undefined), [lastMessage])
 
-	// Clear expanded rows when task changes
-	const task = useMemo(() => messages.at(0), [messages])
+	// Clear expanded rows when task changes. Selected by KIND first, position second — the first
+	// row can be an api_req bookkeeping row after a snapshot merge — and the fallback keeps the
+	// selection total for a replica holding no say:"task" row at all. Must agree with ChatView's
+	// own task selection or the header and the state diverge.
+	const task = useMemo(() => messages.find((m) => m.type === "say" && m.say === "task") ?? messages.at(0), [messages])
 	const clearExpandedRows = useCallback(() => {
 		setExpandedRows({})
 	}, [])

@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import type * as LlmsProviders from "@cline/llms";
 import type { AgentResult, BasicLogger } from "@cline/shared";
@@ -177,16 +178,26 @@ export class UnifiedSessionPersistenceService {
 		return { manifestPath, messagesPath, compactionPath, manifest };
 	}
 
+	// LOCAL PATCH (2026-08-30): terminal transitions used to stamp `ended_at` with the
+	// wall-clock write time unconditionally, so a teardown sweep closing out sessions gave
+	// every one of them the sweep's own moment as its "end" — a batch of chats all dated
+	// the instant the editor shut down. Callers that know a truthful end time (the
+	// teardown sweep passes the transcript's last-write time) may now supply it;
+	// callers that ARE the ending moment (a user close, a turn finishing) pass nothing
+	// and keep the wall-clock stamp. See the fork's local-patch record in CLAUDE.md.
 	async updateSessionStatus(
 		sessionId: string,
 		status: SessionStatus,
 		exitCode?: number | null,
+		endedAtOverride?: string,
 	): Promise<{ updated: boolean; endedAt?: string }> {
 		let endedAt: string | undefined;
 		const result = await withOccRetry(
 			() => this.adapter.getSession(sessionId),
 			async (row) => {
-				endedAt = isNonTerminalSessionStatus(status) ? undefined : nowIso();
+				endedAt = isNonTerminalSessionStatus(status)
+					? undefined
+					: (endedAtOverride ?? nowIso());
 				return this.adapter.updateSession({
 					sessionId,
 					status,
@@ -445,6 +456,20 @@ export class UnifiedSessionPersistenceService {
 
 		const detectedAt = nowIso();
 		const reason = UnifiedSessionPersistenceService.STALE_REASON;
+		// LOCAL PATCH (2026-08-30): this reconciler closes out sessions whose process died
+		// without a clean shutdown — often long after the fact, in one pass at the next
+		// start-up. Stamping `ended_at` with the DETECTION time gave every such session the
+		// same moment (the batch of identically-dated chats), when the truthful end is the
+		// last moment the session actually did work: its transcript's last write. The
+		// detection time is still recorded, where it belongs — `terminal_marker_at`.
+		let endedAt = detectedAt;
+		if (row.messagesPath) {
+			try {
+				endedAt = (await stat(row.messagesPath)).mtime.toISOString();
+			} catch {
+				// transcript unreadable — the detection time is the best remaining truth
+			}
+		}
 
 		for (let attempt = 0; attempt < OCC_MAX_RETRIES; attempt++) {
 			const latest = await this.adapter.getSession(row.sessionId);
@@ -462,7 +487,7 @@ export class UnifiedSessionPersistenceService {
 			const changed = await this.adapter.updateSession({
 				sessionId: latest.sessionId,
 				status: "failed",
-				endedAt: detectedAt,
+				endedAt,
 				exitCode: 1,
 				metadata: nextMetadata,
 				expectedStatusLock: latest.statusLock,
@@ -476,7 +501,7 @@ export class UnifiedSessionPersistenceService {
 
 			const manifest = buildManifestFromRow(latest, {
 				status: "failed",
-				endedAt: detectedAt,
+				endedAt,
 				exitCode: 1,
 				metadata: nextMetadata,
 			});

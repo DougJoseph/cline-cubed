@@ -93,3 +93,6 @@ apps/examples/desktop-app/webview/.next
 # Next.js generated type shim (churns between dev and build)
 apps/examples/desktop-app/webview/next-env.d.ts
 apps/examples/desktop-app/.cursor/settings.json
+
+# Local-only notes; not part of this repository.
+.clinerules/running-the-fork.md

@@ -24,11 +24,14 @@
  *   --port PORT         Server port (default: 19229)
  *   --launch-timeout MS Playwright _electron.launch timeout (default: 120000)
  *   --no-browser-capture  Let openExternal() open real browser windows (for interactive OAuth)
+ *   --no-stub           Do NOT run the scripted stub provider; the debugee keeps whatever
+ *                       provider its profile holds. Off by default: with the stub running,
+ *                       a scenario costs nothing and cannot reach the network.
  *
  * Env:
- *   VSCODE_TEST_VERSION  Debugee VSCode version to download (default: 1.103.0; the
- *                        bundled Playwright cannot drive the Electron in the latest
- *                        "stable"). Set to "stable" or a pinned x.y.z to override.
+ *   VSCODE_TEST_VERSION  Debugee VSCode version to download (default: the extension's own
+ *                        `engines.vscode` floor — see DEFAULT_VSCODE_VERSION). Set to
+ *                        "stable" or a pinned x.y.z to override.
  *
  * Then send commands:
  *   curl localhost:19229/api -d '{"method":"launch"}'
@@ -70,8 +73,62 @@ const DEFAULT_CLINE_DIR = path.join(os.homedir(), ".cline2") // Separate profile
 const SKIP_BUILD = args.includes("--skip-build")
 const AUTO_LAUNCH = args.includes("--auto-launch")
 const BROWSER_CAPTURE = !args.includes("--no-browser-capture")
+// The stub provider runs by default. A scenario driving a real provider spends money on every
+// probe and cannot dictate what comes back, which leaves the states worth testing unreachable.
+const USE_STUB = !args.includes("--no-stub")
 const WORKSPACE_ARG = getArg("--workspace")
 const CLINE_DIR_ARG = getArg("--cline-dir") // Override the isolated CLINE_DIR
+
+/**
+ * The environment to launch the debugee with: this process's own, minus the variables VS Code
+ * sets for programs it starts.
+ *
+ * `ELECTRON_RUN_AS_NODE=1` is the one that matters. VS Code exports it into the terminals and
+ * extension hosts it spawns, and inheriting it makes the debugee's Electron run as PLAIN NODE —
+ * which then rejects every VS Code switch (`bad option: --extensionDevelopmentPath`, and so on)
+ * and the launch fails before anything starts. Running this harness from a terminal INSIDE VS
+ * Code is the normal case, so inheriting the parent's environment wholesale cannot be right.
+ *
+ * The `VSCODE_*` variables are dropped for the same reason: they describe the PARENT editor's
+ * IPC sockets, PID and locale bundles, and handing them to a different VS Code invites it to
+ * talk to the wrong instance. `VSCODE_TEST_VERSION` is deliberately kept — it is this harness's
+ * own setting, not the parent editor's.
+ */
+function hostVsCodeEnvStripped(): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...process.env }
+	delete env.ELECTRON_RUN_AS_NODE
+	for (const key of Object.keys(env)) {
+		if (key.startsWith("VSCODE_") && key !== "VSCODE_TEST_VERSION") {
+			delete env[key]
+		}
+	}
+	return env
+}
+
+/**
+ * The stub provider runs as its OWN process (see ./stub-provider.ts), started by this server and
+ * driven over its HTTP control surface — not imported. Node's type stripping requires an explicit
+ * `.ts` on a relative import, which the project's TypeScript config does not permit, and relaxing
+ * that config for one test file is the wrong trade. Two processes also mean the stub can be run
+ * and poked by hand exactly as this server runs it.
+ *
+ * These two values are duplicated from that file deliberately, as the only things this side needs.
+ * Neither is a secret: the stub authenticates nothing, and the "key" below IS the whole credential.
+ */
+const STUB_MODEL_ID = "cline-cubed-stub"
+const STUB_API_KEY = "stub-no-auth"
+
+/**
+ * The VS Code the debugee runs on. It MUST be at least the extension's own `engines.vscode`
+ * floor in apps/vscode/package.json: below the floor VS Code will not activate the extension,
+ * and the secondary-sidebar view container the docked chat uses does not exist at all — so a
+ * harness on an older build tests nothing and fails in ways that look like product faults.
+ * Keep this in step with `engines.vscode` whenever that moves.
+ *
+ * Not simply "stable": the bundled Playwright cannot drive the Electron in the newest stable
+ * builds, so this is pinned at the floor rather than tracking the latest.
+ */
+const DEFAULT_VSCODE_VERSION = "1.106.0"
 
 // ============================================================
 // VLQ Sourcemap Decoder
@@ -315,6 +372,10 @@ class DebugHarness {
 	private screenshotCounter = 0
 	private extSourceMap: SourceMapJSON | null = null
 	private clineDir: string = DEFAULT_CLINE_DIR // The CLINE_DIR used for the debugee
+	/** The scripted stand-in for a model provider (see ./stub-provider.ts), as a child process. */
+	private stubProcess: import("node:child_process").ChildProcess | null = null
+	/** Its base URL, once it has reported one. */
+	private stubUrl: string | null = null
 
 	// Pause waiters - resolved when any debuggee hits a breakpoint
 	private pauseWaiters: { resolve: (info: any) => void; timer: NodeJS.Timeout }[] = []
@@ -326,7 +387,13 @@ class DebugHarness {
 	// Lifecycle
 	// ────────────────────────────────────────────
 
-	async launch(opts: { workspace?: string; skipBuild?: boolean } = {}): Promise<any> {
+	/**
+	 * `state` writes arbitrary keys into the debugee's persisted global state BEFORE VS Code
+	 * starts — the only moment that works, since the extension reads its settings at activation.
+	 * It is how a scenario tests behaviour that depends on a SETTING (where new chats open, say)
+	 * rather than on what it clicks.
+	 */
+	async launch(opts: { workspace?: string; skipBuild?: boolean; state?: Record<string, unknown> } = {}): Promise<any> {
 		if (this.app) return { status: "already_running" }
 
 		const workspace = opts.workspace || WORKSPACE_ARG || DEFAULT_WORKSPACE
@@ -365,7 +432,7 @@ class DebugHarness {
 		// than playwright supports, making _electron.launch() hang). Override with
 		// VSCODE_TEST_VERSION (e.g. "stable" or a pinned x.y.z).
 		log("Ensuring VSCode binary is available...")
-		const vscodeVersion = process.env.VSCODE_TEST_VERSION || "1.103.0"
+		const vscodeVersion = process.env.VSCODE_TEST_VERSION || DEFAULT_VSCODE_VERSION
 		const executablePath = await downloadAndUnzipVSCode(vscodeVersion, undefined, new SilentReporter())
 		log(`VSCode binary: ${executablePath}`)
 
@@ -374,6 +441,17 @@ class DebugHarness {
 		fs.mkdirSync(this.clineDir, { recursive: true })
 		fs.mkdirSync(path.join(this.clineDir, "data"), { recursive: true })
 		log(`Debugee CLINE_DIR: ${this.clineDir}`)
+
+		// Point the debugee at the scripted stub BEFORE VS Code starts: the extension reads its
+		// provider settings from this profile at activation, so a later write would not be seen.
+		if (USE_STUB) {
+			const stubUrl = await this.startStub()
+			this.configureDebugeeForStub(stubUrl, opts.state)
+			log(`Stub provider: ${stubUrl} (pass --no-stub to use the profile's real provider)`)
+		} else if (opts.state) {
+			// No stub, but a scenario still asked for settings — write them on their own.
+			this.writeDebugeeGlobalState(opts.state)
+		}
 
 		// Clear any previously captured URLs
 		this.capturedUrls = []
@@ -414,7 +492,7 @@ class DebugHarness {
 					workspace,
 				],
 				env: {
-					...process.env,
+					...hostVsCodeEnvStripped(),
 					IS_DEV: "true",
 					TEMP_PROFILE: "true",
 					DEV_WORKSPACE_FOLDER: PROJECT_ROOT,
@@ -555,16 +633,21 @@ class DebugHarness {
 	}
 
 	/**
-	 * Cline Cubed: find EVERY live chat webview frame.
+	 * Cline Cubed: find EVERY live chat webview frame, with the surface id that identifies it.
 	 *
 	 * `findSidebar()` returns only the first one, which is not enough when several chat surfaces
-	 * are open side by side (primary sidebar, secondary sidebar, editor panels). Frames are
-	 * sorted by URL so the index is stable within a run — each VS Code webview has its own
-	 * origin GUID, making the URL a reliable per-surface identity.
+	 * are open side by side (primary sidebar, secondary sidebar, editor panels).
+	 *
+	 * The returned ORDER is by URL, and it is positional only: it is not open order, and it is
+	 * not stable for the life of a run. A webview's URL carries a randomly-assigned origin GUID,
+	 * and creating, disposing or reloading a surface reorders the list — so an index captured at
+	 * one step can address a different chat at the next. Anything that must keep addressing the
+	 * SAME chat holds that chat's `surfaceId` and uses `surface-id:<id>`; the positional
+	 * `surface:<n>` is for ad-hoc poking where "some chat" is a fine thing to mean.
 	 */
-	private async findChatFrames(): Promise<Frame[]> {
+	private async findChatFrames(): Promise<{ frame: Frame; surfaceId: string; url: string }[]> {
 		if (!this.page) return []
-		const found: { frame: Frame; url: string }[] = []
+		const found: { frame: Frame; surfaceId: string; url: string }[] = []
 		for (const frame of this.page.frames()) {
 			if (frame.isDetached()) continue
 			try {
@@ -578,17 +661,20 @@ class DebugHarness {
 					.evaluate(() => (window as unknown as { __CLINE_CUBED_SURFACE_ID__?: string }).__CLINE_CUBED_SURFACE_ID__)
 					.catch(() => undefined)
 				if (typeof surfaceId !== "string" || surfaceId.startsWith("chats-list")) continue
-				found.push({ frame, url: frame.url() })
+				found.push({ frame, surfaceId, url: frame.url() })
 			} catch {}
 		}
 		found.sort((a, b) => a.url.localeCompare(b.url))
-		return found.map((f) => f.frame)
+		return found
 	}
 
 	/**
 	 * Cline Cubed: resolve a `surface:<n>` frame selector to the nth chat webview.
-	 * Waits for at least n+1 chat surfaces to exist so a scenario can open a second chat and
+	 * Waits for at least n+1 chat surfaces to exist so a caller can open a second chat and
 	 * address it without hand-rolled sleeps.
+	 *
+	 * The index is POSITIONAL and can point at a different chat later in the same run (see
+	 * `findChatFrames`). Use `findChatFrameById` for anything that must stay on one chat.
 	 */
 	private async findChatFrame(index: number, timeoutMs = 15000): Promise<Frame> {
 		const start = Date.now()
@@ -596,13 +682,199 @@ class DebugHarness {
 		while (Date.now() - start < timeoutMs) {
 			const frames = await this.findChatFrames()
 			seen = frames.length
-			if (frames.length > index) return frames[index]
+			if (frames.length > index) return frames[index].frame
 			await sleep(300)
 		}
 		throw new Error(`Chat surface ${index} not found (only ${seen} chat surface(s) open)`)
 	}
 
+	/**
+	 * Cline Cubed: resolve a chat webview by its OWN surface id — the stable way to address one
+	 * chat for a whole run, unaffected by how many other chats open, close or reload around it.
+	 * Waits for the named surface to appear, so a caller can open a chat and address it without
+	 * hand-rolled sleeps.
+	 */
+	/**
+	 * Cline Cubed: the primary sidebar's CHATS LIST — the list a person actually picks chats from.
+	 *
+	 * It is deliberately absent from `findChatFrames` (it is not a chat surface, and counting it
+	 * shifted every `surface:<n>` index), which left it addressable by nothing. A scenario that
+	 * needs to reproduce "click a chat in the list" has to reach the list itself: clicking a row
+	 * from inside a chat exercises a different code path, and inside an occupied chat there is no
+	 * list rendered to click at all.
+	 *
+	 * Found by the same injected routing id as every other surface — never by title.
+	 */
+	private async findChatsListFrame(timeoutMs = 15000): Promise<Frame> {
+		if (!this.page) throw new Error("VSCode not running")
+		const start = Date.now()
+		while (Date.now() - start < timeoutMs) {
+			for (const frame of this.page.frames()) {
+				if (frame.isDetached()) continue
+				const surfaceId = await frame
+					.evaluate(() => (window as unknown as { __CLINE_CUBED_SURFACE_ID__?: string }).__CLINE_CUBED_SURFACE_ID__)
+					.catch(() => undefined)
+				if (typeof surfaceId === "string" && surfaceId.startsWith("chats-list")) return frame
+			}
+			await sleep(300)
+		}
+		throw new Error("Chats list not found (is the primary sidebar open?)")
+	}
+
+	private async findChatFrameById(surfaceId: string, timeoutMs = 15000): Promise<Frame> {
+		const start = Date.now()
+		let seen: string[] = []
+		while (Date.now() - start < timeoutMs) {
+			const frames = await this.findChatFrames()
+			const match = frames.find((f) => f.surfaceId === surfaceId)
+			if (match) return match.frame
+			seen = frames.map((f) => f.surfaceId)
+			await sleep(300)
+		}
+		throw new Error(`Chat surface id "${surfaceId}" not found (open surface ids: ${seen.join(", ") || "none"})`)
+	}
+
+	/**
+	 * Point the debugee's isolated profile at the stub: the OpenAI-compatible provider, its base
+	 * URL, the stub's model id, and a placeholder key (the stub authenticates nothing — that
+	 * literal is the whole credential, and no real secret is involved).
+	 *
+	 * Written straight into the profile's own JSON stores rather than driven through the UI, so
+	 * the settings are in place before the extension activates and reads them.
+	 */
+	/** Merge keys into the debugee's persisted global state. */
+	private writeDebugeeGlobalState(values: Record<string, unknown>): void {
+		const file = path.join(this.clineDir, "data", "globalState.json")
+		let current: Record<string, unknown> = {}
+		try {
+			current = JSON.parse(fs.readFileSync(file, "utf8"))
+		} catch {}
+		fs.writeFileSync(file, JSON.stringify({ ...current, ...values }, null, 2))
+	}
+
+	private configureDebugeeForStub(stubUrl: string, stateOverrides?: Record<string, unknown>): void {
+		const dataDir = path.join(this.clineDir, "data")
+		const readJsonFile = (file: string): Record<string, unknown> => {
+			try {
+				return JSON.parse(fs.readFileSync(file, "utf8"))
+			} catch {
+				return {}
+			}
+		}
+
+		const globalStateFile = path.join(dataDir, "globalState.json")
+		const globalState = readJsonFile(globalStateFile)
+		Object.assign(globalState, {
+			planModeApiProvider: "openai",
+			actModeApiProvider: "openai",
+			openAiBaseUrl: stubUrl,
+			planModeOpenAiModelId: STUB_MODEL_ID,
+			actModeOpenAiModelId: STUB_MODEL_ID,
+			// Skip the welcome view so a scenario's first action is opening a chat, not dismissing
+			// onboarding it did not ask for.
+			welcomeViewCompleted: true,
+		})
+		// A scenario's own overrides go on LAST, so it can change anything above — including a
+		// setting whose default this method just wrote.
+		if (stateOverrides) {
+			Object.assign(globalState, stateOverrides)
+		}
+		fs.writeFileSync(globalStateFile, JSON.stringify(globalState, null, 2))
+
+		const secretsFile = path.join(dataDir, "secrets.json")
+		const secrets = readJsonFile(secretsFile)
+		secrets.openAiApiKey = STUB_API_KEY
+		fs.writeFileSync(secretsFile, JSON.stringify(secrets, null, 2), { mode: 0o600 })
+	}
+
+	/**
+	 * Start the stub provider as a child process and wait for it to report its URL.
+	 *
+	 * The child is launched with this process's own runtime and, if this process needed the
+	 * type-stripping flag to run a .ts entry point, with that same flag — so it works wherever
+	 * the harness itself works, on any Node that can run this file at all.
+	 */
+	private async startStub(): Promise<string> {
+		if (this.stubProcess && this.stubUrl) {
+			return this.stubUrl
+		}
+		const { spawn } = await import("node:child_process")
+		const stubPath = path.join(__script_dir, "stub-provider.ts")
+		const stripTypes = process.execArgv.filter((a) => a.startsWith("--experimental-strip-types"))
+		const child = spawn(process.execPath, [...stripTypes, stubPath], { stdio: ["ignore", "pipe", "pipe"] })
+		this.stubProcess = child
+
+		const url = await new Promise<string>((resolve, reject) => {
+			let stdout = ""
+			let stderr = ""
+			const timer = setTimeout(
+				() => reject(new Error(`Stub provider did not report a URL within 15s.\nstdout: ${stdout}\nstderr: ${stderr}`)),
+				15000,
+			)
+			child.stdout?.on("data", (d) => {
+				stdout += String(d)
+				const match = stdout.match(/STUB_URL=(\S+)/)
+				if (match) {
+					clearTimeout(timer)
+					resolve(match[1])
+				}
+			})
+			// Node prints its type-stripping notices on stderr; keep them for the failure message
+			// but never treat them as a failure in themselves.
+			child.stderr?.on("data", (d) => {
+				stderr += String(d)
+			})
+			child.on("error", (err) => {
+				clearTimeout(timer)
+				reject(err)
+			})
+			child.on("exit", (code) => {
+				clearTimeout(timer)
+				reject(new Error(`Stub provider exited (code ${code}).\nstdout: ${stdout}\nstderr: ${stderr}`))
+			})
+		})
+		this.stubUrl = url
+		return url
+	}
+
+	private stopStub(): void {
+		this.stubProcess?.kill("SIGTERM")
+		this.stubProcess = null
+		this.stubUrl = null
+	}
+
+	/** Call one of the stub's control routes. */
+	private async stubControl(route: "state" | "release" | "reset"): Promise<any> {
+		if (!this.stubUrl) {
+			throw new Error("No stub provider is running")
+		}
+		const res = await fetch(`${this.stubUrl}/control/${route}`, { method: route === "state" ? "GET" : "POST" })
+		if (!res.ok) {
+			throw new Error(`Stub control /${route} → HTTP ${res.status}`)
+		}
+		return await res.json()
+	}
+
+	/** What the stub has been asked for so far, and what it is holding. */
+	private async stubState(): Promise<any> {
+		if (!this.stubUrl) {
+			return { running: false, note: "No stub provider (started with --no-stub, or VSCode not launched yet)." }
+		}
+		return { running: true, ...(await this.stubControl("state")) }
+	}
+
+	/** Release every stream the stub is holding open for `STUB_SLOW`. */
+	private async stubRelease(): Promise<any> {
+		return await this.stubControl("release")
+	}
+
+	/** Forget the stub's request log and release everything — a clean slate between scenarios. */
+	private async stubReset(): Promise<any> {
+		return await this.stubControl("reset")
+	}
+
 	async shutdown(): Promise<any> {
+		this.stopStub()
 		this.extCdp.close()
 		this.webCdp?.close()
 		try {
@@ -950,10 +1222,11 @@ class DebugHarness {
 
 	async uiFrames(): Promise<any> {
 		if (!this.page) throw new Error("VSCode not running")
-		// Cline Cubed: tag chat webviews with the `surface:<n>` selector that addresses them,
-		// so a scenario can see how many chat surfaces are open and target each one.
+		// Cline Cubed: tag chat webviews with BOTH selectors that address them — the positional
+		// `surface:<n>` and the stable `surface-id:<id>` — so a caller can see how many chat
+		// surfaces are open and target each one. Prefer the id (see `findChatFrames`).
 		const chatFrames = await this.findChatFrames()
-		const surfaceIndexByUrl = new Map(chatFrames.map((f, i) => [f.url(), i]))
+		const byUrl = new Map(chatFrames.map((f, i) => [f.url, { index: i, surfaceId: f.surfaceId }]))
 		const frames: {
 			name: string
 			url: string
@@ -961,21 +1234,22 @@ class DebugHarness {
 			detached: boolean
 			isChatSurface: boolean
 			surface?: string
+			surfaceId?: string
 		}[] = []
 		for (const f of this.page.frames()) {
 			try {
-				const index = f.isDetached() ? undefined : surfaceIndexByUrl.get(f.url())
+				const hit = f.isDetached() ? undefined : byUrl.get(f.url())
 				frames.push({
 					name: f.name(),
 					url: f.url(),
 					title: await f.title().catch(() => ""),
 					detached: f.isDetached(),
-					isChatSurface: index !== undefined,
-					...(index !== undefined ? { surface: `surface:${index}` } : {}),
+					isChatSurface: hit !== undefined,
+					...(hit !== undefined ? { surface: `surface:${hit.index}`, surfaceId: hit.surfaceId } : {}),
 				})
 			} catch {}
 		}
-		return { frames, chatSurfaceCount: chatFrames.length }
+		return { frames, chatSurfaceCount: chatFrames.length, surfaceIds: chatFrames.map((f) => f.surfaceId) }
 	}
 
 	async uiWaitForSelector(params: { selector: string; frame?: string; timeout?: number }): Promise<void> {
@@ -1212,9 +1486,22 @@ class DebugHarness {
 			if (!sb) throw new Error("Sidebar not found")
 			return sb
 		}
-		// Cline Cubed: `surface:<n>` addresses the nth open chat webview (see findChatFrames).
-		// Every command that already takes a `frame` param gets per-surface targeting for free —
-		// ui.click, ui.fill, ui.get_text, ui.wait_for_selector, ui.locator.
+		// Cline Cubed: `surface-id:<id>` addresses ONE named chat webview and goes on addressing
+		// that same chat for the life of a run; `surface:<n>` addresses the nth by a positional
+		// order that can change under it (see findChatFrames). Every command that already takes a
+		// `frame` param gets per-surface targeting for free — ui.click, ui.fill, ui.get_text,
+		// ui.wait_for_selector, ui.locator, ui.react_input, ui.transcript.
+		// Cline Cubed: the primary sidebar's chats list — see `findChatsListFrame`.
+		if (frame === "chats-list") {
+			return await this.findChatsListFrame()
+		}
+		if (frame?.startsWith("surface-id:")) {
+			const surfaceId = frame.slice("surface-id:".length).trim()
+			if (!surfaceId) {
+				throw new Error(`Invalid surface selector: ${frame} (expected surface-id:<id>)`)
+			}
+			return await this.findChatFrameById(surfaceId)
+		}
 		if (frame?.startsWith("surface:")) {
 			const index = Number.parseInt(frame.slice("surface:".length), 10)
 			if (!Number.isInteger(index) || index < 0) {
@@ -1270,6 +1557,11 @@ class DebugHarness {
 			projectRoot: PROJECT_ROOT,
 			clineDir: this.clineDir,
 			capturedUrls: this.capturedUrls.length,
+			vscodeVersion: process.env.VSCODE_TEST_VERSION || DEFAULT_VSCODE_VERSION,
+			// A scenario checks this before it types anything: no stub means a real provider is
+			// about to be billed for every probe, which is a reason to stop, not to continue.
+			stubEnabled: USE_STUB,
+			stubUrl: this.stubUrl,
 		}
 	}
 
@@ -1484,6 +1776,14 @@ class DebugHarness {
 				return this.extGetProperties(params)
 			case "ext.get_script_source":
 				return this.extGetScriptSource(params)
+
+			// Stub provider (see ./stub-provider) — the scripted stand-in for a model provider
+			case "stub.state":
+				return this.stubState()
+			case "stub.release":
+				return this.stubRelease()
+			case "stub.reset":
+				return this.stubReset()
 
 			// Webview debugging
 			case "web.set_breakpoint":

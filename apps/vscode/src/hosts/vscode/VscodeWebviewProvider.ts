@@ -16,6 +16,7 @@ import { telemetryService } from "@/services/telemetry"
 import type { ExtensionMessage } from "@/shared/ExtensionMessage"
 import { Logger } from "@/shared/services/Logger"
 import { WebviewMessage } from "@/shared/WebviewMessage"
+import { openSessionInRequestingSurface } from "./chatEditorPanel"
 
 /*
 https://github.com/microsoft/vscode-webview-ui-toolkit-samples/blob/main/default/weather-webview/src/providers/WeatherViewProvider.ts
@@ -122,7 +123,14 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 					telemetryService.capturePanelOpened("sidebar_visible")
 					// View becoming visible should not steal editor focus.
 					await sendShowWebviewEvent(true, this.surfaceId)
+					return
 				}
+				// Cline Cubed: closing the sidebar closes the chat it holds. VS Code reports that
+				// through whichever event it happens to deliver — this one, or onDidDispose — so
+				// BOTH end the chat, and endSidebarChat runs once for a given close. The single
+				// exception is a view that comes straight back because the user dragged it to the
+				// other sidebar: that is a move, and endSidebarChat's re-check catches it.
+				this.endSidebarChat("sidebar view no longer showing")
 			},
 			null,
 			this.disposables,
@@ -141,6 +149,9 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 				// tear down if this view is still the active one.
 				if (this.webview === webviewView) {
 					this.disposeView()
+					// Cline Cubed: see the visibility handler above — closing the sidebar ends the
+					// chat it holds, whichever event VS Code delivers for it.
+					this.endSidebarChat("sidebar view disposed")
 				}
 			},
 			null,
@@ -216,6 +227,19 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 				}
 				break
 			}
+			case "openSessionHere": {
+				if (typeof message.sessionId === "string") {
+					const webview = this.getWebview()?.webview
+					await openSessionInRequestingSurface(
+						{ extensionUri: this.context.extensionUri },
+						this,
+						this.surfaceId,
+						webview ? { postMessage: (m) => void webview.postMessage(m) } : undefined,
+						message.sessionId,
+					)
+				}
+				break
+			}
 			case "bindSurfaceSession": {
 				// Cline Cubed: this surface now shows that session — deliver its state and
 				// transcript here, and release any other surface that was claiming it.
@@ -261,6 +285,45 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 	 * controller, so this provider can be re-resolved with a new WebviewView (e.g.
 	 * when the user moves the view to the other sidebar).
 	 */
+	/**
+	 * Cline Cubed: the sidebar's chat ends when its view goes away — Doug's rule, stated plainly:
+	 * closing the sidebar, closing a tab, or clicking the X ends the chat.
+	 *
+	 * VS Code does not offer a "the user closed this view" event; it reports a view going away
+	 * through onDidChangeVisibility or onDidDispose depending on the gesture, so both call here
+	 * and this runs at most once per close (the binding is released before the end is recorded,
+	 * so a second call finds nothing to end).
+	 *
+	 * The ONE case that is not a close: the user drags the view to the other sidebar, which
+	 * destroys and immediately re-resolves it. That is a move and the chat must survive it — so
+	 * the end is confirmed on the next tick, by which time a move has already re-resolved the
+	 * view (`this.webview` set again) or rebound the surface elsewhere.
+	 */
+	private endSidebarChat(reason: string): void {
+		const closingSessionId = sessionForChatSurface(this.surfaceId)
+		if (typeof closingSessionId !== "string") {
+			return
+		}
+		// The binding is deliberately NOT touched yet. A drag to the other sidebar destroys and
+		// re-resolves the view, and the re-resolve rehydrates the chat FROM this binding — an
+		// earlier version released it immediately and judged the move on the next tick, which
+		// both ended the moved chat and guaranteed the rebuilt view booted as the home. Wait a
+		// real interval instead: a move has re-resolved by then and nothing was disturbed; a
+		// close has not, and the chat ends there.
+		setTimeout(() => {
+			if (this.webview?.visible) {
+				return // the view came back — a move between sidebars, not a close
+			}
+			if (sessionForChatSurface(this.surfaceId) !== closingSessionId) {
+				return // rebound meanwhile — not ours to end
+			}
+			bindChatSurfaceToSession(this.surfaceId, null)
+			this.controller.closeSession(closingSessionId).catch((error) => {
+				Logger.error(`Failed to end session ${closingSessionId} (${reason}):`, error)
+			})
+		}, 1500)
+	}
+
 	private disposeView() {
 		// WebviewView doesn't have a dispose method, it's managed by VSCode
 		// We just need to clean up our disposables

@@ -143,9 +143,15 @@ export class SdkSessionEventCoordinator {
 		}
 
 		if (result.usage && session.startResult) {
-			Promise.resolve(this.options.taskHistory.updateTaskUsage(sessionId, result.usage)).catch((error) => {
-				Logger.error("[SdkController] Failed to persist task usage:", error)
-			})
+			// Cline Cubed: the state post below races this unawaited write — it reads the store
+			// before the row lands, ships the stale history list, and nothing posts again. Post
+			// once more when the write completes, so every history list gets the row that just
+			// landed. The debouncer coalesces, so this costs one extra push per turn.
+			Promise.resolve(this.options.taskHistory.updateTaskUsage(sessionId, result.usage))
+				.then(() => this.options.postStateToWebview(sessionId))
+				.catch((error) => {
+					Logger.error("[SdkController] Failed to persist task usage:", error)
+				})
 		}
 
 		// Post state when there are messages to ship OR when the turn ended. A clean turn end's

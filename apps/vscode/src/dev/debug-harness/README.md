@@ -36,6 +36,9 @@ Options:
   --workspace PATH    Workspace directory to open (default: /tmp/cline-debug-workspace)
   --port PORT         Server port (default: 19229)
   --cline-dir PATH    Override the debugee's CLINE_DIR (default: ~/.cline2)
+  --no-stub           Do NOT run the scripted stub provider (see "The stub provider" below);
+                      the debugee keeps whatever provider its profile holds, and every
+                      request it makes is billed
 ```
 
 ## Full Build + Launch (first time)
@@ -317,11 +320,11 @@ Call `connect_webview` first after the sidebar is open (only needed for breakpoi
 | `ui.press` | `{key}` | Press key (e.g., "Enter", "Meta+Shift+p") |
 | `ui.type` | `{text, delay?}` | Type text |
 | `ui.open_sidebar` | | Open the Cline sidebar |
-| `ui.frames` | | List all frames; chat webviews are tagged `isChatSurface` + a `surface:<n>` selector, plus `chatSurfaceCount` |
+| `ui.frames` | | List all frames; chat webviews are tagged `isChatSurface`, `surfaceId` and a `surface:<n>` selector, plus `chatSurfaceCount` and a `surfaceIds` array |
 | `ui.wait_for_selector` | `{selector, frame?, timeout?}` | Wait for element |
 | `ui.command_palette` | `{command}` | Open command palette and run command |
 | `ui.get_text` | `{selector, frame?}` | Get element text |
-| `ui.transcript` | `{frame?}` | **(Cline Cubed)** Snapshot one chat surface's visible transcript → `{text, length, hash}`. Default `surface:0` |
+| `ui.transcript` | `{frame?}` | **(Cline Cubed)** Snapshot one chat surface's visible transcript → `{text, length, hash}`. Prefer `surface-id:<id>`; defaults to `surface:0` |
 | `ui.locator` | `{role?, name?, testId?, text?, frame?, action?, value?}` | Rich Playwright locator (auto-retries with frame refresh for sidebar) |
 | `ui.react_input` | `{text, selector?, clear?, submit?, frame?}` | Set React-controlled textarea value via `execCommand('insertText')` |
 | `ui.send_message` | `{text, images?, files?, responseType?}` | Send a chat message bypassing the textarea (via gRPC postMessage) |
@@ -474,28 +477,92 @@ Shutdown and relaunch.
 ## Addressing a specific chat surface (Cline Cubed)
 
 `frame: "sidebar"` resolves to the *first* webview whose title starts with "Cline". With several
-chat surfaces open side by side (primary sidebar, secondary sidebar, editor panels), every
-command that takes a `frame` also accepts **`surface:<n>`**, which addresses the nth open chat
-webview: `ui.click`, `ui.fill`, `ui.get_text`, `ui.wait_for_selector`, `ui.locator`,
-`ui.react_input`, `ui.transcript`.
+chat surfaces open side by side (primary sidebar, secondary sidebar, editor panels), every command
+that takes a `frame` also accepts two per-chat selectors — `ui.click`, `ui.fill`, `ui.get_text`,
+`ui.wait_for_selector`, `ui.locator`, `ui.react_input`, `ui.transcript`:
 
-Surfaces are ordered by webview URL (each VS Code webview has its own origin GUID), so the index is
-stable for the life of a run. `ui.frames` reports `chatSurfaceCount` and tags each chat frame with
-the selector that addresses it.
+| Selector | Addresses | Use it for |
+|---|---|---|
+| **`surface-id:<id>`** | one specific chat, by its own id | anything that must keep addressing the SAME chat |
+| `surface:<n>` | the nth chat in the current ordering | ad-hoc poking, where "some chat" will do |
 
-```bash
-curl localhost:19229/api -d '{"method":"ui.frames"}'                      # how many chats are open
-curl localhost:19229/api -d '{"method":"ui.transcript","params":{"frame":"surface:0"}}'
-curl localhost:19229/api -d '{"method":"ui.react_input","params":{"frame":"surface:1","text":"hi","submit":true}}'
-```
+**Prefer the id.** The positional ordering is by webview URL — a randomly-assigned origin GUID — so
+it is not open order, and it does not hold still: creating, closing or reloading a surface reorders
+the list, and an index captured at one step can address a different chat at the next. Anything
+scripted holds ids.
 
-### The side-by-side chat sessions scenario
-
-`scenarios/concurrent-chats.ts` opens two chats, sends a uniquely-marked probe into the second, and
-asserts the first is untouched and still usable. Run it against a live harness:
+`ui.frames` reports `chatSurfaceCount`, a `surfaceIds` array, and tags each chat frame with both
+selectors that address it.
 
 ```bash
-bun src/dev/debug-harness/scenarios/concurrent-chats.ts
+curl localhost:19229/api -d '{"method":"ui.frames"}'                      # ids + how many are open
+curl localhost:19229/api -d '{"method":"ui.transcript","params":{"frame":"surface-id:<id>"}}'
+curl localhost:19229/api -d '{"method":"ui.react_input","params":{"frame":"surface-id:<id>","text":"hi","submit":true}}'
 ```
 
-Exit code 0 = all assertions passed; 1 = an assertion failed; 2 = the scenario could not run.
+## The stub provider (Cline Cubed)
+
+`stub-provider.ts` is a scripted stand-in for a model provider, started with the harness and
+pointed at the debugee automatically. It speaks enough OpenAI-compatible wire format for the
+extension's `openai` provider to talk to it, needs no credential, and never reaches the network.
+
+It is on by default. `--no-stub` turns it off and leaves the debugee on whatever provider its
+profile holds — which means every request is billed and no reply can be dictated.
+
+**A scenario dictates the reply by what it types.** The last user message is scanned for a marker;
+the first one found decides the response:
+
+| Marker | The stub replies with |
+|---|---|
+| *(none)* | a plain assistant message, immediately |
+| `STUB_ASK` | an `ask_question` tool call — parks the chat on a question until it is answered |
+| `STUB_SLOW` | a stream held open until released, holding the chat genuinely mid-turn |
+| `STUB_ERROR` | HTTP 500 with a provider-shaped error body |
+| `STUB_BADTOOL` | a tool call naming a tool that does not exist, to drive the consecutive-mistake limit |
+| `STUB_TOOL` | a `run_commands` tool call, to reach the approval path |
+
+| Method | Description |
+|--------|-------------|
+| `stub.state` | what has been requested so far, and how many turns are held open |
+| `stub.release` | release every turn held by `STUB_SLOW` |
+| `stub.reset` | release everything and forget the request log |
+
+```bash
+curl localhost:19229/api -d '{"method":"stub.state"}'
+curl localhost:19229/api -d '{"method":"stub.release"}'
+```
+
+## The scenarios (Cline Cubed)
+
+Each scenario is a script that drives a live harness and exits **0** (all assertions passed),
+**1** (an assertion failed) or **2** (it could not run at all). The last is kept separate on
+purpose: a broken harness and a broken product need different responses.
+
+| Scenario | What it asserts |
+|---|---|
+| `concurrent-chats.ts` | a message sent to one chat goes to that chat and no other; the others keep their conversations and stay usable |
+| `chat-isolation.ts` | the same, across a **rename** — renaming a chat must not disturb which conversation it owns |
+| `pending-ask-isolation.ts` | a chat parked on a question stays parked: no other chat's typing answers it, opening another chat does not answer it, and it is still answerable from the chat that asked |
+| `cancel-scoping.ts` | with two chats genuinely mid-turn, Cancel stops the chat it was pressed in and only that one |
+| `error-attribution.ts` | a failed turn, and a run that hits the mistake limit, mark the chat they happened in — not whichever chat is focused |
+| `resume-identity.ts` | a chat reopened from history is still itself: a follow-up lands in it, it keeps its original conversation, and no other chat is touched |
+
+Run one, or all of them:
+
+```bash
+bun src/dev/debug-harness/scenarios/pending-ask-isolation.ts
+bun src/dev/debug-harness/scenarios/all.ts
+```
+
+`all.ts` runs each in its own process and prints one summary, so a crash in one cannot take the
+rest down.
+
+**Every scenario refuses to run without the stub.** Driving a real provider would bill each probe,
+could not produce the states these scenarios exist to reach, and would make the results depend on
+what a model happened to say. Stopping is the right outcome, not continuing in a degraded mode.
+
+**Write a new scenario against `scenarios/harness.ts`**, which holds the shared client: `api`,
+`freshApp`, `openChat` (returns the new chat's id), `sendInto`, `transcriptOf`, `waitForText`,
+`assert` / `assertHoldsOnly` / `report`, and the stub helpers. Two rules it exists to enforce:
+address chats by id, never by position; and assert on what the scenario typed, never on what the
+model replied.

@@ -35,10 +35,13 @@ const NewChatLocationSetting: React.FC = () => {
 					))}
 				</SelectContent>
 			</Select>
+			{/* States the two facts the dropdown itself cannot: that a sidebar holds ONE chat and
+				further chats become editor tabs (so choosing the sidebar is not a promise that
+				chats stack there), and that the choice governs future chats only. Deliberately
+				does NOT restate the label above it, and does not explain where to find a setting
+				the reader is currently looking at. */}
 			<p className="text-sm text-description mt-1">
-				Where new chats open: the secondary sidebar, or as a tab in the editor area. Applies to every chat button; chats
-				already open stay where they are. You can change this anytime via the gear in the message box or Settings →
-				General.
+				A sidebar holds one chat; further chats open as editor tabs. Chats already open stay where they are.
 			</p>
 		</div>
 	)

@@ -1,7 +1,23 @@
 import { defineConfig } from "@vscode/test-cli"
+import os from "os"
 import path from "path"
 
 const vscodeTestVersion = process.env.VSCODE_TEST_VERSION ?? "stable"
+
+/**
+ * Where VS Code keeps its profile during a test run — deliberately OUTSIDE the repo, and short.
+ *
+ * VS Code opens a Unix domain socket inside this directory, and such a path cannot exceed ~104
+ * characters. The default that `@vscode/test-electron` supplies is
+ * `<repo>/apps/vscode/.vscode-test/user-data`, which from a checkout of any depth pushes the
+ * socket past that limit: VS Code then dies with `listen EINVAL` before a single test runs, after
+ * printing a warning that is easy to read as harmless.
+ *
+ * `os.tmpdir()` is not the answer on macOS — it resolves to a long `/var/folders/...` path and
+ * reintroduces the same fault — so POSIX gets a short fixed path and Windows, which has no such
+ * socket-length limit, uses its temp directory.
+ */
+const userDataDir = process.platform === "win32" ? path.join(os.tmpdir(), "vsct-cc") : "/tmp/vsct-cc"
 
 export default defineConfig({
 	files: [
@@ -26,5 +42,8 @@ export default defineConfig({
 	workspaceFolder: "test-workspace",
 	version: vscodeTestVersion,
 	extensionDevelopmentPath: path.resolve("./"),
-	launchArgs: ["--disable-extensions"],
+	// `@vscode/test-electron` only supplies its own `--user-data-dir` when none is given
+	// (its util.js checks `hasArg('user-data-dir', ...)`), so passing one here replaces it
+	// rather than colliding with it.
+	launchArgs: ["--disable-extensions", `--user-data-dir=${userDataDir}`],
 })

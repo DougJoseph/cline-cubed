@@ -55,14 +55,19 @@ further chats open as editor tabs, which you can arrange side by side. A chat li
 one place: open it somewhere else and it moves there, with its old spot returning to
 the home.
 
+**Every chat owns its own busy state.** Each shows its own thinking indicator while it
+works, and its own Cancel button, from its very first response onward — and cancelling
+one chat stops that chat while every other chat keeps running.
+
 New chat sessions open in the location picked by the **"Where new chat sessions open"**
-setting (Settings → General, or the chooser right on the chat home):
+setting (Settings → General, and offered on Get Started):
 
 - **Editor area** (new tab) — the default
 - **Secondary sidebar** (typically right)
 
-The setting governs where new chats open; chats you already have open stay where they
-are. A gear button in the chat input row opens Settings quickly.
+A sidebar holds one chat at full height, so further chats open as editor tabs whichever
+location you pick. The setting governs where new chats open; chats you already have open
+stay where they are. A gear button in the chat input row opens Settings quickly.
 
 ## Your chats, listed
 
@@ -71,8 +76,14 @@ sit at the top, each labelled with where it is, and your full history follows un
 Chat button sits above them, and the Settings, Account, and Marketplace buttons open right there
 in the panel instead of commandeering one of your running chats.
 
-Clicking a row opens that chat — one target, one outcome. The per-row controls appear on hover at
-the right: details, favorite, and delete. There is no checkbox column and no full-width red delete
+Clicking a row opens that chat — one target, one outcome. If that chat is already open somewhere,
+it is brought into view where it already lives rather than moved: the panel running it comes
+forward, a brief notice tells you it was already open, and the panel you clicked in stays exactly
+as it was — so a chat can never be pulled out from under a half-typed message. A chat open
+nowhere opens in the surface you clicked from when that surface is an empty home, and in a new
+editor tab when it is already showing a chat: clicking three chats gives three windows, and the
+chat you are working in is never taken from you. The per-row controls appear on hover at the right:
+details, favorite, and delete. There is no checkbox column and no full-width red delete
 button; clearing the whole history is a single quiet control under the list. The chats list and
 the history panel inside a chat are the same component, so both behave identically.
 

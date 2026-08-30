@@ -23,6 +23,22 @@ describe("SdkTaskStartCoordinator", () => {
 		vi.mocked(isDirectory).mockResolvedValue(false)
 	})
 
+	it("stamps the new session's own turn phase to streaming before the early state post", async () => {
+		// The chat's snapshot reads the PER-SESSION turn phase, and the early state post exists
+		// to show the thinking indicator before the (potentially slow) session startup settles.
+		// So the phase must be stamped on the minted session id, and stamped BEFORE that post —
+		// otherwise the whole first turn renders at phase "idle": no thinking indicator, no
+		// Cancel control, and a live input.
+		const { coordinator, options } = makeCoordinator()
+
+		const sessionId = await coordinator.initTask("hello")
+
+		expect(options.setTurnPhase).toHaveBeenCalledWith("streaming", undefined, sessionId)
+		expect(options.setTurnPhase.mock.invocationCallOrder[0]).toBeLessThan(
+			options.postStateToWebview.mock.invocationCallOrder[0],
+		)
+	})
+
 	it("initializes a new task, emits the task message, and sends the resolved prompt", async () => {
 		const { coordinator, options, state } = makeCoordinator()
 
@@ -317,6 +333,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 		emitClineAuthError: vi.fn(),
 		captureProviderApiError: vi.fn(),
 		postStateToWebview: vi.fn().mockResolvedValue(undefined),
+		setTurnPhase: vi.fn(),
 	} as unknown as SdkTaskStartCoordinatorOptions & {
 		sessions: SdkTaskStartCoordinatorOptions["sessions"] & {
 			startNewSession: ReturnType<typeof vi.fn>
@@ -344,6 +361,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 		emitClineAuthError: ReturnType<typeof vi.fn>
 		captureProviderApiError: ReturnType<typeof vi.fn>
 		postStateToWebview: ReturnType<typeof vi.fn>
+		setTurnPhase: ReturnType<typeof vi.fn>
 	}
 
 	return {

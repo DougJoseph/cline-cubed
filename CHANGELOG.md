@@ -18,16 +18,15 @@ from the previous release is still the big news.
   single-active-session design, where there was only ever one place a chat could go.
 
 - **A chat's date is now the truth, on every path.** A chat's date in the history list is its
-  recorded end time, and two paths were writing dishonest ones: closing the editor tab or sidebar
-  view holding a chat ended nothing — the chat lived on unseen — and the extension's next shutdown
-  then stamped every such chat with its own moment, so chats last used hours apart could all
-  surface dated the same instant. One more remnant of stock Cline's single-active-session design,
-  where "when the extension stopped" and "when the chat was last used" were nearly the same
-  moment; with concurrent chats they are not. Now closing a chat — by its tab, its sidebar view, or
-  the chat's own close button — marks it ended right then; moving a chat between sidebars still
-  preserves it; and a chat whose session was left behind — swept up at shutdown, or discovered at
-  a later launch after the editor was killed without one — is dated by the last moment it actually
-  did work, never by whatever the clock said when it was cleaned up.
+  recorded end time. Closing the editor tab or sidebar view holding a chat used to end nothing —
+  the chat lived on unseen — and the next time VS Code started, every one of those chats was
+  marked ended at the moment it was noticed, so chats last used hours apart all surfaced dated the
+  same instant. One more remnant of stock Cline's single-active-session design: with only ever one
+  chat to catch up on, a single stamp landed on a single chat and looked right; with concurrent
+  chats, that same stamp can land on several of them at once. Now closing a chat — by its tab, its
+  sidebar view, or the chat's own close button — marks it ended right then; moving a chat between
+  sidebars still preserves it; and a chat still running when VS Code goes away is dated by the last
+  moment it actually did work.
 
 - **Attempting by mistake to reopen a chat that's already open now brings it into view instead of
   it disappearing and reappearing somewhere else.** Before, if you lost track of an open chat's

@@ -1,3 +1,4 @@
+import { StringRequest } from "@shared/proto/cline/common"
 import { IntentEvent } from "@shared/proto/cline/ui"
 import { HistoryIcon, PlusIcon, PuzzleIcon, SettingsIcon, UserCircleIcon } from "lucide-react"
 import { useMemo } from "react"
@@ -7,8 +8,14 @@ import { TaskServiceClient, UiServiceClient } from "@/services/grpc-client"
 import { useExtensionState } from "../../context/ExtensionStateContext"
 
 export const Navbar = () => {
-	const { navigateToHistory, navigateToSettings, navigateToAccount, navigateToMarketplace, navigateToChat } =
-		useExtensionState()
+	const {
+		navigateToHistory,
+		navigateToSettings,
+		navigateToAccount,
+		navigateToMarketplace,
+		navigateToChat,
+		getSurfaceBoundTaskId,
+	} = useExtensionState()
 
 	const SETTINGS_TABS = useMemo(
 		() => [
@@ -24,10 +31,21 @@ export const Navbar = () => {
 							source: "navbar",
 						}),
 					).catch((error) => console.error("Failed to track new task click:", error))
-					// Close the current task, then navigate to the chat view
-					TaskServiceClient.clearTask({})
+					// Cline Cubed: close only THIS surface's own chat, then navigate. Bare
+					// clearTask ends the ACTIVE session — with several chats open, a different
+					// chat entirely. A surface with a routing id but no bound session is a Home:
+					// nothing to close, so no RPC goes out. Bare clearTask survives only for
+					// single-chat hosts with no surface routing.
+					const boundTaskId = getSurfaceBoundTaskId()
+					const closing =
+						typeof boundTaskId === "string"
+							? TaskServiceClient.closeTaskSession(StringRequest.create({ value: boundTaskId }))
+							: window.__CLINE_CUBED_SURFACE_ID__ === undefined
+								? TaskServiceClient.clearTask({})
+								: Promise.resolve()
+					closing
 						.catch((error) => {
-							console.error("Failed to clear task:", error)
+							console.error("Failed to close task:", error)
 						})
 						.finally(() => navigateToChat())
 				},
@@ -61,7 +79,7 @@ export const Navbar = () => {
 				navigate: navigateToSettings,
 			},
 		],
-		[navigateToAccount, navigateToChat, navigateToHistory, navigateToMarketplace, navigateToSettings],
+		[navigateToAccount, navigateToChat, navigateToHistory, navigateToMarketplace, navigateToSettings, getSurfaceBoundTaskId],
 	)
 
 	return (

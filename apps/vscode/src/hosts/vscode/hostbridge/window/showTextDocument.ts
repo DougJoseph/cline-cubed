@@ -1,4 +1,5 @@
 import * as vscode from "vscode"
+import { filesViewColumn } from "@/hosts/vscode/editorGroups"
 import { ShowTextDocumentRequest, TextEditorInfo } from "@/shared/proto/host/window"
 import { arePathsEqual } from "@/utils/path"
 
@@ -32,9 +33,13 @@ export async function showTextDocument(request: ShowTextDocumentRequest): Promis
 	if (request.options?.preserveFocus !== undefined) {
 		options.preserveFocus = request.options.preserveFocus
 	}
-	if (request.options?.viewColumn !== undefined) {
-		options.viewColumn = request.options.viewColumn
-	}
+	// Cline Cubed: THE choke point for where files land. A caller that names a column still
+	// wins; a caller that names none gets the FILES group rather than "wherever is active",
+	// which is how file opens ended up in the editor group holding somebody's chat. Defaulting
+	// HERE rather than at the call sites keeps core code host-neutral (a ViewColumn is a VS Code
+	// concept), covers every present caller at once, and covers future ones without anyone
+	// having to remember. Plan: Docs/2026-08-30_10.33pm_two-named-editor-groups-chats-and-files.md
+	options.viewColumn = request.options?.viewColumn ?? filesViewColumn()
 
 	const editor = await vscode.window.showTextDocument(uri, options)
 

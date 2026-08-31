@@ -103,6 +103,54 @@ export class MarkdownString {
 	constructor(public value = "") {}
 }
 
+/** Tab input kinds. Only the ones a suite actually constructs are stubbed. */
+export class TabInputText {
+	constructor(public uri: unknown) {}
+}
+export class TabInputWebview {
+	constructor(public viewType: string) {}
+}
+export class TabInputTextDiff {
+	constructor(
+		public original: unknown,
+		public modified: unknown,
+	) {}
+}
+export class TabInputCustom {
+	constructor(
+		public uri: unknown,
+		public viewType: string,
+	) {}
+}
+export class TabInputNotebook {
+	constructor(
+		public uri: unknown,
+		public notebookType: string,
+	) {}
+}
+export class TabInputNotebookDiff {
+	constructor(
+		public original: unknown,
+		public modified: unknown,
+		public notebookType: string,
+	) {}
+}
+
+/** Real values, so a suite can assert `Beside` rather than a made-up sentinel. */
+export const ViewColumn = {
+	Active: -1,
+	Beside: -2,
+	One: 1,
+	Two: 2,
+	Three: 3,
+	Four: 4,
+	Five: 5,
+	Six: 6,
+	Seven: 7,
+	Eight: 8,
+	Nine: 9,
+}
+
 export const ExtensionKind = { UI: 1, Workspace: 2 }
 export const ExtensionMode = { Production: 1, Development: 2, Test: 3 }
 export const ColorThemeKind = { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 }

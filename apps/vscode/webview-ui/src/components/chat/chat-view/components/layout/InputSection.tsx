@@ -1,4 +1,5 @@
-import React from "react"
+import { splitImageBridgeBlock } from "@shared/bridge/constants"
+import React, { useMemo } from "react"
 import ChatTextArea from "@/components/chat/ChatTextArea"
 import QuotedMessagePreview from "@/components/chat/QuotedMessagePreview"
 import { useExtensionState } from "@/context/ExtensionStateContext"
@@ -41,7 +42,25 @@ export const InputSection: React.FC<InputSectionProps> = ({
 	} = chatState
 
 	const { isAtBottom, scrollToBottomAuto } = scrollBehavior
-	const { turnState } = useExtensionState()
+	const { turnState, clineMessages } = useExtensionState()
+
+	// Cline Cubed: THIS chat's previous prompts for up-arrow history cycling, newest first —
+	// derived from the surface's own transcript, so it is per chat by construction and works
+	// on chats reopened from history (their rows are rebuilt). Consecutive duplicates
+	// collapse, and the bridged-image block is stripped the same way the display strips it.
+	const promptHistory = useMemo(() => {
+		const prompts: string[] = []
+		for (const message of clineMessages) {
+			if (message.type === "say" && (message.say === "task" || message.say === "user_feedback") && message.text) {
+				const { userText } = splitImageBridgeBlock(message.text)
+				const prompt = userText.trim()
+				if (prompt && prompts[prompts.length - 1] !== prompt) {
+					prompts.push(prompt)
+				}
+			}
+		}
+		return prompts.reverse()
+	}, [clineMessages])
 	const legacyTaskRunning =
 		turnState === undefined &&
 		(lastMessage?.partial === true || (lastMessage?.type === "say" && lastMessage.say === "api_req_started"))
@@ -72,6 +91,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
 				onSelectFilesAndImages={selectFilesAndImages}
 				onSend={() => messageHandlers.handleSendMessage(inputValue, selectedImages, selectedFiles)}
 				placeholderText={placeholderText}
+				promptHistory={promptHistory}
 				ref={textAreaRef}
 				selectedFiles={selectedFiles}
 				selectedImages={selectedImages}

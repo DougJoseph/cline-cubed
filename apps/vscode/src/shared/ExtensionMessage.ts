@@ -239,6 +239,13 @@ export interface ClineMessage {
 	lastCheckpointHash?: string
 	isCheckpointCheckedOut?: boolean
 	isOperationOutsideWorkspace?: boolean
+	/**
+	 * Real wall-clock creation time (Unix ms), stamped ONCE when the message is
+	 * born. Deliberately separate from `ts`, which is the monotonic identity/
+	 * merge key (see message-id-minter.ts) and is NOT a clock. Undefined when
+	 * unstamped (classic/legacy or history-loaded messages).
+	 */
+	createdAt?: number
 	conversationHistoryIndex?: number
 	conversationHistoryDeletedRange?: [number, number] // for when conversation history is truncated for API requests
 	modelInfo?: ClineMessageModelInfo

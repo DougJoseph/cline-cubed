@@ -197,6 +197,15 @@ export class SdkDiffEditCoordinator {
 	 * edit, failed preview open, superseded by a newer same-file preview) and when
 	 * the task was aborted mid-edit — the reveal accompanies the diff, not the write.
 	 * Best-effort: a failure only loses the reveal, never the edit result.
+	 *
+	 * Cline Cubed: the reveal opens a PREVIEW tab (the italic one VS Code replaces in place),
+	 * so editing ten files leaves ONE tab instead of ten — Doug, 2026-08-30: "Cline Cubed seems
+	 * to open EVERYTHING IT TOUCHES AND NEVER CLOSES ANYTHING". It is the same choice Claude's
+	 * extension makes for its read-only file views. Two honest limits: a user who has set
+	 * `workbench.editor.enablePreview: false` gets permanent tabs regardless, because that
+	 * setting is theirs and outranks us; and a tab the USER opened is never closed by us — the
+	 * preview only ever replaces the previous preview. Plan:
+	 * Docs/2026-08-30_10.33pm_two-named-editor-groups-chats-and-files.md
 	 */
 	private async showEditedFile(absolutePath: string | undefined): Promise<void> {
 		if (!absolutePath) {
@@ -208,7 +217,7 @@ export class SdkDiffEditCoordinator {
 			} else {
 				await HostProvider.window.showTextDocument({
 					path: absolutePath,
-					options: { preserveFocus: true, preview: false },
+					options: { preserveFocus: true, preview: true },
 				})
 			}
 		} catch (error) {

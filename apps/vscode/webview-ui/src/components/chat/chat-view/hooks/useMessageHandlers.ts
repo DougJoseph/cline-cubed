@@ -367,9 +367,14 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 		showNewChatHomeLocally()
 		if (typeof closingSessionId === "string") {
 			await TaskServiceClient.closeTaskSession(StringRequest.create({ value: closingSessionId }))
-		} else {
+		} else if (window.__CLINE_CUBED_SURFACE_ID__ === undefined) {
+			// Single-chat hosts (no surface routing): closing means "clear the focused task".
 			await TaskServiceClient.clearTask(EmptyRequest.create({}))
 		}
+		// Cline Cubed: a surface WITH a routing id but NO bound session is a Home, and closing a
+		// Home ends nothing — no RPC goes out. Bare clearTask here ended the ACTIVE session, so
+		// closing an empty home killed a running chat on some OTHER surface, whose next message
+		// then silently started a new session (the 2026-08-30 silent-fork incident).
 	}, [
 		messages.length,
 		setActiveQuote,

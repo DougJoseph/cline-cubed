@@ -110,7 +110,12 @@ describe("SDK remote-config coordination", () => {
 		expect(events).toEqual(["auth", "refresh", "post"])
 	})
 
-	it("rematerializes policy and ends the active session after a managed toggle", async () => {
+	// Cline Cubed: a managed toggle ends EVERY live session, each named by its own id — not
+	// "the active one", which killed a chat nobody had touched and left the rest running under
+	// the old config (silent-fork plan, Fix 3, Option A). The double therefore has to answer
+	// getLiveSessionIds; before it did, this test threw inside the subject and the failure sat
+	// unnoticed because a `as never` cast hides a missing method from the typecheck.
+	it("rematerializes policy and ends EVERY live session, by id, after a managed toggle", async () => {
 		const events: string[] = []
 		const controller = {
 			refreshRemoteConfig: vi.fn(async () => {
@@ -118,8 +123,9 @@ describe("SDK remote-config coordination", () => {
 				return true
 			}),
 			sessions: {
-				endActiveSession: vi.fn(async () => {
-					events.push("end")
+				getLiveSessionIds: vi.fn(() => ["session-a", "session-b"]),
+				endActiveSession: vi.fn(async (_reason: string, options: { sessionId?: string }) => {
+					events.push(`end:${options.sessionId}`)
 				}),
 			},
 			postStateToWebview: vi.fn(async () => events.push("post")),
@@ -127,8 +133,15 @@ describe("SDK remote-config coordination", () => {
 
 		await SdkController.prototype.rematerializeRemoteConfig.call(controller as never)
 
-		expect(events).toEqual(["refresh", "end", "post"])
-		expect(controller.sessions.endActiveSession).toHaveBeenCalledWith("remoteConfigToggle", { awaitStop: true })
+		expect(events).toEqual(["refresh", "end:session-a", "end:session-b", "post"])
+		expect(controller.sessions.endActiveSession).toHaveBeenCalledWith("remoteConfigToggle", {
+			awaitStop: true,
+			sessionId: "session-a",
+		})
+		expect(controller.sessions.endActiveSession).toHaveBeenCalledWith("remoteConfigToggle", {
+			awaitStop: true,
+			sessionId: "session-b",
+		})
 	})
 
 	it("allows the current organization to start with its last known-good policy after a transient failure", async () => {

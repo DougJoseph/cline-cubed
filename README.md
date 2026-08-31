@@ -74,6 +74,30 @@ so non-vision models get full image context without ever receiving raw image byt
   gear button in the chat input row opens Settings.
 - **Gear button in the chat input row** — restores the settings affordance stock Cline
   removed from the VS Code panel.
+- **Chats in one group, files in another** — every chat opened in the editor area gathers
+  as a tab in ONE locked group, so you slide the tab strip between conversations exactly as
+  you would between files, and nothing can drop a file on top of the chat you are reading.
+  Files Cline Cubed opens go elsewhere by design: never the chats group, and never a group
+  holding another extension's chat panel — if only chat panels are open, it makes a fresh
+  group for your files rather than intruding on anybody's conversation.
+- **No tab clutter** — an edited file appears in a preview tab, the italic one VS Code
+  replaces in place, so a session that edits ten files leaves one tab rather than ten. A tab
+  you opened yourself is never closed and never converted.
+- **Chats survive a reload — and a reinstall** — every editor tab comes back with its own
+  conversation and the docked sidebar chat with its own, including chats you opened from your
+  history. The record rides in VS Code's own workspace storage, so it outlasts far more than
+  a restart.
+- **Every message stamped with its time** — a quiet `5:23 PM` floated at the right of a
+  message's first line, rendered locally in your own timezone at no token cost. Hover expands
+  it to the full `Aug 30, 2026, 5:23:12.179 PM`; every copy carries that full stamp plus an
+  invisible `User:` / `AI:` marker, so a pasted conversation reads correctly anywhere. A
+  reopened chat shows its messages' TRUE original times.
+- **Prompt history in the chat box** — `↑` brings back what you typed before, most recent
+  first, and `↓` walks back down, per chat. A draft already in the box is preserved and handed
+  back on the way down, and multi-line editing keeps its arrows.
+- **It knows what it is** — ask, and it can name the fork, its Marketplace listing and its
+  repository, and it knows where its own transcripts live well enough to answer questions
+  about your chat history — asking first, since those files sit outside your project.
 - **A chats list in the activity bar** — the left icon opens a list of your chats rather than
   a chat: the ones open right now at the top, each labelled with where it is, then the full
   history. A New Chat button sits above them, and Settings, Account, and Marketplace open

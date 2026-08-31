@@ -870,7 +870,13 @@ export class Controller {
 		if (!refreshed) {
 			throw new Error("Could not apply managed configuration change. Check your connection and try again.")
 		}
-		await this.sessions.endActiveSession("remoteConfigToggle", { awaitStop: true })
+		// Cline Cubed: a managed-config change applies to EVERY chat, so every live session
+		// ends — each by id, through the funnel, so end times and list refreshes stay honest.
+		// Ending only the ACTIVE session killed one chat the user never touched (chosen by
+		// focus accident) and left every other chat running under the OLD configuration.
+		for (const sessionId of this.sessions.getLiveSessionIds()) {
+			await this.sessions.endActiveSession("remoteConfigToggle", { awaitStop: true, sessionId })
+		}
 		await this.postStateToWebview()
 	}
 
@@ -1609,11 +1615,14 @@ export class Controller {
 		await this.compaction.compactTask()
 	}
 
-	async clearTask(): Promise<void> {
+	async clearTask(options: { stopActiveSession?: boolean } = {}): Promise<void> {
 		this.pendingClineAuthRetryPrompt = undefined
 		// No active task — UI returns to idle (input enabled, no buttons/thinking).
 		this.turnStateTracker.set("idle")
-		await this.taskControl.clearTask()
+		// Cline Cubed: `stopActiveSession: false` clears the task VIEW without ending anyone's
+		// session — for callers that only need a clean view (the external startNewTask API),
+		// where bare clearTask killed whichever chat the user had focused.
+		await this.taskControl.clearTask(options)
 		await this.postStateToWebview()
 	}
 

@@ -62,7 +62,7 @@ import { RequestStartRow } from "./RequestStartRow"
 import SearchResultsDisplay from "./SearchResultsDisplay"
 import SubagentStatusRow from "./SubagentStatusRow"
 import { ThinkingRow } from "./ThinkingRow"
-import UserMessage from "./UserMessage"
+import UserMessage, { MessageTimeLabel } from "./UserMessage"
 
 const HEADER_CLASSNAMES = "flex items-center gap-2.5 mb-3"
 
@@ -853,6 +853,9 @@ export const ChatRowContent = memo(
 								{hasText && (
 									<div className="flex items-center">
 										<div className={cn("flex-1 min-w-0 pl-1")}>
+											{/* Cline Cubed: the AI reply carries the same time label as a user
+											    bubble (Doug, 2026-08-30). */}
+											<MessageTimeLabel createdAt={message.createdAt} speaker="AI" />
 											<MarkdownRow markdown={message.text} showCursor={false} />
 										</div>
 									</div>
@@ -906,6 +909,7 @@ export const ChatRowContent = memo(
 						return (
 							<UserMessage
 								canRestoreWorkspace={canRestoreWorkspaceFromMessage(clineMessages, message.ts)}
+								createdAt={message.createdAt}
 								files={message.files}
 								images={message.images}
 								messageTs={message.ts}
@@ -947,7 +951,11 @@ export const ChatRowContent = memo(
 							: message.text
 
 						return (
+							// Cline Cubed: the completion row renders its own time INSIDE its header
+							// strip, left of the Copy icon (Doug's cohesion ruling, 2026-08-30) — no
+							// floated label above the block.
 							<CompletionOutputRow
+								createdAt={message.createdAt}
 								handleQuoteClick={handleQuoteClick}
 								quoteButtonState={quoteButtonState}
 								showViewChanges={isLast && message.partial !== true && enableCheckpointsSetting}
@@ -957,7 +965,12 @@ export const ChatRowContent = memo(
 					}
 					case "plan_completion_result":
 						// Turn-final plan-mode response inferred at turn end (SDK path)
-						return <PlanCompletionOutputRow text={message.text || ""} />
+						return (
+							<>
+								<MessageTimeLabel createdAt={message.createdAt} speaker="AI" />
+								<PlanCompletionOutputRow text={message.text || ""} />
+							</>
+						)
 					case "shell_integration_warning":
 						return (
 							<div className="flex flex-col bg-warning/20 p-2 rounded-xs border border-error">
@@ -1049,6 +1062,7 @@ export const ChatRowContent = memo(
 							const text = hasChanges ? message.text.slice(0, -COMPLETION_RESULT_CHANGES_FLAG.length) : message.text
 							return (
 								<CompletionOutputRow
+									createdAt={message.createdAt}
 									handleQuoteClick={handleQuoteClick}
 									quoteButtonState={quoteButtonState}
 									text={text || ""}

@@ -7,11 +7,18 @@ import SuccessButton from "../common/SuccessButton"
 import { QuoteButtonState } from "./ChatRow"
 import { MarkdownRow } from "./MarkdownRow"
 import QuoteButton from "./QuoteButton"
+import { MessageTimeLabel } from "./UserMessage"
 
 interface CompletionOutputRowProps {
 	text: string
 	quoteButtonState: QuoteButtonState
 	handleQuoteClick: () => void
+	/**
+	 * Cline Cubed: the message's real wall-clock creation time, rendered INSIDE this row's
+	 * header strip — left of the Copy icon — instead of floating above the block (Doug's
+	 * cohesion ruling, 2026-08-30: every row keeps its time in the top-right control area).
+	 */
+	createdAt?: number
 	/**
 	 * Allows the "View Changes" action inside the card, which opens a
 	 * multi-file diff of everything that changed between the latest checkpoint
@@ -32,7 +39,7 @@ interface CompletionOutputRowProps {
  * rather than a definitive task completion.
  */
 export const CompletionOutputRow = memo(
-	({ text, quoteButtonState, handleQuoteClick, showViewChanges }: CompletionOutputRowProps) => {
+	({ text, quoteButtonState, handleQuoteClick, showViewChanges, createdAt }: CompletionOutputRowProps) => {
 		const [viewChangesPending, setViewChangesPending] = useState(false)
 		// undefined = still checking; the button stays hidden until the host
 		// confirms the latest run actually changed files. A count of 0 also
@@ -71,7 +78,12 @@ export const CompletionOutputRow = memo(
 			<div className="rounded-sm border border-success/20 overflow-visible bg-success/10">
 				<div className="flex items-center justify-between gap-2 pl-2 pr-1 pt-1 -mb-1.5">
 					<span className="text-xs font-medium uppercase tracking-wider text-success/70">Completed</span>
-					<CopyButton ariaLabel="Copy response" className="text-success/70" textToCopy={text} />
+					<div className="flex items-center gap-1.5">
+						{/* Cline Cubed: the time lives in the header strip, left of the Copy icon,
+						    vertically centered with it (Doug's cohesion ruling, 2026-08-30). */}
+						<MessageTimeLabel createdAt={createdAt} inline speaker="AI" />
+						<CopyButton ariaLabel="Copy response" className="text-success/70" textToCopy={text} />
+					</div>
 				</div>
 				<div className="completion-output-content relative p-2 w-full [&_hr]:opacity-20 [&_p:last-child]:mb-0 rounded-sm">
 					<MarkdownRow markdown={text} />

@@ -191,6 +191,8 @@ export function convertClineMessageToProto(message: AppClineMessage): ProtoCline
 		images: message.images ?? [],
 		files: message.files ?? [],
 		partial: message.partial ?? false,
+		// Real wall-clock creation time. 0 = unstamped (classic/legacy path).
+		createdAt: message.createdAt ?? 0,
 		// Convergent-replica fields (default 0 = unstamped, e.g. classic/legacy path).
 		seq: message.seq ?? 0,
 		epoch: message.epoch ?? 0,
@@ -259,6 +261,11 @@ export function convertProtoToClineMessage(protoMessage: ProtoClineMessage): App
 	}
 	if (protoMessage.partial) {
 		message.partial = protoMessage.partial
+	}
+	// Real wall-clock creation time. 0 means unstamped (classic/legacy path) —
+	// leave undefined so the webview treats it as absent rather than epoch 0.
+	if (protoMessage.createdAt && protoMessage.createdAt !== 0) {
+		message.createdAt = protoMessage.createdAt
 	}
 	if (protoMessage.lastCheckpointHash !== "") {
 		message.lastCheckpointHash = protoMessage.lastCheckpointHash

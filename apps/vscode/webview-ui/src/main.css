@@ -222,3 +222,56 @@ vscode-dropdown::part(listbox) {
 	animation: none !important;
 	transition: none !important;
 }
+
+/* Cline Cubed: the message time label — short to the eye, full to the hand (Doug,
+   2026-08-30). The date and millisecond pieces are always in the DOM so every copy carries
+   the full "Aug 30, 2026, 5:23:12.179 PM" (the clipboard serializes text regardless of font
+   size), but they render at font-size 0 so the eye sees only "5:23 PM". Hovering the label
+   restores them in place. */
+.msg-time-label {
+	/* Visually the time sits at the RIGHT end of the message's first row, semi-transparent,
+	   with the text word-wrapping around it (Doug, 2026-08-30). The float leaves the flow,
+	   so no vertical gap is added above the message. COPY IS UNCHANGED: the clipboard
+	   follows DOM order, and this element stays FIRST in the DOM — pastes keep the speaker
+	   prefix, the full time, and the message on their own lines. */
+	float: right;
+	margin-left: 8px;
+	opacity: 0.55;
+	/* Pinned so hover changes WIDTH only — the row never moves vertically (Doug: the
+	   shifting gap under the label was jarring). */
+	line-height: 1.4;
+	transition: opacity 180ms ease;
+}
+.msg-time-label:hover {
+	opacity: 1;
+	transition-delay: 280ms;
+}
+/* The inline variant sits inside another element's flex row (the Completed block's header,
+   left of its Copy icon) instead of floating; same fade and hover-expansion. */
+.msg-time-inline {
+	opacity: 0.55;
+	line-height: 1.4;
+	transition: opacity 180ms ease;
+}
+.msg-time-inline:hover {
+	opacity: 1;
+	transition-delay: 280ms;
+}
+.msg-time-detail {
+	font-size: 0;
+	/* Collapse on hover-out runs immediately (no delay). */
+	transition: font-size 180ms ease;
+}
+.msg-time-label:hover .msg-time-detail,
+.msg-time-inline:hover .msg-time-detail {
+	font-size: inherit;
+	/* Expand only after a deliberate pause — a mouse sweeping across rows triggers
+	   nothing (Doug: the instant pivot was jarring). */
+	transition-delay: 280ms;
+}
+/* Copy-only text (the "User: " / "AI: " speaker prefixes): always in the DOM so every
+   paste carries it, never visible, and — unlike .msg-time-detail — NEVER expanded by
+   hover. */
+.msg-copy-only {
+	font-size: 0;
+}

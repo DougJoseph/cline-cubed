@@ -69,6 +69,30 @@ A sidebar holds one chat at full height, so further chats open as editor tabs wh
 location you pick. The setting governs where new chats open; chats you already have open
 stay where they are. A gear button in the chat input row opens Settings quickly.
 
+## Chats in one group, files in another
+
+Cline Cubed gives chats and files their own homes, so neither ends up buried in the other.
+
+**Every chat you open in the editor area gathers as a tab in ONE group.** Slide along the tab
+strip to move between them exactly as you would between files, each tab carrying its chat's own
+name. That group is locked, so nothing can drop a file on top of a conversation you are reading.
+
+**Files go somewhere else, chosen with care.** A file Cline Cubed opens never lands in your chats
+group — and never in a group holding another extension's chat panel either. If the only things
+open are chat panels, it opens a fresh group for your files rather than intruding on anybody's
+conversation.
+
+**And files do not pile up.** An edited file appears in a preview tab — the italic one VS Code
+replaces in place — so a session that edits ten files leaves one tab, not ten. A tab you opened
+yourself is never closed and never quietly converted into a preview.
+
+## Your chats come back
+
+Reload the window and your chats are still there: every editor tab with its own conversation, and
+the docked sidebar chat with its own. Uninstall, reinstall, reload — still there. The record rides
+in VS Code's own workspace storage, so it outlasts far more than a restart, and a chat you opened
+from your history is restored exactly like one you started by typing.
+
 ## Your chats, listed
 
 The left activity-bar icon opens a **chats list** rather than a chat: the chats open right now
@@ -109,6 +133,36 @@ rather than a row of identical ones. A long prompt is shortened to fit the tab s
 with no chat in it yet reads "Cline Cubed". Tabs keep up on their own — a new chat's tab takes its
 name as soon as the first prompt lands, a rename relabels the tab at once, and closing the chat
 inside a tab returns it to "Cline Cubed".
+
+## Every message stamped with its time
+
+Every message carries the moment it happened, in your own timezone, rendered right in the chat —
+no tokens spent and nothing sent anywhere to produce it.
+
+The label stays quiet: **5:23 PM**, floated to the right of the message's first line so your text
+wraps around it. Hover it and it expands, after a short pause and with a soft animation, into the
+full stamp — **Aug 30, 2026, 5:23:12.179 PM**. Copy a message and that full stamp comes with it,
+along with an invisible `User:` / `AI:` marker, so a conversation pasted anywhere reads correctly
+without you labelling it by hand. Reopen an old chat and its messages carry their TRUE original
+times, not the moment you reopened them.
+
+## Your prompts, one arrow away
+
+With the cursor in the chat box, press **↑** to bring back what you typed before — most recent
+first, each press stepping further back — and **↓** to walk down again. History is per chat, so
+each conversation offers its own prompts and never somebody else's.
+
+A draft you had already started is safe: coming back down, the second-to-last **↓** hands your
+draft back before the final one returns you to an empty box, and **↑** from empty picks the draft
+up again. Multi-line editing keeps its arrows — the cycle only engages when the caret is on the
+first line going up, or the last line coming down.
+
+## It knows what it is
+
+Ask Cline Cubed what it is and it can tell you: the fork's name, its Marketplace listing, and its
+repository. It also knows where its own chat transcripts live and how they are laid out, so it can
+answer questions about your own history — what time you posted something in this chat, for
+instance — and it asks before reading anything, because those files sit outside your project.
 
 ## Setup
 

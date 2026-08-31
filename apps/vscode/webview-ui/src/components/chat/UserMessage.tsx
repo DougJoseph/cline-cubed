@@ -15,11 +15,121 @@ interface UserMessageProps {
 	files?: string[]
 	images?: string[]
 	messageTs?: number
+	/**
+	 * Real wall-clock creation time (Unix ms), stamped centrally when the message was
+	 * appended extension-side. Absent on unstamped/legacy messages — no label is
+	 * rendered then (never fall back to `messageTs`, which is the monotonic identity
+	 * counter, not a clock).
+	 */
+	createdAt?: number
 	sendMessageFromChatRow?: (text: string, images: string[], files: string[]) => void
 	canRestoreWorkspace?: boolean
 }
 
-const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageTs, canRestoreWorkspace = true }) => {
+/**
+ * Cline Cubed: a message's real wall-clock creation time, split into visible and detail
+ * pieces — computed locally in the user's own timezone (zero tokens; the webview does it).
+ * Returns null when unstamped — a label is never invented, and `ClineMessage.ts` (the
+ * monotonic identity counter) must never be shown as a time.
+ */
+export function messageTimePieces(
+	createdAt?: number,
+): { datePrefix: string; hourMinute: string; secondsMs: string; tail: string } | null {
+	if (!createdAt) {
+		return null
+	}
+	const parts = new Intl.DateTimeFormat("en-US", {
+		month: "short",
+		day: "numeric",
+		year: "numeric",
+		hour: "numeric",
+		minute: "2-digit",
+		second: "2-digit",
+		fractionalSecondDigits: 3,
+		hour12: true,
+	}).formatToParts(new Date(createdAt))
+	// Walk the locale's own parts into four buckets, so the split never drifts from what a
+	// single toLocaleString would have printed: [Aug 30, 2026, ][5:23][:12.179][ PM].
+	let datePrefix = ""
+	let hourMinute = ""
+	let secondsMs = ""
+	let tail = ""
+	let stage: "date" | "hourMinute" | "secondsMs" | "tail" = "date"
+	for (const part of parts) {
+		if (part.type === "hour") {
+			stage = "hourMinute"
+		} else if (part.type === "dayPeriod") {
+			stage = "tail"
+			// The space between the milliseconds and "PM" belongs to the visible tail, so the
+			// collapsed detail piece never swallows the gap in "5:23 PM". Matched as
+			// whitespace, not " ": modern ICU emits a NARROW NO-BREAK SPACE (U+202F) before
+			// AM/PM, and an exact-space check missed it (caught in the pre-ship node check —
+			// the label would have read "5:23PM").
+			const trailing = secondsMs.match(/\s+$/)
+			if (trailing) {
+				secondsMs = secondsMs.slice(0, -trailing[0].length)
+				tail = trailing[0]
+			}
+		}
+		if (stage === "date") {
+			datePrefix += part.value
+		} else if (stage === "hourMinute") {
+			hourMinute += part.value
+			if (part.type === "minute") {
+				stage = "secondsMs"
+			}
+		} else if (stage === "secondsMs") {
+			secondsMs += part.value
+		} else {
+			tail += part.value
+		}
+	}
+	return { datePrefix, hourMinute, secondsMs, tail }
+}
+
+/**
+ * Cline Cubed: the shared time label above a message's content — user bubbles, AI replies,
+ * and the completion rows. Design (all Doug's rulings, 2026-08-30):
+ * - Short to the eye, full to the hand: the visible label is `5:23 PM`; the date and
+ *   millisecond pieces are ALWAYS in the DOM but collapsed to `font-size: 0`, so every copy
+ *   carries the full `Aug 30, 2026, 5:23:12.179 PM` (the clipboard serializes DOM text
+ *   regardless of font size) and a pure-CSS hover (see the .msg-time-detail rules) restores
+ *   them to full size in place.
+ * - No color of its own: it inherits the SAME color as the message text beside it (the gray
+ *   `descriptionForeground` was unreadable on dark themes); only the size is smaller.
+ * - A real `<div>`, never a CSS-block span: the clipboard serializes by HTML semantics, and a
+ *   span glued a copied label to the text on one line ("4:52:42.596 PMtest again…").
+ */
+export const MessageTimeLabel: React.FC<{ createdAt?: number; speaker: "User" | "AI"; inline?: boolean }> = ({
+	createdAt,
+	speaker,
+	inline = false,
+}) => {
+	const pieces = useMemo(() => messageTimePieces(createdAt), [createdAt])
+	if (!pieces) {
+		return null
+	}
+	// `inline` sits INSIDE another element's flex row (the Completed block's header, left of
+	// its Copy icon — Doug's cohesion ruling, 2026-08-30) instead of floating right over the
+	// message; both variants share the hover-expansion and copy behavior.
+	// No select-none on the label: it is ordinary selectable text, so the FIRST row's time can
+	// be reached and copied too — user-select:none text is unreachable by drag and dropped at a
+	// selection's edge, which is exactly where the topmost label always sits (Doug's copy test,
+	// 2026-08-30).
+	return (
+		<div className={`${inline ? "msg-time-inline" : "msg-time-label"} text-[11px]`}>
+			{/* Copy-only speaker prefix (Doug's idea, 2026-08-30): invisible always, so every
+			    paste self-labels which side spoke. */}
+			<span className="msg-copy-only">{speaker}: </span>
+			<span className="msg-time-detail">{pieces.datePrefix}</span>
+			{pieces.hourMinute}
+			<span className="msg-time-detail">{pieces.secondsMs}</span>
+			{pieces.tail}
+		</div>
+	)
+}
+
+const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageTs, createdAt, canRestoreWorkspace = true }) => {
 	const [isEditing, setIsEditing] = useState(false)
 	const [editedText, setEditedText] = useState(text ?? "")
 	const [editedImages, setEditedImages] = useState(images ?? [])
@@ -189,6 +299,7 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 				</div>
 			) : (
 				<>
+					<MessageTimeLabel createdAt={createdAt} speaker="User" />
 					<span className="ph-no-capture text-sm" style={{ display: "block" }}>
 						{highlightedText}
 					</span>

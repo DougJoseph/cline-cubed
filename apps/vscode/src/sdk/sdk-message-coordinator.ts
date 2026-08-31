@@ -36,6 +36,20 @@ export class SdkMessageCoordinator {
 	 * higher `seq`, so the webview always keeps the freshest copy regardless of arrival order.
 	 */
 	private stamp(messages: ClineMessage[]): void {
+		// Cline Cubed: the real wall-clock creation time is stamped HERE, at the one choke
+		// point every appended message passes through — never per-mint. Per-mint stamping is a
+		// defect class: user bubbles are minted in five different files, and stamping only some
+		// of them shipped labels reading "createdAt=undefined" (2026-08-30). The guard keeps an
+		// earlier stamp — the translator pre-stamps streaming messages at stream START, so a
+		// streaming message's label never drifts across its partial re-emits. Runs BEFORE the
+		// minter guard below: the wall clock does not depend on a minter being wired.
+		const now = Date.now()
+		for (const message of messages) {
+			if (message.createdAt === undefined) {
+				message.createdAt = now
+			}
+		}
+
 		const minter = this.options.getMinter?.()
 		if (!minter) {
 			return

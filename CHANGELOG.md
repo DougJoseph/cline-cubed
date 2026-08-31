@@ -1,5 +1,63 @@
 # Changelog
 
+## [4.1.22]
+
+This release is about the two things you do all day: arranging your workspace, and coming back to
+it. Chats now gather as tabs in one locked group and slide like any other tabs, files open in a
+group of their own — never among your chats, and never in another extension's chat panel — and
+your chats come back after a window reload, or a full uninstall and reinstall, each with its own
+conversation. Every message is stamped with the moment it happened in your own timezone, the chat
+box remembers what you typed before, and the assistant knows what it is and where its own
+transcripts live.
+
+### Added
+
+- **Chats in one group, files in another.** Every chat opened in the editor area gathers as a tab
+  in ONE locked group, so you slide the tab strip between conversations exactly as you would
+  between files, each tab carrying its chat's own name — and nothing can drop a file on top of a
+  conversation. Files Cline Cubed opens are aimed deliberately: never the chats group, and never a
+  group holding another extension's chat panel. When only chat panels are open, a fresh group is
+  created for your files rather than intruding on anybody's conversation.
+
+- **No tab clutter from edited files.** A file Cline Cubed opens after an edit appears in a preview
+  tab — the italic one VS Code replaces in place — so a session that edits ten files leaves one tab
+  instead of ten. A tab you opened yourself is never closed and never quietly converted.
+
+- **Your chats come back.** Reload the window and every editor tab returns with its own
+  conversation, and the docked sidebar chat with its own. Uninstall, reinstall, reload — still
+  there, because the record rides in VS Code's own workspace storage. A chat opened from your
+  history is restored exactly like one you started by typing.
+
+- **Every message stamped with its time.** A quiet `5:23 PM` floats at the right of a message's
+  first line, rendered locally in your own timezone at no token cost, with the text wrapping around
+  it. Hover expands it — after a short pause, with a soft animation — into the full
+  `Aug 30, 2026, 5:23:12.179 PM`, and every copy carries that full stamp plus an invisible
+  `User:` / `AI:` marker, so a pasted conversation reads correctly wherever it lands. Reopened
+  chats show their messages' TRUE original times. The final "Completed" block is stamped too.
+
+- **Prompt history in the chat box.** With the cursor in the box, `↑` brings back what you typed
+  before — most recent first — and `↓` walks back down, per chat, so each conversation offers its
+  own prompts. A draft already in the box is preserved and handed back on the way down before the
+  box empties. Multi-line editing keeps its arrows: the cycle engages only from the first line
+  going up, or the last line coming down.
+
+- **It knows what it is.** Ask, and Cline Cubed can name itself, its Marketplace listing and its
+  repository. It also knows where its own chat transcripts live and how they are laid out, so it
+  can answer questions about your own history — what time you posted something, for instance — and
+  it asks before reading, because those files sit outside your project.
+
+### Fixed
+
+- **An action on one chat stays inside that chat.** Closing a chat, sending one to its home screen,
+  or applying a managed configuration change now touches only the chat it was aimed at, and a
+  managed change ends every running chat by name rather than whichever one happened to be in front.
+  These were the last places carrying stock Cline's single-active-session assumption, where "the
+  chat" and "the active chat" were the same thing and code could reach for either.
+
+- **History lists keep up with a finished turn.** A chat's row updates as soon as its turn actually
+  lands, on every path that ends one — including the full History page, which previously refreshed
+  only when it was opened or scrolled.
+
 ## [4.1.21]
 
 This release is the result of a colossal validation testing pass. The test harness — the pre-flight

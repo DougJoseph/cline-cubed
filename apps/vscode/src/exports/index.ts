@@ -26,7 +26,9 @@ export function createClineAPI(sidebarController: Controller): ClineAPI {
 
 	const api: ClineAPI = {
 		startNewTask: async (task?: string, images?: string[]) => {
-			await sidebarController.clearTask()
+			// Cline Cubed: another extension starting a task must not end a chat the user has
+			// running — clear only the task view, never the active session.
+			await sidebarController.clearTask({ stopActiveSession: false })
 			await sidebarController.postStateToWebview()
 
 			await sendChatButtonClickedEvent()

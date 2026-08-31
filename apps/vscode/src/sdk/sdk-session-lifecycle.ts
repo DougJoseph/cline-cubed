@@ -154,6 +154,15 @@ export class SdkSessionLifecycle {
 	}
 
 	/**
+	 * Cline Cubed: the ids of every live session, snapshotted — for events that legitimately
+	 * apply to ALL chats (a managed-config change), so each can be ended by id through the
+	 * funnel instead of ending whichever session happens to be focused.
+	 */
+	getLiveSessionIds(): string[] {
+		return [...this.sessions.keys()]
+	}
+
+	/**
 	 * Cline Cubed: focus an existing live session WITHOUT stopping any other session.
 	 * Every session in the map keeps streaming; only the fork's bookkeeping focus changes.
 	 */

@@ -20,7 +20,7 @@ import { Logger } from "@/shared/services/Logger"
 import { WebviewMessage } from "@/shared/WebviewMessage"
 import { VscodeWebviewProvider } from "./VscodeWebviewProvider"
 
-const CHAT_PANEL_VIEW_TYPE = "cline-cubed-ChatPanel"
+export const CHAT_PANEL_VIEW_TYPE = "cline-cubed-ChatPanel"
 
 /** What an editor chat tab is called before it holds a chat — a New Chat tab, sitting on the home. */
 const CHAT_PANEL_DEFAULT_TITLE = "Cline Cubed"
@@ -182,35 +182,19 @@ export function openChatInEditorPanel(
 	return panel
 }
 
-function createChatPanel(
+/**
+ * Everything that makes a WebviewPanel a live chat surface: the surface id, registry entry,
+ * eviction notifier, HTML (with the binding baked in), the gRPC/message listener, the title
+ * listener, the honest-close dispose handler, and the focus re-assert. ONE implementation,
+ * shared by createChatPanel (fresh opens) and adoptRevivedChatPanel (panels VS Code revives
+ * after a window reload) — duplicated wiring is how surfaces drift.
+ */
+function wireChatPanel(
 	context: { extensionUri: vscode.Uri },
 	provider: VscodeWebviewProvider,
-	column?: vscode.ViewColumn,
+	panel: vscode.WebviewPanel,
 	taskId?: string,
-): vscode.WebviewPanel {
-	// Column choice mirrors Claude's `editor.open`: only an EXPLICIT column request (the
-	// "primary editor" command) uses `ViewColumn.Active`; otherwise pick a chat-friendly
-	// column and lock it when it's brand new.
-	const { viewColumn, startedInNewColumn } =
-		column !== undefined ? { viewColumn: column, startedInNewColumn: false } : pickChatPanelColumn()
-
-	const panel = vscode.window.createWebviewPanel(
-		CHAT_PANEL_VIEW_TYPE,
-		"Cline Cubed",
-		{ viewColumn, preserveFocus: false },
-		{
-			enableScripts: true,
-			retainContextWhenHidden: true,
-			enableFindWidget: true,
-			localResourceRoots: [vscode.Uri.file(HostProvider.get().extensionFsPath)],
-		},
-	)
-	// Nav-bar mark: the compact icon used on chrome (tab strip, sidebars), not the large
-	// marketplace/home mark.
-	const iconUri = vscode.Uri.joinPath(context.extensionUri, "assets", "icons", "icon.svg")
-	const iconDarkUri = vscode.Uri.joinPath(context.extensionUri, "assets", "icons", "icon-dark.svg")
-	panel.iconPath = { light: iconUri, dark: iconDarkUri }
-
+): string {
 	// Resource URLs must be built against THIS panel's webview (each webview has its own
 	// origin), so pass a target accessor — not the provider's own webview.
 	// Cline Cubed: the panel is registered and identified in its HTML before the bundle loads,
@@ -350,6 +334,85 @@ function createChatPanel(
 			bindChatSurfaceToSession(focusedSurfaceId, boundTaskId)
 		}
 	})
+	return surfaceId
+}
+
+/**
+ * Cline Cubed: restore hydrations run ONE AT A TIME, chained. `showTaskWithId` carries a
+ * generation fence — every newer call makes older in-flight ones abandon themselves — so the
+ * near-simultaneous hydrations of a reload (the sidebar at activation, then each revived
+ * panel) killed each other: only the LAST completed and every other surface booted bound but
+ * transcript-less, which renders as a Home (Doug's reload test: of three chats, only one came
+ * back, deterministically). Serializing them lets each finish before the next starts, so the
+ * fence never sees a competitor.
+ */
+let reviveHydrationChain: Promise<void> = Promise.resolve()
+export function enqueueReviveHydration(sessionId: string, hydrate: () => Promise<unknown>): void {
+	reviveHydrationChain = reviveHydrationChain.then(async () => {
+		try {
+			await hydrate()
+		} catch (error) {
+			Logger.error(`Failed to hydrate restored session ${sessionId}:`, error)
+		}
+	})
+}
+
+/**
+ * Cline Cubed: adopt a chat panel VS Code revived after a window reload (via the
+ * WebviewPanelSerializer registered in extension.ts). The panel exists but has none of its
+ * wiring; give it the full treatment, rebind it to the session the webview recorded before
+ * the reload, and hydrate the transcript. A revive with no recorded session boots as a home.
+ * Restored sessions are not live — the reload killed the extension host, and the
+ * stale-session reconciler has stamped their honest end times — so the panel shows the
+ * transcript, ready to resume through the normal path.
+ */
+export async function adoptRevivedChatPanel(
+	context: { extensionUri: vscode.Uri },
+	provider: VscodeWebviewProvider,
+	panel: vscode.WebviewPanel,
+	sessionId: string | undefined,
+): Promise<void> {
+	// The icon does not survive the reload; set it again.
+	const iconUri = vscode.Uri.joinPath(context.extensionUri, "assets", "icons", "icon.svg")
+	const iconDarkUri = vscode.Uri.joinPath(context.extensionUri, "assets", "icons", "icon-dark.svg")
+	panel.iconPath = { light: iconUri, dark: iconDarkUri }
+	wireChatPanel(context, provider, panel, sessionId)
+	if (sessionId) {
+		bindChatPanelToTask(panel, provider, sessionId)
+		enqueueReviveHydration(sessionId, () => provider.controller.showTaskWithId(sessionId))
+	}
+}
+
+function createChatPanel(
+	context: { extensionUri: vscode.Uri },
+	provider: VscodeWebviewProvider,
+	column?: vscode.ViewColumn,
+	taskId?: string,
+): vscode.WebviewPanel {
+	// Column choice mirrors Claude's `editor.open`: only an EXPLICIT column request (the
+	// "primary editor" command) uses `ViewColumn.Active`; otherwise pick a chat-friendly
+	// column and lock it when it's brand new.
+	const { viewColumn, startedInNewColumn } =
+		column !== undefined ? { viewColumn: column, startedInNewColumn: false } : pickChatPanelColumn()
+
+	const panel = vscode.window.createWebviewPanel(
+		CHAT_PANEL_VIEW_TYPE,
+		"Cline Cubed",
+		{ viewColumn, preserveFocus: false },
+		{
+			enableScripts: true,
+			retainContextWhenHidden: true,
+			enableFindWidget: true,
+			localResourceRoots: [vscode.Uri.file(HostProvider.get().extensionFsPath)],
+		},
+	)
+	// Nav-bar mark: the compact icon used on chrome (tab strip, sidebars), not the large
+	// marketplace/home mark.
+	const iconUri = vscode.Uri.joinPath(context.extensionUri, "assets", "icons", "icon.svg")
+	const iconDarkUri = vscode.Uri.joinPath(context.extensionUri, "assets", "icons", "icon-dark.svg")
+	panel.iconPath = { light: iconUri, dark: iconDarkUri }
+
+	wireChatPanel(context, provider, panel, taskId)
 
 	// Mirror Claude's `editor.open`: a brand-new column gets locked so opening files can't
 	// overwrite the chat tab.
@@ -367,6 +430,22 @@ function createChatPanel(
 }
 
 /**
+ * Is this tab one of our chat panels?
+ *
+ * The view type VS Code reports on a TAB is NOT the one the panel was created with: every
+ * extension webview panel is opened through a transformer that prefixes it, so a tab created
+ * as `cline-cubed-ChatPanel` reads back as `mainThreadWebview-cline-cubed-ChatPanel`. An
+ * equality test against the raw view type therefore never matches — which is why the
+ * chat-only-group reuse below silently never fired, and every chat took a fresh column and
+ * locked it (Doug: "multiple locked groups with ONE chat each — not as good", 2026-08-30).
+ * Claude's own extension writes this same check as a substring test for the same reason.
+ * Suffix-matching keeps it correct whether or not the host applies the prefix.
+ */
+export function isChatPanelTab(tab: vscode.Tab): boolean {
+	return tab.input instanceof vscode.TabInputWebview && tab.input.viewType.endsWith(CHAT_PANEL_VIEW_TYPE)
+}
+
+/**
  * Mirrors Claude's `createPanel` column choice: reuse a column that is already entirely
  * chat panels (group the chats together), else pick a column with no tabs (`findUnusedColumn`).
  */
@@ -375,9 +454,7 @@ function pickChatPanelColumn(): { viewColumn: vscode.ViewColumn; startedInNewCol
 		if (group.tabs.length === 0) {
 			return false
 		}
-		return group.tabs.every(
-			(tab) => tab.input instanceof vscode.TabInputWebview && tab.input.viewType === CHAT_PANEL_VIEW_TYPE,
-		)
+		return group.tabs.every(isChatPanelTab)
 	})
 	if (chatOnlyGroup?.viewColumn !== undefined) {
 		return { viewColumn: chatOnlyGroup.viewColumn, startedInNewColumn: false }
@@ -475,7 +552,21 @@ export async function openExistingSession(
 				for (let waited = 0; waited < 3000 && !provider.getWebview(); waited += 150) {
 					await new Promise((resolve) => setTimeout(resolve, 150))
 				}
-				webviewHandle(provider.getWebview()?.webview)?.postMessage({ type: "bindTaskToSurface", sessionId })
+				const lateWebview = provider.getWebview()?.webview
+				if (lateWebview) {
+					webviewHandle(lateWebview)?.postMessage({ type: "bindTaskToSurface", sessionId })
+				} else {
+					// The reveal failed and the sidebar's webview never appeared. Leaving the
+					// pre-reveal binding standing would be a STALE claim: the registry says the
+					// sidebar holds this chat while the sidebar shows nothing — so closing the
+					// sidebar later would end a chat it never displayed, and the chat could not
+					// open anywhere else (the registry says it is already open). Release the
+					// claim and open the chat as an editor tab instead, so the click still
+					// opens it — the same overflow rule every other dead-end here follows.
+					Logger.warn(`Sidebar reveal failed for session ${sessionId}; releasing the binding and opening an editor tab`)
+					bindChatSurfaceToSession(sidebarSurfaceId, null)
+					openChatInEditorPanel(context, provider, { taskId: sessionId })
+				}
 			}
 		}
 	}

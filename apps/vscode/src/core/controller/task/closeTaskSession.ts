@@ -18,8 +18,10 @@ export async function closeTaskSession(controller: Controller, request: StringRe
 		if (sessionId) {
 			await controller.closeSession(sessionId)
 		} else {
-			// No session id — a chat that never got a binding. Fall back to the legacy clear.
-			await controller.clearTask()
+			// Cline Cubed: no session id means there is nothing to close — close nothing. The
+			// old fallback was a bare clearTask, which ends the ACTIVE session: a running chat
+			// on some other surface died because a surface holding no chat sent a close.
+			Logger.warn("closeTaskSession called with no session id; closing nothing")
 		}
 		return Empty.create()
 	} catch (error) {

@@ -4,7 +4,12 @@
 import assert from "node:assert"
 import * as vscode from "vscode"
 import { Logger } from "@/shared/services/Logger"
-import { getActiveChatSurface } from "./core/controller/chat-surfaces"
+import {
+	bindChatSurfaceToSession,
+	getActiveChatSurface,
+	onChatSurfacesChanged,
+	sessionForChatSurface,
+} from "./core/controller/chat-surfaces"
 import { sendAccountButtonClickedEvent } from "./core/controller/ui/subscribeToAccountButtonClicked"
 import { sendHistoryButtonClickedEvent } from "./core/controller/ui/subscribeToHistoryButtonClicked"
 import { sendMarketplaceButtonClickedEvent } from "./core/controller/ui/subscribeToMarketplaceButtonClicked"
@@ -37,9 +42,17 @@ import {
 	migrateWorkspaceToGlobalStorage,
 } from "./core/storage/state-migrations"
 import { workspaceResolver } from "./core/workspace"
-import { openOrCreateChat, revealChatSurface, revealChatSurfaceById } from "./hosts/vscode/chatEditorPanel"
+import {
+	adoptRevivedChatPanel,
+	CHAT_PANEL_VIEW_TYPE,
+	enqueueReviveHydration,
+	openOrCreateChat,
+	revealChatSurface,
+	revealChatSurfaceById,
+} from "./hosts/vscode/chatEditorPanel"
 import { findMatchingNotebookCell, getContextForCommand, showWebview } from "./hosts/vscode/commandUtils"
 import { abortCommitGeneration, generateCommitMsg } from "./hosts/vscode/commit-message-generator"
+import { setFilesColumnStore } from "./hosts/vscode/editorGroups"
 import { registerClineOutputChannel } from "./hosts/vscode/hostbridge/env/debugLog"
 import {
 	disposeVscodeCommentReviewController,
@@ -136,6 +149,68 @@ export async function activate(context: vscode.ExtensionContext) {
 			webviewOptions: { retainContextWhenHidden: true },
 		}),
 	)
+
+	// Cline Cubed: chats survive a window reload (plan:
+	// Docs/2026-08-30_8.10pm_chats-survive-a-window-reload.md). Three pieces:
+	// (1) persist the surface→session picture on every binding change; (2) revive editor chat
+	// panels through the serializer, rebinding each to the session its webview recorded;
+	// (3) restore the sidebar's binding at activation, BEFORE its view resolves, so the resolve
+	// path bakes the binding into the webview HTML exactly as a cold open does. Restored
+	// sessions are not live — the reload killed the extension host and the stale-session
+	// reconciler stamps their honest end times — each surface shows its transcript, ready to
+	// resume through the normal path.
+	// The layout records ONE thing: which chat the secondary sidebar shows. Editor panels are
+	// deliberately NOT recorded here — each carries its own session in VS Code's webview state
+	// and revives itself through the serializer below. Listing them was worse than redundant:
+	// VS Code does not deserialize a HIDDEN webview until it is shown, so immediately after a
+	// reload only the ACTIVE chat has registered a surface, and a write at that moment trimmed
+	// the list to that one. (Doug, 2026-08-31 — three tabs open, the stored record naming one;
+	// reproduced in the harness, where each hidden tab registered only when clicked.)
+	//
+	// The sidebar entry is rewritten only when the sidebar surface is actually registered. The
+	// registry's three-state answer separates registered-and-bound from registered-and-on-Home
+	// from not-registered-yet, and at startup the sidebar view resolves LATE — so a write driven
+	// by some editor panel must leave the stored value ALONE rather than erase the only record
+	// the sidebar has to restore from.
+	const CHAT_LAYOUT_KEY = "clineCubedChatLayout"
+	type ChatLayout = { sidebar?: string }
+	const persistChatLayout = () => {
+		const sidebarBinding = sessionForChatSurface(webview.getSurfaceId())
+		if (sidebarBinding === undefined) {
+			return
+		}
+		void context.workspaceState.update(CHAT_LAYOUT_KEY, { sidebar: sidebarBinding ?? undefined } satisfies ChatLayout)
+	}
+	context.subscriptions.push({ dispose: onChatSurfacesChanged(persistChatLayout) })
+	context.subscriptions.push(
+		vscode.window.registerWebviewPanelSerializer(CHAT_PANEL_VIEW_TYPE, {
+			deserializeWebviewPanel: async (panel, state) => {
+				const sessionId = (state as { clineCubedSessionId?: string } | undefined)?.clineCubedSessionId
+				await adoptRevivedChatPanel({ extensionUri: context.extensionUri }, webview, panel, sessionId)
+			},
+		}),
+	)
+	// Cline Cubed: the files group's remembered column (plan:
+	// Docs/2026-08-30_10.33pm_two-named-editor-groups-chats-and-files.md). Only a HINT — the
+	// resolver re-validates it on every use and re-chooses when it is gone or now holds the
+	// chats. It lives here for the same reason the chat layout does: ClineExtensionContext
+	// deliberately hides workspaceState, so host wiring for it belongs in extension.ts.
+	const FILES_COLUMN_KEY = "clineCubedFilesColumn"
+	setFilesColumnStore({
+		get: () => context.workspaceState.get<number>(FILES_COLUMN_KEY),
+		set: (column) => void context.workspaceState.update(FILES_COLUMN_KEY, column),
+	})
+	context.subscriptions.push({ dispose: () => setFilesColumnStore(undefined) })
+
+	const persistedLayout = context.workspaceState.get<ChatLayout>(CHAT_LAYOUT_KEY)
+	if (persistedLayout?.sidebar) {
+		const sidebarSession = persistedLayout.sidebar
+		bindChatSurfaceToSession(webview.getSurfaceId(), sidebarSession)
+		// Hydrate through the SERIAL restore chain — never a bare showTaskWithId here: its
+		// generation fence makes concurrent restore hydrations abandon each other, which is
+		// exactly how a reload came back with only one of three chats.
+		enqueueReviveHydration(sidebarSession, () => webview.controller.showTaskWithId(sidebarSession))
+	}
 
 	// Button #1's panel (the primary-bar Sessions container) hosts the CHAT view (kind=chat):
 	// the "What can I do for you?" home (history preview + prompt input) when no chat is open,

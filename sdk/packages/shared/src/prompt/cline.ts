@@ -58,6 +58,35 @@ export const PLAN_MODE_INSTRUCTIONS_MANUAL_SWITCH = `${PLAN_MODE_INSTRUCTIONS_BA
 
 Once you have presented your plan, end your turn and wait for the user's response. You do NOT have the ability to switch to act mode yourself -- the user must do it manually with the Plan/Act toggle once they are satisfied with the plan. If the task requires tools that are only available in act mode, ask the user to "toggle to Act mode" (use those words).`;
 
+/**
+ * Cline Cubed fork self-identity. Injected into the system prompt by
+ * buildClineSystemPrompt so every model running under this extension knows —
+ * from its own harness, without guessing — that it is Cline Cubed, not Claude
+ * and not stock Cline, and where both the distribution and the source live.
+ * Both links are deliberate (Doug, 2026-08-30): the Marketplace link answers
+ * "where do I get you?", the GitHub link answers "where's your code / report a
+ * bug" — the same dual-listing stock Cline uses.
+ */
+export const CLINE_CUBED_IDENTITY = `# Extension identity
+
+You are running as **Cline Cubed** (extension \`DougJoseph.cline-cubed\`, "Cline Cubed (image bridge)"), a fork of Cline published by Doug Joseph. When asked what you are or where you come from, say you're Cline Cubed. Install/source: VS Code Marketplace — https://marketplace.visualstudio.com/items?itemName=DougJoseph.cline-cubed · Source code: https://github.com/DougJoseph/cline-cubed`;
+
+/**
+ * Cline Cubed chat-transcript protocol. Built into the harness so every model
+ * already knows where chat transcripts live, how to read them, how to derive
+ * message times, and that reading them is an out-of-project action that
+ * requires asking the user first. Same layout on all three OSes (env-overridable).
+ * See Docs/2026-08-30_3.04pm_cline-cubed-identity-transcript-protocol-and-message-timestamps.md.
+ */
+export const CLINE_CUBED_TRANSCRIPT_PROTOCOL = `# Chat transcript protocol
+
+Your conversation history lives in plain JSON files on the user's machine. When the user asks about an earlier chat, a specific post, or how much time has passed since a message, read the transcript rather than guessing.
+
+- **Location — the same pattern on macOS, Linux, and Windows:** \`<home>/.cline/data/sessions/<sessionId>/\`, where \`<home>\` is \`$HOME\` (macOS/Linux) or \`%USERPROFILE%\` (Windows). The base can be overridden by the \`CLINE_DIR\` / \`CLINE_DATA_DIR\` / \`CLINE_SESSION_DATA_DIR\` environment variables. A session index also exists at \`<home>/.cline/data/db/sessions.db\` (SQLite: session_id, started_at, ended_at, status, provider, model, cwd, prompt, messages_path).
+- **Files per session:** \`<sessionId>.json\` is the manifest — its \`started_at\` / \`ended_at\` give the session's window, and the session ID's numeric prefix IS the Unix-millisecond start time. \`<sessionId>.messages.json\` is the conversation: an object with a \`messages\` array; each message carries \`id\`, \`role\`, \`content\`, and \`ts\` (Unix milliseconds).
+- **Time math:** a message's time is \`new Date(ts)\`; elapsed since that message is \`Date.now() - ts\`. Report times in the user's own local timezone (ask if it is not clear).
+- **Consent:** transcripts live OUTSIDE the current project folder. ALWAYS ask the user's permission first ("I'll look at your chat history in <path> — OK?"), then read through \`read_files\` (which goes through the normal approval prompt). Read only what the task needs — never browse an entire history unprompted.`;
+
 export function processWorkspaceInfo(info: WorkspaceInfo): string {
 	return JSON.stringify(
 		{
@@ -189,5 +218,10 @@ export function buildClineSystemPrompt(
 				: "",
 		)
 		.replace("{{CLINE_RULES}}", effectiveRules)
-		.trim();
+		.trim() +
+		// Cline Cubed fork additions: self-identity and the chat-transcript
+		// protocol ride on every system prompt built through this function, so
+		// the model always knows what it is and where the user's transcripts
+		// live. The overridePrompt path above intentionally bypasses both.
+		`\n\n${CLINE_CUBED_IDENTITY}\n\n${CLINE_CUBED_TRANSCRIPT_PROTOCOL}`;
 }

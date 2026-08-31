@@ -120,12 +120,18 @@ function normalizeUsageEvent(usageEvent: {
 export class MessageTranslatorState {
 	/** Current streaming text message timestamp (used for dedup) */
 	private streamingTextTs: number | undefined
+	/** Wall-clock creation time for the current streaming text message (minted once per stream). */
+	private streamingTextCreatedAt: number | undefined
 	/** Current streaming reasoning message timestamp */
 	private streamingReasoningTs: number | undefined
+	/** Wall-clock creation time for the current streaming reasoning message (minted once per stream). */
+	private streamingReasoningCreatedAt: number | undefined
 	/** Accumulated streaming reasoning text (SDK reasoning events are deltas) */
 	private streamingReasoningText = ""
 	/** Current streaming tool message timestamp */
 	private streamingToolTs: number | undefined
+	/** Wall-clock creation time for the current streaming tool message (minted once per stream). */
+	private streamingToolCreatedAt: number | undefined
 	/** Stored tool input from content_start — used at content_end which doesn't carry input */
 	private streamingToolInput: unknown | undefined
 	/** Stored tool name from content_start — used at content_end for consistency */
@@ -213,14 +219,21 @@ export class MessageTranslatorState {
 	getStreamingTextTs(): number {
 		if (!this.streamingTextTs) {
 			this.streamingTextTs = this.nextTs()
+			this.streamingTextCreatedAt = Date.now()
 		}
 		return this.streamingTextTs
+	}
+
+	/** Wall-clock creation time for the streaming text message (minted once per stream). */
+	getStreamingTextCreatedAt(): number | undefined {
+		return this.streamingTextCreatedAt
 	}
 
 	/** Clear streaming text (content ended) */
 	clearStreamingText(): number {
 		const ts = this.streamingTextTs ?? this.nextTs()
 		this.streamingTextTs = undefined
+		this.streamingTextCreatedAt = undefined
 		return ts
 	}
 
@@ -228,8 +241,14 @@ export class MessageTranslatorState {
 	getStreamingReasoningTs(): number {
 		if (!this.streamingReasoningTs) {
 			this.streamingReasoningTs = this.nextTs()
+			this.streamingReasoningCreatedAt = Date.now()
 		}
 		return this.streamingReasoningTs
+	}
+
+	/** Wall-clock creation time for the streaming reasoning message (minted once per stream). */
+	getStreamingReasoningCreatedAt(): number | undefined {
+		return this.streamingReasoningCreatedAt
 	}
 
 	/** Append a reasoning delta and return the accumulated reasoning text */
@@ -242,6 +261,7 @@ export class MessageTranslatorState {
 	clearStreamingReasoning(): number {
 		const ts = this.streamingReasoningTs ?? this.nextTs()
 		this.streamingReasoningTs = undefined
+		this.streamingReasoningCreatedAt = undefined
 		this.streamingReasoningText = ""
 		return ts
 	}
@@ -250,8 +270,14 @@ export class MessageTranslatorState {
 	getStreamingToolTs(): number {
 		if (!this.streamingToolTs) {
 			this.streamingToolTs = this.nextTs()
+			this.streamingToolCreatedAt = Date.now()
 		}
 		return this.streamingToolTs
+	}
+
+	/** Wall-clock creation time for the streaming tool message (minted once per stream). */
+	getStreamingToolCreatedAt(): number | undefined {
+		return this.streamingToolCreatedAt
 	}
 
 	/** Store tool input from content_start for use at content_end */
@@ -325,6 +351,7 @@ export class MessageTranslatorState {
 	clearStreamingTool(): number {
 		const ts = this.streamingToolTs ?? this.nextTs()
 		this.streamingToolTs = undefined
+		this.streamingToolCreatedAt = undefined
 		this.streamingToolInput = undefined
 		this.streamingToolName = undefined
 		return ts
@@ -1280,6 +1307,7 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 					const ts = state.getStreamingTextTs()
 					messages.push({
 						ts,
+						createdAt: state.getStreamingTextCreatedAt(),
 						type: "say",
 						say: "text",
 						text: event.accumulated ?? event.text ?? "",
@@ -1295,6 +1323,7 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 					const reasoning = state.appendStreamingReasoning(event.reasoning ?? "")
 					messages.push({
 						ts,
+						createdAt: state.getStreamingReasoningCreatedAt(),
 						type: "say",
 						say: "reasoning",
 						text: reasoning,
@@ -1341,6 +1370,7 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 						const resultText = getCompletionResultText(input)
 						messages.push({
 							ts: state.getStreamingToolTs(),
+							createdAt: state.getStreamingToolCreatedAt(),
 							type: "say",
 							say: "completion_result",
 							text: resultText,
@@ -1359,6 +1389,7 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 						// rebuilds the full text (command + marker + output) and sets commandCompleted.
 						messages.push({
 							ts: state.getStreamingToolTs(),
+							createdAt: state.getStreamingToolCreatedAt(),
 							type: "say",
 							say: "command",
 							text: `${commandText}\n${COMMAND_OUTPUT_STRING}`,
@@ -1405,6 +1436,7 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 						const mcpPayload = buildMcpToolPayload(mcpInfo, input)
 						messages.push({
 							ts: state.getStreamingToolTs(),
+							createdAt: state.getStreamingToolCreatedAt(),
 							type: "say",
 							say: "use_mcp_server" as ClineSay,
 							text: mcpPayload,
@@ -1422,6 +1454,7 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 					const sayTool = toDisplaySayTool(sdkToolToClineSayTool(toolName, input), state.currentCwd())
 					messages.push({
 						ts: state.getStreamingToolTs(),
+						createdAt: state.getStreamingToolCreatedAt(),
 						type: "say",
 						say: "tool",
 						text: JSON.stringify(sayTool),
@@ -2128,6 +2161,7 @@ export function translateSessionEvent(event: CoreSessionEvent, state: MessageTra
 			if (hasPrompt || hasImages || hasFiles) {
 				result.messages.push({
 					ts: state.nextTs(),
+					createdAt: Date.now(),
 					type: "say",
 					say: "user_feedback",
 					text: displayPrompt,
@@ -2329,6 +2363,11 @@ export function sdkMessagesToClineMessages(
 		for (const update of updates) {
 			const existingIndex = clineMessages.findIndex((m) => m.ts === update.ts)
 			if (existingIndex !== -1) {
+				// Cline Cubed: a retag replaces the row object but it is the SAME row — its
+				// birth time survives the replacement.
+				if (update.createdAt === undefined) {
+					update.createdAt = clineMessages[existingIndex].createdAt
+				}
 				clineMessages[existingIndex] = update
 			} else {
 				clineMessages.push(update)
@@ -2351,8 +2390,30 @@ export function sdkMessagesToClineMessages(
 		state.clearTurnOutcome()
 	}
 
+	// Cline Cubed: rebuilt rows carry the SOURCE message's real wall-clock time as `createdAt`,
+	// so a chat reopened from history shows its ORIGINAL times — never the moment the rebuild
+	// ran. `sourceMessage.ts` is the stored Unix-ms creation time (MessageWithMetadata.ts) — a
+	// different thing entirely from the minted ClineMessage.ts identity counter. Rows are
+	// stamped in batches as the loop advances (each batch with the source message that produced
+	// it); a source with no stored time leaves `createdAt` unset — no label, never an invented
+	// time. The trailing fill after the loop covers rows produced by the final source, the
+	// turn-end retag, and unmatched-tool flushes.
+	let stampedThrough = 0
+	let currentSourceCreatedAt: number | undefined
+	const stampNewRows = () => {
+		for (; stampedThrough < clineMessages.length; stampedThrough++) {
+			const row = clineMessages[stampedThrough]
+			if (row.createdAt === undefined && currentSourceCreatedAt !== undefined) {
+				row.createdAt = currentSourceCreatedAt
+			}
+		}
+	}
+
 	for (const { message, sourceIndex } of projectSessionMessagesForDisplay(messages)) {
 		const sourceMessage = messages[sourceIndex]
+		// Rows pushed by the PREVIOUS source message get its time before this one takes over.
+		stampNewRows()
+		currentSourceCreatedAt = sourceMessage.ts
 		if (message.role === "assistant") {
 			flushUnmatchedToolUses()
 
@@ -2534,6 +2595,9 @@ export function sdkMessagesToClineMessages(
 	})
 
 	flushUnmatchedToolUses()
+	// Rows produced after the loop — the final source's batch, the completion ask, and any
+	// flushed unmatched tools — get the last source message's time.
+	stampNewRows()
 	return clineMessages
 }
 

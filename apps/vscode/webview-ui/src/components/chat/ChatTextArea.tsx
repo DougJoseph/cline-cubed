@@ -84,6 +84,12 @@ interface ChatTextAreaProps {
 	shouldDisableFilesAndImages: boolean
 	onHeightChange?: (height: number) => void
 	onFocusChange?: (isFocused: boolean) => void
+	/**
+	 * Cline Cubed: THIS chat's previous prompts, newest first, for up-arrow history cycling
+	 * (Doug's ask, 2026-08-30 — per chat, like Claude's extension). Plan:
+	 * `Docs/2026-08-30_7.05pm_up-arrow-prompt-history-in-the-chat-box.md`.
+	 */
+	promptHistory?: string[]
 }
 
 interface GitCommit {
@@ -211,6 +217,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			shouldDisableFilesAndImages,
 			onHeightChange,
 			onFocusChange,
+			promptHistory = [],
 		},
 		ref,
 	) => {
@@ -234,6 +241,14 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		const [selectedSlashCommandsIndex, setSelectedSlashCommandsIndex] = useState(0)
 		const [slashCommandsQuery, setSlashCommandsQuery] = useState("")
 		const slashCommandsMenuContainerRef = useRef<HTMLDivElement>(null)
+
+		// Cline Cubed: up-arrow prompt-history cycling (Doug's rulings, 2026-08-30 — per chat;
+		// the cycle is blank ↔ draft ↔ most-recent ↔ older). Position semantics: null = normal
+		// editing; 0..N-1 = promptHistory index (0 = most recent); -1 = the saved draft;
+		// -2 = blank. The draft is saved on the FIRST ArrowUp and replaced only when the user
+		// actually edits (typing exits the cycle; the next ArrowUp saves the edited content).
+		const [historyPos, setHistoryPos] = useState<number | null>(null)
+		const [savedDraft, setSavedDraft] = useState("")
 
 		const [thumbnailsHeight, setThumbnailsHeight] = useState(0)
 		const [textAreaBaseHeight, setTextAreaBaseHeight] = useState<number | undefined>(undefined)
@@ -584,8 +599,89 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 				// Safari does not support InputEvent.isComposing (always false), so we need to fallback to keyCode === 229 for it
 				const isComposing = isSafari ? event.nativeEvent.keyCode === 229 : (event.nativeEvent?.isComposing ?? false)
+
+				// Cline Cubed: up-arrow prompt-history cycling (per chat; Doug's rulings
+				// 2026-08-30 — plan doc
+				// `Docs/2026-08-30_7.05pm_up-arrow-prompt-history-in-the-chat-box.md`). Runs only
+				// when neither menu owns the arrows and no IME composition is active, and only
+				// from the input's edge lines — ArrowUp on the FIRST line, ArrowDown on the
+				// LAST — so multiline caret movement keeps its arrows.
+				if (
+					(event.key === "ArrowUp" || event.key === "ArrowDown") &&
+					!isComposing &&
+					!showContextMenu &&
+					!showSlashCommandsMenu &&
+					promptHistory.length > 0
+				) {
+					const textArea = event.currentTarget
+					const caret = textArea.selectionStart ?? 0
+					const onFirstLine = !inputValue.slice(0, caret).includes("\n")
+					const onLastLine = !inputValue.slice(caret).includes("\n")
+					const recall = (value: string) => {
+						event.preventDefault()
+						setInputValue(value)
+						setCursorPosition(value.length)
+						setIntendedCursorPosition(value.length)
+					}
+					if (event.key === "ArrowUp" && onFirstLine) {
+						if (historyPos === null) {
+							// Entering the cycle: the box's current content becomes THE DRAFT.
+							setSavedDraft(inputValue)
+							setHistoryPos(0)
+							recall(promptHistory[0])
+						} else if (historyPos === -2) {
+							// Blank → the draft (skipped when the draft is empty — no dead press).
+							if (savedDraft !== "") {
+								setHistoryPos(-1)
+								recall(savedDraft)
+							} else {
+								setHistoryPos(0)
+								recall(promptHistory[0])
+							}
+						} else if (historyPos === -1) {
+							setHistoryPos(0)
+							recall(promptHistory[0])
+						} else if (historyPos < promptHistory.length - 1) {
+							const next = historyPos + 1
+							setHistoryPos(next)
+							recall(promptHistory[next])
+						} else {
+							event.preventDefault() // at the oldest — stay put, don't move the caret
+						}
+						return
+					}
+					if (event.key === "ArrowDown" && onLastLine && historyPos !== null) {
+						if (historyPos > 0) {
+							const next = historyPos - 1
+							setHistoryPos(next)
+							recall(promptHistory[next])
+						} else if (historyPos === 0) {
+							// Most recent → the draft (penultimate), or straight to blank when
+							// the draft is empty.
+							if (savedDraft !== "") {
+								setHistoryPos(-1)
+								recall(savedDraft)
+							} else {
+								setHistoryPos(-2)
+								recall("")
+							}
+						} else if (historyPos === -1) {
+							setHistoryPos(-2)
+							recall("")
+						} else {
+							event.preventDefault() // already blank — stay put
+						}
+						return
+					}
+				}
+
 				if (event.key === "Enter" && !event.shiftKey && !isComposing) {
 					event.preventDefault()
+
+					// A send ends the cycle; the next ArrowUp starts fresh (the sent prompt will
+					// itself be the most recent history entry once it lands in the transcript).
+					setHistoryPos(null)
+					setSavedDraft("")
 
 					if (!sendingDisabled) {
 						// Note: don't set isTextAreaFocused to false here. The textarea keeps
@@ -679,6 +775,9 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				slashCommandsQuery,
 				handleSlashCommandsSelect,
 				sendingDisabled,
+				promptHistory,
+				historyPos,
+				savedDraft,
 			],
 		)
 
@@ -727,6 +826,10 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				const newCursorPosition = e.target.selectionStart
 				setInputValue(newValue)
 				setCursorPosition(newCursorPosition)
+				// Cline Cubed: TYPING exits prompt-history cycling — the edited content is the
+				// working draft now, and the next ArrowUp saves it as THE draft (Doug's approved
+				// rule: an edited recall replaces the previously saved draft).
+				setHistoryPos(null)
 				let showMenu = shouldShowContextMenu(newValue, newCursorPosition)
 				const showSlashCommandsMenu = shouldShowSlashCommandsMenu(newValue, newCursorPosition)
 

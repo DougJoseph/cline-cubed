@@ -1,8 +1,8 @@
 {
 	"name": "cline-cubed",
 	"displayName": "Cline Cubed",
-	"description": "Autonomous coding agent right in your IDE, capable of creating/editing files, running commands, using the browser, and more with your permission every step of the way.",
-	"version": "4.1.21",
+	"description": "A Cline fork running multiple coding chats at once, each with its own conversation, plus image understanding for text-only models — with your permission every step of the way.",
+	"version": "4.1.22",
 	"icon": "assets/icons/icon.png",
 	"engines": {
 		"vscode": "^1.106.0"
@@ -19,32 +19,27 @@
 	"homepage": "https://github.com/DougJoseph/cline-cubed",
 	"categories": [
 		"AI",
-		"Chat",
-		"Programming Languages",
-		"Education",
-		"Snippets",
-		"Testing"
+		"Chat"
 	],
 	"keywords": [
 		"cline",
 		"cline cubed",
+		"coding agent",
+		"agent",
+		"ai",
+		"chat",
 		"multiple chats",
 		"concurrent chats",
 		"side by side chats",
 		"image bridge",
+		"image mode",
 		"vision",
 		"image to text",
-		"claude",
-		"dev",
+		"session restore",
+		"restore chats",
 		"mcp",
 		"openrouter",
-		"coding",
-		"agent",
-		"autonomous",
-		"chatgpt",
-		"sonnet",
-		"ai",
-		"llama"
+		"claude"
 	],
 	"activationEvents": [
 		"onView:cline-cubed.SidebarChatProvider",

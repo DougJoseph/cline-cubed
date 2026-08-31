@@ -30,7 +30,6 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 
 	private webview?: vscode.WebviewView
 	private disposables: vscode.Disposable[] = []
-	private hasResolvedView = false
 	/** Cline Cubed: this surface's routing id — state and transcript are addressed to it. */
 	private readonly surfaceId = mintSurfaceId("secondary-sidebar")
 
@@ -158,13 +157,15 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 			this.disposables,
 		)
 
-		// Clear stale task state only when the view first loads after activation.
-		// Re-resolves (e.g. the view moved between sidebars) must not terminate an
-		// active task.
-		if (!this.hasResolvedView) {
-			this.hasResolvedView = true
-			this.controller.clearTask()
-		}
+		// Cline Cubed: stock cleared "stale task state" here on the view's first resolve —
+		// written for a world where the view resolving meant the extension was just
+		// starting and nothing could be running. Here the sidebar view first resolves
+		// whenever the user first opens that sidebar, which can be mid-session with
+		// chats running in editor tabs — and clearTask() ends the ACTIVE session, so
+		// that clear silently killed a running chat (whose next message then started a
+		// new session: a silent fork). A resolving view boots from its own surface
+		// binding — Home when unbound — so there is no shared stale state to clear,
+		// and nothing to do here.
 
 		Logger.log("[VscodeWebviewProvider] Webview view resolved")
 

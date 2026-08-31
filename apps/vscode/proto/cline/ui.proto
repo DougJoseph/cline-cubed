@@ -233,6 +233,12 @@ message ClineMessage {
   // epoch = conversation/replica fence (older epoch is dropped by the webview)
   int64 seq = 24;
   int64 epoch = 25;
+
+  // Real wall-clock creation time (Unix ms), stamped ONCE when the message is
+  // born. Deliberately separate from `ts`, which is the monotonic identity/
+  // merge key (see message-id-minter.ts) and is NOT a clock. 0 = unstamped
+  // (classic/legacy or history-loaded messages).
+  int64 created_at = 26;
 }
 
 message ShowWebviewEvent {

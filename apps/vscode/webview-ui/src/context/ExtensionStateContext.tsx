@@ -11,7 +11,7 @@ import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mc
 import { fromProtobufModels } from "@shared/proto-conversions/models/typeConversion"
 import type React from "react"
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
-import { PLATFORM_CONFIG } from "@/config/platform.config"
+import { PLATFORM_CONFIG, persistSurfaceSessionForRevive } from "@/config/platform.config"
 import {
 	type ModelInfo,
 	openRouterDefaultModelId,
@@ -368,6 +368,22 @@ export const ExtensionStateContextProvider: React.FC<{
 		window.__CLINE_CUBED_SURFACE_ID__ !== undefined ? (window.__CLINE_CUBED_BOUND_SESSION_ID__ ?? null) : undefined
 	const [surfaceBoundTaskId, setSurfaceBoundTaskIdState] = useState<string | null | undefined>(initialBoundTaskId)
 	const surfaceBoundTaskIdRef = useRef<string | null | undefined>(initialBoundTaskId)
+	// A surface that BOOTS already bound has to record itself, or it has nothing to revive from
+	// after a window reload and comes back on the home screen while its neighbours restore. Two
+	// paths boot that way — a chat opened from the history list (the host bakes the session into
+	// the new panel's HTML) and a revived panel's own rebind — and neither calls
+	// `setSurfaceBoundTaskId`, which is the only other place this record is written. A chat
+	// STARTED by typing into a panel does call it, which is exactly why freshly typed chats came
+	// back after a reload and one hopped from history did not (Doug, 2026-08-31).
+	//
+	// Written directly rather than through the setter: the setter also posts `bindSurfaceSession`
+	// back to the host, and at boot the host is the party that just told US this binding.
+	useEffect(() => {
+		if (initialBoundTaskId) {
+			persistSurfaceSessionForRevive(initialBoundTaskId)
+		}
+		// Boot-time only: later bindings are recorded by setSurfaceBoundTaskId.
+	}, [initialBoundTaskId])
 	/** The session id carried by the most recent snapshot delivered to this surface. */
 	const latestActiveTaskIdRef = useRef<string | undefined>(undefined)
 
@@ -380,6 +396,9 @@ export const ExtensionStateContextProvider: React.FC<{
 		setSurfaceBoundTaskIdState(taskId)
 		if (window.__CLINE_CUBED_SURFACE_ID__ !== undefined && taskId !== undefined) {
 			PLATFORM_CONFIG.postMessage({ type: "bindSurfaceSession", sessionId: taskId })
+			// Recorded in VS Code's webview state too, so the panel serializer can hand a
+			// revived editor tab its chat back after a window reload.
+			persistSurfaceSessionForRevive(taskId)
 		}
 	}, [])
 	const getSurfaceBoundTaskId = useCallback(() => surfaceBoundTaskIdRef.current, [])

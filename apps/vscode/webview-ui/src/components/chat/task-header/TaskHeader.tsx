@@ -9,6 +9,7 @@ import { useNormalizedApiConfiguration } from "@/hooks/useNormalizedApiConfigura
 import { useProviderUsageCostDisplay } from "@/hooks/useProviderUsageCostDisplay"
 import { cn } from "@/lib/utils"
 import { getEnvironmentColor } from "@/utils/environmentColors"
+import { MessageTimeLabel } from "../UserMessage"
 import CopyTaskButton from "./buttons/CopyTaskButton"
 import DeleteTaskButton from "./buttons/DeleteTaskButton"
 import NewTaskButton from "./buttons/NewTaskButton"
@@ -203,6 +204,11 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 				{/* Expand/Collapse Task Details */}
 				{isTaskExpanded && (
 					<div className="flex flex-col break-words" key={`task-details-${currentTaskItem?.id}`}>
+						{/* Cline Cubed: the chat's FIRST prompt carries the same time label as every
+						    other row — it was the one row with neither a time nor a copy prefix
+						    (Doug, 2026-08-30). Rendered before the text so copies read
+						    User: / time / prompt like every other bubble. */}
+						<MessageTimeLabel createdAt={task.createdAt} speaker="User" />
 						<div
 							className={cn(
 								"ph-no-capture whitespace-pre-wrap break-words px-0.5 text-sm mt-1 relative",

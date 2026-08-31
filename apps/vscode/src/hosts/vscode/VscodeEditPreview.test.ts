@@ -24,8 +24,15 @@ describe("VscodeEditPreview", () => {
 			expect.any(vscode.Uri),
 			expect.any(vscode.Uri),
 			"example.ts: Original ↔ Cline's Changes (Preview)",
-			{ preview: false, preserveFocus: true },
+			expect.objectContaining({ preview: false, preserveFocus: true }),
 		)
+
+		// Cline Cubed: the diff is AIMED at the files group rather than landing in whichever
+		// group happens to be active. Which column that resolves to depends on the tab-group
+		// picture (editorGroups.test.ts covers the resolution itself); what belongs here is
+		// that a column is passed at all, since passing none is the defect.
+		const options = executeCommand.mock.calls[0]?.[4] as { viewColumn?: unknown }
+		expect(options.viewColumn).toBeTypeOf("number")
 
 		await preview.close()
 	})

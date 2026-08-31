@@ -2,6 +2,7 @@ import * as vscode from "vscode"
 import { buildEditPreviewAnimation, EditPreview, type EditPreviewContent } from "@/integrations/editor/EditPreview"
 import { Logger } from "@/shared/services/Logger"
 import { DecorationController } from "./DecorationController"
+import { filesViewColumn } from "./editorGroups"
 
 export const EDIT_PREVIEW_URI_SCHEME = "cline-edit-preview"
 
@@ -89,9 +90,13 @@ export class VscodeEditPreview extends EditPreview {
 		// The right side starts as the original; the animation sweeps the new content in.
 		editPreviewContentProvider.set(this.rightUri, content.leftContent)
 
+		// Cline Cubed: aim the diff at the FILES group, never wherever happens to be active —
+		// without a column VS Code uses the active group, which is how our tabs ended up among
+		// somebody else's chat (plan: Docs/2026-08-30_10.33pm_two-named-editor-groups-chats-and-files.md).
 		await vscode.commands.executeCommand("vscode.diff", this.leftUri, this.rightUri, content.title, {
 			preview: false,
 			preserveFocus: true,
+			viewColumn: filesViewColumn(),
 		})
 
 		// Fire-and-forget: the approval ask should render while the animation plays,

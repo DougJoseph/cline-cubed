@@ -68,6 +68,16 @@ if (vsCodeApi && typeof window !== "undefined") {
 	;(window as any).__clineVsCodeApi = vsCodeApi
 }
 
+/**
+ * Cline Cubed: record which session this surface shows in VS Code's own webview state. The
+ * panel serializer hands this state back after a window reload — it is how a revived editor
+ * tab knows which chat it held (chats-survive-a-reload plan, 2026-08-30). A no-op outside
+ * VS Code.
+ */
+export function persistSurfaceSessionForRevive(sessionId: string | null): void {
+	vsCodeApi?.setState({ clineCubedSessionId: sessionId ?? undefined })
+}
+
 // Implementations for post message handling
 const postMessageStrategies: Record<string, PostMessageFunction> = {
 	vscode: (message: any) => {

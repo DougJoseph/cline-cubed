@@ -1,13 +1,18 @@
-import { beforeEach, describe, expect, it } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
+import { Logger } from "@/shared/services/Logger"
 import {
 	__resetChatSurfacesForTest,
 	bindChatSurfaceToSession,
 	chatSurfaceForSession,
+	getActiveChatSurface,
 	notifyChatTitleChanged,
 	onChatTitleChanged,
 	registerChatSurface,
+	requireTargetSurface,
 	sessionForChatSurface,
+	setActiveChatSurface,
 	streamAcceptsSession,
+	streamIsTargeted,
 	surfaceForStream,
 	tagStreamWithSurface,
 	unregisterChatSurface,
@@ -151,6 +156,118 @@ describe("chat surface registry", () => {
 			onChatTitleChanged((...args) => seen.push(args))
 			notifyChatTitleChanged("session-1")
 			expect(seen).toEqual([["session-1"]])
+		})
+	})
+
+	/**
+	 * Which chat a per-chat EVENT reaches. Distinct from `streamAcceptsSession` above, which
+	 * governs a session's own content: that one keeps delivering to an untagged stream because
+	 * a conversation with nowhere to go is worse than one delivered broadly. A gesture is the
+	 * opposite case — a focus, an insert, a navigation button belongs to exactly one chat, and
+	 * one person's gesture arriving in every open chat is the worst answer available. So this
+	 * predicate fails closed on every doubt.
+	 */
+	describe("streamIsTargeted", () => {
+		it("delivers to a tagged stream whose surface is the target", () => {
+			const stream = makeStream()
+			tagStreamWithSurface(stream, "a")
+			expect(streamIsTargeted(stream, "a")).toBe(true)
+		})
+
+		it("withholds from a tagged stream whose surface is not the target", () => {
+			const stream = makeStream()
+			tagStreamWithSurface(stream, "a")
+			expect(streamIsTargeted(stream, "b")).toBe(false)
+		})
+
+		it("withholds from EVERYONE when the target is undefined — no target is not every target", () => {
+			const a = makeStream()
+			const b = makeStream()
+			tagStreamWithSurface(a, "a")
+			tagStreamWithSurface(b, "b")
+			expect(streamIsTargeted(a, undefined)).toBe(false)
+			expect(streamIsTargeted(b, undefined)).toBe(false)
+		})
+
+		it("withholds from an untagged stream, whatever the target", () => {
+			const untagged = makeStream()
+			expect(streamIsTargeted(untagged, "a")).toBe(false)
+			expect(streamIsTargeted(untagged, undefined)).toBe(false)
+		})
+	})
+
+	describe("requireTargetSurface", () => {
+		let errorSpy: ReturnType<typeof spyOn>
+		beforeEach(() => {
+			errorSpy = spyOn(Logger, "error").mockImplementation(() => {})
+		})
+		afterEach(() => {
+			errorSpy.mockRestore()
+		})
+
+		it("allows a defined target and records nothing", () => {
+			expect(requireTargetSurface("addToInput", "a")).toBe(true)
+			expect(errorSpy.mock.calls.length).toBe(0)
+		})
+
+		it("refuses an undefined target and records it at ERROR, naming the event", () => {
+			// A gesture that reaches nobody must leave a line saying so — a missing insert with a
+			// named cause is diagnosable; the same insert appearing in every chat is not.
+			expect(requireTargetSurface("addToInput", undefined)).toBe(false)
+			expect(errorSpy.mock.calls.length).toBe(1)
+			const line = String(errorSpy.mock.calls[0][0])
+			expect(line).toContain("addToInput")
+			expect(line).toContain("no target surface")
+		})
+	})
+
+	/**
+	 * Which chat the person is WORKING IN. Focus and visibility events, which the hosts already
+	 * report, cannot see the two acts that say it without ambiguity: a chat being put into a
+	 * surface, and a message being sent from one. A chat adopted into a sidebar that is already
+	 * showing fires no visibility change at all, so without the bind claim below it is never the
+	 * chat a command aims at.
+	 */
+	describe("the active chat surface", () => {
+		it("is claimed by a surface when a session is bound into it", () => {
+			registerChatSurface("sidebar")
+			expect(getActiveChatSurface()).toBeUndefined()
+			bindChatSurfaceToSession("sidebar", "session-1")
+			expect(getActiveChatSurface()).toBe("sidebar")
+		})
+
+		it("is NOT claimed by a surface releasing to null", () => {
+			registerChatSurface("tab-1")
+			registerChatSurface("tab-2")
+			bindChatSurfaceToSession("tab-1", "session-1")
+			// The in-chat close: tab-2 goes back to the home. That says nothing about where the
+			// person is working, so the slot stays where it was.
+			bindChatSurfaceToSession("tab-2", null)
+			expect(getActiveChatSurface()).toBe("tab-1")
+		})
+
+		it("follows a session that is moved — the surface it lands in becomes active", () => {
+			registerChatSurface("tab-1")
+			registerChatSurface("sidebar")
+			bindChatSurfaceToSession("tab-1", "session-1")
+			expect(getActiveChatSurface()).toBe("tab-1")
+			bindChatSurfaceToSession("sidebar", "session-1")
+			expect(getActiveChatSurface()).toBe("sidebar")
+		})
+
+		it("is released when the surface holding it closes", () => {
+			registerChatSurface("tab-1")
+			setActiveChatSurface("tab-1")
+			unregisterChatSurface("tab-1")
+			expect(getActiveChatSurface()).toBeUndefined()
+		})
+
+		it("is NOT released when some other surface closes", () => {
+			registerChatSurface("tab-1")
+			registerChatSurface("tab-2")
+			setActiveChatSurface("tab-1")
+			unregisterChatSurface("tab-2")
+			expect(getActiveChatSurface()).toBe("tab-1")
 		})
 	})
 })

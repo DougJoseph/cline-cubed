@@ -1,4 +1,4 @@
-import { chatSurfaceForSession } from "@core/controller/chat-surfaces"
+import { chatSurfaceForSession, clearSessionRestoring, markSessionRestoring } from "@core/controller/chat-surfaces"
 import type { ClineMessage, TurnPhase } from "@shared/ExtensionMessage"
 import type { HistoryItem } from "@shared/HistoryItem"
 import { Logger } from "@/shared/services/Logger"
@@ -121,22 +121,21 @@ export class SdkTaskControlCoordinator {
 		Logger.log(`[SdkController] Task cancelled: ${sessionId}`)
 	}
 
-	async clearTask(options: { stopActiveSession?: boolean } = {}): Promise<void> {
+	async clearTask(options: { endSessionId?: string } = {}): Promise<void> {
 		// Supersede any in-flight showTaskWithId so it cannot re-install a task
 		// after the user cleared the view (e.g. clicked New Task).
 		this.taskViewGeneration++
 
-		// Cline Cubed: a genuine user clear stops the focused SDK session; reinit of a
-		// live session (focus-without-stop) must NOT stop any other session. Pendings are
-		// cleared only for the session actually being stopped — a bookkeeping clear (task
-		// switch) leaves the outgoing chat's pending ask live, because that chat is still
-		// running and its question still awaits ITS answer.
-		if (options.stopActiveSession !== false) {
-			const endingSessionId = this.options.sessions.getActiveSession()?.sessionId
-			if (endingSessionId) {
-				this.options.interactions.clearPending("Task cleared", endingSessionId)
-			}
-			await this.options.sessions.endActiveSession("clearTask")
+		// Cline Cubed: a clear ends a session ONLY when the caller names it by id — there is
+		// no focused-session fallback (no session action without a session id, 2026-08-31).
+		// A view-only clear (task-switch bookkeeping, teardown, the external API) ends
+		// nothing, and leaves every chat's pending ask live, because those chats are still
+		// running and each question still awaits ITS answer. Pendings are cleared only for
+		// the session actually being ended.
+		const endingSessionId = options.endSessionId
+		if (endingSessionId) {
+			this.options.interactions.clearPending("Task cleared", endingSessionId)
+			await this.options.sessions.endSession("clearTask", { sessionId: endingSessionId })
 		}
 
 		const task = this.options.getTask()
@@ -200,6 +199,11 @@ export class SdkTaskControlCoordinator {
 			return historyItem
 		}
 
+		// Cline Cubed: from here until the proxy is installed (or this call fails/abandons),
+		// this chat's conversation is LOADING — recorded so any snapshot built meanwhile says
+		// so instead of fabricating an empty chat. A slow open from History told the same
+		// title-then-Home lie a reload did; large chats take seconds to read.
+		markSessionRestoring(taskId)
 		try {
 			// When reopening the task that is currently active, wait for its stop to
 			// land so the persisted session status read below reflects how the last
@@ -217,7 +221,7 @@ export class SdkTaskControlCoordinator {
 				const activeSession = this.options.sessions.getActiveSession()
 				if (activeSession?.sessionId === taskId) {
 					this.options.interactions.clearPending("Task switched", taskId)
-					await this.options.sessions.endActiveSession("showTaskWithId", { awaitStop: true })
+					await this.options.sessions.endSession("showTaskWithId", { awaitStop: true, sessionId: taskId })
 				}
 			}
 
@@ -302,6 +306,8 @@ export class SdkTaskControlCoordinator {
 			Logger.log(`[SdkController] Showing task: ${taskId}`)
 		} catch (error) {
 			Logger.error("[SdkController] Failed to show task:", error)
+		} finally {
+			clearSessionRestoring(taskId)
 		}
 		return historyItem
 	}

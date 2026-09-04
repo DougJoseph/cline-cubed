@@ -7,10 +7,14 @@ let warnSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
 	warnSpy = vi.spyOn(Logger, "warn").mockImplementation(() => {})
+	// Cline Cubed: the unknown-id notice is gated on the master debug-logging switch, which is
+	// off by default. Each test says which state it is exercising rather than inheriting one.
+	Logger.setDebugEnabled(true)
 })
 
 afterEach(() => {
 	warnSpy.mockRestore()
+	Logger.setDebugEnabled(false)
 })
 
 describe("parseProviderId", () => {
@@ -34,7 +38,7 @@ describe("parseProviderId", () => {
 		expect(warnSpy).not.toHaveBeenCalled()
 	})
 
-	it("warns once per non-empty unknown provider id", () => {
+	it("warns once per non-empty unknown provider id, with debug logging ON", () => {
 		parseProviderId("provider-id-test-unknown-a")
 		parseProviderId("provider-id-test-unknown-a")
 		parseProviderId("provider-id-test-unknown-b")
@@ -45,6 +49,23 @@ describe("parseProviderId", () => {
 			return typeof message === "string" && message.includes("provider-id-test-unknown-")
 		})
 		expect(warnings).toHaveLength(2)
+	})
+
+	// Cline Cubed: the SDK ships the models.dev roster, so a normal launch parses ~160 ids with
+	// no first-class entry here — one notice each. Gated, they wait for the switch; ungated, a
+	// genuine startup warning is invisible inside the flood. This pins the gate, so removing it
+	// fails here rather than being noticed months later by someone reading their output channel.
+	it("says nothing about an unknown provider id while debug logging is OFF", () => {
+		Logger.setDebugEnabled(false)
+
+		parseProviderId("provider-id-test-gated-a")
+		parseProviderId("provider-id-test-gated-b")
+
+		const warnings = warnSpy.mock.calls.filter((call: unknown[]) => {
+			const message = call[0]
+			return typeof message === "string" && message.includes("provider-id-test-gated-")
+		})
+		expect(warnings).toHaveLength(0)
 	})
 
 	it("does not warn for known provider ids", () => {

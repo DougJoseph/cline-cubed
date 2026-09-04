@@ -45,11 +45,18 @@ so non-vision models get full image context without ever receiving raw image byt
 - **Capability-aware** — the bridge runs only when the active Plan/Act model is
   non-vision (or its capability is unknown); a vision-capable Plan/Act model
   receives the raw image as usual.
-- **Image bridge debug logging** — a Settings toggle records each bridge call
-  (provider, model, URL, image type/size, auth, status) to the VS Code output
-  channel and shows the most recent calls inline under failed bridge blocks, with
-  a one-click toggle right in the chat. On failure the panel appears even when
-  the toggle is off.
+- **One master debug-logging switch** — Settings → General → **Debug logging**,
+  off by default, turns on diagnostic output for the whole extension in the VS
+  Code output channel; the image bridge's per-call records (provider, model, URL,
+  image type/size, auth, status) are part of it rather than having their own
+  switch. Errors and warnings are never gated by it, and a failed bridge call
+  shows its most recent calls inline in the chat whether logging is on or off.
+- **Update notices** — after an update, a notice names the new version and
+  **What's New** opens in the chat view with this fork's own notes for that
+  version, shipped inside the extension (**Cline Cubed: What's New** in the
+  Command Palette brings them back any time); with VS Code's automatic extension
+  updates off, Cline Cubed checks the Marketplace at start and asks whether to
+  update — Yes installs in place, Not now waits.
 - **Fork identity** — the About panel, extension manifest, and marketplace README
   are the fork's own: `DougJoseph.cline-cubed`, "Cline Cubed".
 - **Three New Chat buttons (mirrors Claude Code), every one a real chat panel** — in the
@@ -58,22 +65,32 @@ so non-vision models get full image context without ever receiving raw image byt
   **no chat**, you get the **"What can I do for you?"** home — a chat whose default is also
   the history chooser (recent chats, plus the prompt input at the bottom to start a new
   task). When a chat is **already there**, a **new, independent chat** opens beside it and
-  the existing one keeps running, untouched. (The left activity-bar icon itself opens the
-  chats list — see below.)
+  the existing one keeps running, untouched. (The Cline Cubed icon in the primary sidebar
+  opens the chats list — see below.)
 - **Multiple chat sessions side by side** — each chat is keyed to its own conversation, so
-  several run at once and each shows its own work. The sidebar hosts one chat at full height;
-  further chats open as editor tabs, which you can arrange side by side. A chat lives in one
-  place: open it somewhere else and it moves there, with its old spot returning to the home.
+  several run at once and each shows its own work. The secondary sidebar hosts one chat at full
+  height; further chats gather as tabs in a single editor group, so you slide the tab strip
+  between them. A chat lives in one place and stays there: try to open one that is already open
+  and the panel running it comes forward with a brief notice, while the panel you clicked in is
+  left exactly as it was — nothing moves. Close a chat's tab, or the sidebar holding a chat, and
+  that chat ends; drag the docked chat to the other sidebar and it comes with you.
 - **Every chat owns its own busy state** — each one shows its own thinking indicator while it
   works and its own Cancel button, from its very first response onward. Cancelling one chat
   stops that chat and leaves every other chat running.
 - **"Where new chat sessions open" setting** — choose where a new chat lands: **Editor area**
   (new tab — the default) or **Secondary sidebar** (typically right). Every chat button
-  follows it; chats already open stay where they are. A sidebar holds one chat, so further
-  chats open as editor tabs whichever you pick. Get Started offers the same choice, and a
+  follows it; chats already open stay where they are. The secondary sidebar can house only one
+  chat, at full height, so pick **Secondary sidebar** and your first chat docks there while every
+  later one opens as an editor tab; pick **Editor area** and nothing docks at all. Get Started offers the same choice, and a
   gear button in the chat input row opens Settings.
 - **Gear button in the chat input row** — restores the settings affordance stock Cline
   removed from the VS Code panel.
+- **Commands land in the chat you are working in** — click into a chat's prompt box and it
+  becomes the one your commands reach: Jump to Chat Input, Settings, History, MCP Servers,
+  Marketplace, Account and New Chat all arrive there, or, with no chat tapped, in the location
+  chosen in Settings. In the Command Palette the toolbar commands carry the "Cline Cubed"
+  prefix, and the names say what they do — New Chat, Marketplace, and Close Chat on the X that
+  closes a chat.
 - **Chats in one group, files in another** — every chat opened in the editor area gathers
   as a tab in ONE locked group, so you slide the tab strip between conversations exactly as
   you would between files, and nothing can drop a file on top of the chat you are reading.
@@ -84,7 +101,7 @@ so non-vision models get full image context without ever receiving raw image byt
   replaces in place, so a session that edits ten files leaves one tab rather than ten. A tab
   you opened yourself is never closed and never converted.
 - **Chats survive a reload — and a reinstall** — every editor tab comes back with its own
-  conversation and the docked sidebar chat with its own, including chats you opened from your
+  conversation and the docked secondary-sidebar chat with its own, including chats you opened from your
   history. The record rides in VS Code's own workspace storage, so it outlasts far more than
   a restart.
 - **Every message stamped with its time** — a quiet `5:23 PM` floated at the right of a
@@ -98,7 +115,7 @@ so non-vision models get full image context without ever receiving raw image byt
 - **It knows what it is** — ask, and it can name the fork, its Marketplace listing and its
   repository, and it knows where its own transcripts live well enough to answer questions
   about your chat history — asking first, since those files sit outside your project.
-- **A chats list in the activity bar** — the left icon opens a list of your chats rather than
+- **A chats list in the primary sidebar** — the Cline Cubed icon opens a list of your chats rather than
   a chat: the ones open right now at the top, each labelled with where it is, then the full
   history. A New Chat button sits above them, and Settings, Account, and Marketplace open
   right there in the panel instead of commandeering one of your running chats.
@@ -108,15 +125,16 @@ so non-vision models get full image context without ever receiving raw image byt
   clicked in is left exactly as it was. A chat that is open nowhere opens in the surface you
   clicked from when that surface is an empty home, and in a new editor tab when it is already
   showing a chat — so clicking three chats gives three windows, and the chat you are working
-  in is never taken from you. The per-row controls (details, favorite, delete) appear on hover at the
-  right. No checkbox column, no full-width red delete
-  button — clearing the whole history is one quiet control under the list. The chats list and
+  in is never taken from you. The per-row controls (details, favorite, delete) appear on hover at
+  the right; clearing the whole history is one quiet control under the list. The chats list and
   the in-chat history panel are the same component, so both behave identically.
-- **Even editor widths** — opening a chat into a new editor column evens the column widths, so
-  a new chat never arrives as a sliver beside a wide one.
+- **Even editor widths** — when a chat does open a brand-new editor column, the column widths are
+  evened, so it never arrives as a sliver beside a wide one.
 - **Name your chats** — every chat is displayed by its first prompt until you give it a name of
-  its own. Hover the name at the top of a chat, or anywhere on a row in the chats list or
-  history, and a pencil appears; click either to edit in place. Enter or clicking away commits,
+  its own. At the top of a chat, hover the name and click it, or the pencil beside it, to edit
+  in place; on a row in the chats list or history, the name opens the chat and the pencil beside
+  it renames. Renaming a chat, or marking it a favorite, never moves it in the list. Enter or
+  clicking away commits,
   Escape cancels, clearing the box restores the first prompt. Renaming never rewrites what you
   actually typed — the name is a field of its own and the first prompt stays intact in the
   chat's expanded details. The name shows everywhere the chat is listed, and fuzzy search

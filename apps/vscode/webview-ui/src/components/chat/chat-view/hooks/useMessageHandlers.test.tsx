@@ -38,12 +38,22 @@ vi.mock("@shared/proto/cline/common", () => ({
 	StringRequest: { create: (x: unknown) => x },
 }))
 
-// useExtensionState supplies turnState (+ backgroundCommandRunning) to the hook.
+// useExtensionState supplies turnState (+ backgroundCommandRunning) to the hook, and — since
+// 2026-09-02 — the id of the chat this surface is bound to. A surface bound to a chat that has no
+// messages yet continues that chat rather than starting another one, so the send path asks for it
+// on every submit. Default: bound to nothing, which is what every test here assumes; a test that
+// cares sets `mockSurfaceBoundTaskId`.
 let mockTurnState: TurnState | undefined
+let mockSurfaceBoundTaskId: string | null | undefined
+const showNewChatHomeLocally = vi.fn()
 vi.mock("@/context/ExtensionStateContext", () => ({
 	useExtensionState: () => ({
 		backgroundCommandRunning: false,
 		turnState: mockTurnState,
+		getSurfaceBoundTaskId: () => mockSurfaceBoundTaskId,
+		// Starting a new chat returns THIS surface to the home. Nothing here asserts on it, so it
+		// is a spy: the point is that the send path can call it without throwing.
+		showNewChatHomeLocally: () => showNewChatHomeLocally(),
 	}),
 }))
 
@@ -108,6 +118,7 @@ describe("useMessageHandlers — send routing", () => {
 		trackIntent.mockReset()
 		trackIntent.mockResolvedValue(undefined)
 		mockTurnState = undefined
+		mockSurfaceBoundTaskId = undefined
 	})
 
 	it("routes /compact to the condense RPC instead of sending it as a message", async () => {

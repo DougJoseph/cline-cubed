@@ -1,5 +1,6 @@
 import { DEFAULT_AUTO_APPROVAL_SETTINGS } from "@shared/AutoApprovalSettings"
 import { DEFAULT_BROWSER_SETTINGS } from "@shared/BrowserSettings"
+import { conversationSnapshotKind } from "@shared/conversation-snapshot"
 import { DEFAULT_PLATFORM, type ExtensionState } from "@shared/ExtensionMessage"
 import { DEFAULT_MCP_DISPLAY_MODE } from "@shared/McpDisplayMode"
 import type { UserInfo } from "@shared/proto/cline/account"
@@ -404,6 +405,24 @@ export const ExtensionStateContextProvider: React.FC<{
 	const getSurfaceBoundTaskId = useCallback(() => surfaceBoundTaskIdRef.current, [])
 
 	/**
+	 * Cline Cubed: tell the host when this surface is clicked into. A webview is an iframe, and
+	 * clicking anywhere in it — the prompt box included — gives its window focus, which is a
+	 * fact only the webview can see for a sidebar view. Reported once on mount too, for a surface
+	 * that already holds focus by the time this listener is attached.
+	 */
+	useEffect(() => {
+		if (window.__CLINE_CUBED_SURFACE_ID__ === undefined) {
+			return
+		}
+		const report = () => PLATFORM_CONFIG.postMessage({ type: "surfaceFocused" })
+		window.addEventListener("focus", report)
+		if (document.hasFocus()) {
+			report()
+		}
+		return () => window.removeEventListener("focus", report)
+	}, [])
+
+	/**
 	 * Cline Cubed: open an existing chat from THIS surface's history/recent list, through the
 	 * host. Already open on another surface → the host reveals that surface and nothing here
 	 * changes (accidentally reopening a chat must never evict it from where it lives). Not open
@@ -567,12 +586,25 @@ export const ExtensionStateContextProvider: React.FC<{
 					try {
 						const stateData = JSON.parse(response.stateJson) as ExtensionState
 						setState((prevState) => {
-							// Cline Cubed: the host addresses each chat surface directly, so a snapshot
-							// that arrives WITH conversation fields belongs to THIS surface's session.
-							// A snapshot that arrives WITHOUT them is a settings-level update meant
-							// for every surface — this one keeps the conversation it is showing.
-							const carriesConversation = Object.hasOwn(stateData as object, "clineMessages")
-							if (!carriesConversation) {
+							// Cline Cubed: three snapshot forms, not two (shared/conversation-snapshot.ts).
+							// WITH conversation fields → this surface's session, render it.
+							// "conversation-loading" → this chat is real and its conversation is being
+							// loaded: adopt the identity the snapshot carries and show loading — the old
+							// two-way split fell into the keep-what-you-have branch, which clobbered the
+							// identity and left a freshly-revived panel rendering the Home screen.
+							// "settings-only" → keep the conversation this surface is showing.
+							const snapshotKind = conversationSnapshotKind(stateData as object)
+							const carriesConversation = snapshotKind === "conversation"
+							if (snapshotKind === "conversation-loading") {
+								// activeTaskId, currentTaskItem and conversationLoading ride in from the
+								// snapshot; the message list stays empty until the real conversation
+								// arrives (the replica is untouched — nothing here is authoritative
+								// transcript content).
+								stateData.clineMessages = []
+								stateData.turnState = undefined
+								stateData.queuedPrompts = prevState.queuedPrompts
+								stateData.checkpointRestoreInput = undefined
+							} else if (!carriesConversation) {
 								stateData.clineMessages = prevState.clineMessages ?? []
 								stateData.currentTaskItem = prevState.currentTaskItem
 								stateData.activeTaskId = prevState.activeTaskId

@@ -1282,6 +1282,8 @@ export class LocalRuntimeHost implements RuntimeHost {
 			prompt?: string | null;
 			metadata?: Record<string, unknown> | null;
 			title?: string | null;
+			/** LOCAL PATCH (2026-09-02): see `preserveUpdatedAt` in types/session.ts. */
+			preserveUpdatedAt?: boolean;
 		},
 	): Promise<{ updated: boolean }> {
 		const result = await this.invokeOptionalValue<{ updated?: boolean }>(
@@ -1291,6 +1293,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 				prompt: updates.prompt,
 				metadata: updates.metadata,
 				title: updates.title,
+				preserveUpdatedAt: updates.preserveUpdatedAt,
 			},
 		);
 		return { updated: result?.updated === true };

@@ -51,10 +51,21 @@ export function hashSecret(value: unknown): string {
  * Best-effort: swallows errors from the underlying logger so logging never
  * breaks auth/storage flows.
  */
-export function sdkDebug(message: string): void {
+export function sdkDebug(message: string): boolean {
 	try {
-		earlyLogger?.debug(message);
+		// LOCAL PATCH (2026-09-03): report whether this message was actually EMITTED, so a caller
+		// that suppresses repeats of an unchanged line only remembers a line that was printed.
+		// Without it, a line emitted before a logger is registered — or while debug logging is off
+		// — is remembered as "already said" and then never appears at all. The optional
+		// `isDebugEnabled` is how a host tells us its own switch is off; a host that does not
+		// implement it is treated as emitting, exactly as before.
+		if (!earlyLogger || earlyLogger.isDebugEnabled?.() === false) {
+			return false;
+		}
+		earlyLogger.debug(message);
+		return true;
 	} catch {
 		// Never let logging break the app.
+		return false;
 	}
 }

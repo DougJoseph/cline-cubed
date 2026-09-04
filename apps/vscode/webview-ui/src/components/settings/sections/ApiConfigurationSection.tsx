@@ -22,7 +22,7 @@ interface ApiConfigurationSectionProps {
 }
 
 const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiConfigurationSectionProps) => {
-	const { planActSeparateModelsSetting, mode, apiConfiguration, imageBridgeDebugEnabled } = useExtensionState()
+	const { planActSeparateModelsSetting, mode, apiConfiguration } = useExtensionState()
 	const [currentTab, setCurrentTab] = useState<SettingsTab>(mode)
 	const { handleFieldsChange } = useApiConfigurationHandlers()
 	return (
@@ -70,26 +70,17 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 							{currentTab === "image" ? (
 								<>
 									<ApiOptions currentMode="image" initialModelTab={initialModelTab} showModelOptions={true} />
+									{/* Cline Cubed: this tab used to carry its own "Image bridge debug
+									    logging" checkbox. It is gone — one master switch covers the whole
+									    extension now. A signpost stays in its place, because a control
+									    someone has used, removed leaving blank space, reads as the feature
+									    having been removed. */}
 									<div className="mt-3">
-										<VSCodeCheckbox
-											checked={imageBridgeDebugEnabled === true}
-											onChange={async (e: any) => {
-												try {
-													await StateServiceClient.updateSettings(
-														UpdateSettingsRequest.create({
-															imageBridgeDebugEnabled: e.target.checked === true,
-														}),
-													)
-												} catch (error) {
-													console.error("Failed to update image bridge debug setting:", error)
-												}
-											}}>
-											Image bridge debug logging
-										</VSCodeCheckbox>
-										<p className="text-xs mt-[5px] text-(--vscode-descriptionForeground)">
-											Records each image-bridge call (provider, model, URL, image type/size, auth, status)
-											to the output channel and shows the most recent calls inline under failed bridge
-											blocks. Full log: <code>View → Output → Cline Cubed</code>.
+										<p className="text-xs text-(--vscode-descriptionForeground)">
+											Bridge call logging (provider, model, URL, image type/size, auth, status) is covered
+											by <b>General Settings → Debug logging</b>, which turns on diagnostic output for the
+											whole extension. The most recent bridge calls are shown inline under a failed bridge
+											block either way. Full log: <code>View → Output → Cline Cubed</code>.
 										</p>
 									</div>
 								</>

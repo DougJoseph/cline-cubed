@@ -168,7 +168,7 @@ export class SdkCompactionCoordinator {
 				return
 			}
 
-			// Opening a task from history fires an un-awaited endActiveSession for
+			// Opening a task from history fires an un-awaited endSession for
 			// this sessionId; core cleanup is keyed by sessionId, so starting over
 			// that in-flight stop would let the old session's late cleanup tear
 			// down this one. Enforce the same stop-before-start as startNewSession.

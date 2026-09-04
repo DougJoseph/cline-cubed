@@ -107,6 +107,16 @@ export interface PersistedSessionUpdateInput {
 	agentId?: string | null;
 	conversationId?: string | null;
 	setRunning?: boolean;
+	/**
+	 * LOCAL PATCH (2026-09-02): do not stamp `updatedAt` for this write.
+	 *
+	 * `updatedAt` is what a session list is ordered by, so it means "when this session was last
+	 * USED". Some writes are bookkeeping about a session rather than work in it — renaming it,
+	 * marking it a favourite — and stamping those sends a chat to the top of the list for a
+	 * change that is not use. Such a write sets this; every other write leaves it alone and the
+	 * date is stamped as before.
+	 */
+	preserveUpdatedAt?: boolean;
 }
 
 export interface SessionPersistenceAdapter {

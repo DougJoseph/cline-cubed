@@ -123,62 +123,70 @@ const HistoryViewItem = ({
 								Legacy
 							</span>
 						)}
+
+						{/* Hover icons, Claude-style: they stay out of the way until the row is
+						    hovered (or focused from the keyboard), except the star, which stays lit
+						    when the chat is favorited because that is state, not an action.
+
+						    They live INSIDE the title's own row, so this row's `items-center`
+						    centres them on the title's line together with the pencil that renames
+						    it (Doug, 2026-09-02). As a separate block beside the two-line column
+						    they could only ever be approximately level with it: centred, they
+						    floated between the title and the date; top-aligned, they sat above the
+						    title's optical centre, because an icon button is an 8px glyph with no
+						    vertical padding while the title carries a full line height. */}
+						<div className="flex items-center gap-1 flex-shrink-0">
+							<Button
+								aria-expanded={expanded}
+								aria-label={expanded ? "Hide details" : "Show details"}
+								className={cn(ICON_REVEAL, "transition-opacity", {
+									"opacity-100 bg-accent/15": expanded,
+								})}
+								onClick={(e) => {
+									e.stopPropagation()
+									setExpanded(!expanded)
+								}}
+								size="icon"
+								title={expanded ? "Hide details" : "Show details"}
+								variant="ghost">
+								<InfoIcon className="stroke-1 text-description" />
+							</Button>
+							<Button
+								aria-label={isFavoritedItem ? "Remove from favorites" : "Add to favorites"}
+								className={cn("transition-opacity", isFavoritedItem ? "opacity-100" : ICON_REVEAL)}
+								disabled={pendingFavoriteToggles[item.id] !== undefined}
+								onClick={(e) => {
+									e.stopPropagation()
+									toggleFavorite(item.id, isFavoritedItem)
+								}}
+								size="icon"
+								title={isFavoritedItem ? "Remove from favorites" : "Add to favorites"}
+								variant="ghost">
+								<StarIcon
+									className={cn("opacity-70", {
+										"text-button-background fill-button-background opacity-100": isFavoritedItem,
+									})}
+								/>
+							</Button>
+							<Button
+								aria-label="Delete"
+								className={cn(ICON_REVEAL, "transition-opacity hover:text-error")}
+								disabled={isFavoritedItem}
+								onClick={(e) => {
+									e.stopPropagation()
+									handleDeleteHistoryItem(item.id)
+								}}
+								size="icon"
+								title={isFavoritedItem ? "Unfavorite this chat before deleting it" : "Delete"}
+								variant="ghost">
+								<TrashIcon className="stroke-1" />
+							</Button>
+						</div>
 					</div>
 					<div className="flex items-center gap-2 text-xs text-description">
 						<span className="uppercase">{formatDate(item.ts)}</span>
 						<span>${item.totalCost?.toFixed(4) ?? 0}</span>
 					</div>
-				</div>
-
-				{/* Hover icons, Claude-style: they stay out of the way until the row is hovered
-				    (or focused from the keyboard), except the star, which stays lit when the chat
-				    is favorited because that is state, not an action. */}
-				<div className="flex items-center gap-1 flex-shrink-0 self-center">
-					<Button
-						aria-expanded={expanded}
-						aria-label={expanded ? "Hide details" : "Show details"}
-						className={cn(ICON_REVEAL, "transition-opacity", {
-							"opacity-100 bg-accent/15": expanded,
-						})}
-						onClick={(e) => {
-							e.stopPropagation()
-							setExpanded(!expanded)
-						}}
-						size="icon"
-						title={expanded ? "Hide details" : "Show details"}
-						variant="ghost">
-						<InfoIcon className="stroke-1 text-description" />
-					</Button>
-					<Button
-						aria-label={isFavoritedItem ? "Remove from favorites" : "Add to favorites"}
-						className={cn("transition-opacity", isFavoritedItem ? "opacity-100" : ICON_REVEAL)}
-						disabled={pendingFavoriteToggles[item.id] !== undefined}
-						onClick={(e) => {
-							e.stopPropagation()
-							toggleFavorite(item.id, isFavoritedItem)
-						}}
-						size="icon"
-						title={isFavoritedItem ? "Remove from favorites" : "Add to favorites"}
-						variant="ghost">
-						<StarIcon
-							className={cn("opacity-70", {
-								"text-button-background fill-button-background opacity-100": isFavoritedItem,
-							})}
-						/>
-					</Button>
-					<Button
-						aria-label="Delete"
-						className={cn(ICON_REVEAL, "transition-opacity hover:text-error")}
-						disabled={isFavoritedItem}
-						onClick={(e) => {
-							e.stopPropagation()
-							handleDeleteHistoryItem(item.id)
-						}}
-						size="icon"
-						title={isFavoritedItem ? "Unfavorite this chat before deleting it" : "Delete"}
-						variant="ghost">
-						<TrashIcon className="stroke-1" />
-					</Button>
 				</div>
 			</div>
 

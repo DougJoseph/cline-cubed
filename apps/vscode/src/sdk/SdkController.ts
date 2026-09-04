@@ -20,11 +20,18 @@ import {
 	type UserInstructionConfigService,
 } from "@cline/core"
 import { formatDisplayUserInput, type RemoteConfig, type RemoteConfigBundle } from "@cline/shared"
-import { bindChatSurfaceToSession, chatSurfaceForSession, notifyChatTitleChanged } from "@core/controller/chat-surfaces"
+import {
+	bindChatSurfaceToSession,
+	chatSurfaceForSession,
+	evictSessionFromItsSurface,
+	isSessionRestoring,
+	notifyChatTitleChanged,
+} from "@core/controller/chat-surfaces"
 import type { ApiConfiguration } from "@shared/api"
 import type { ChatContent } from "@shared/ChatContent"
 import { CLINE_ACCOUNT_AUTH_ERROR_MESSAGE } from "@shared/ClineAccount"
 import { mentionRegexGlobal } from "@shared/context-mentions"
+import { applyConversationResidency } from "@shared/conversation-snapshot"
 import type { ClineApiReqInfo, ClineMessage, ExtensionState, TurnPhase } from "@shared/ExtensionMessage"
 import { chatDisplayTitle, type HistoryItem } from "@shared/HistoryItem"
 import { DeleteAllTaskHistoryCount, type GetTaskHistoryRequest, TaskHistoryArray, TaskResponse } from "@shared/proto/cline/task"
@@ -875,7 +882,7 @@ export class Controller {
 		// Ending only the ACTIVE session killed one chat the user never touched (chosen by
 		// focus accident) and left every other chat running under the OLD configuration.
 		for (const sessionId of this.sessions.getLiveSessionIds()) {
-			await this.sessions.endActiveSession("remoteConfigToggle", { awaitStop: true, sessionId })
+			await this.sessions.endSession("remoteConfigToggle", { awaitStop: true, sessionId })
 		}
 		await this.postStateToWebview()
 	}
@@ -1010,8 +1017,9 @@ export class Controller {
 		await this.invalidateUserInstructionService()
 		this.messages.cancelPendingSave()
 		// Every session's pending ask/approval is settled on disposal so no agent run stays
-		// suspended on a promise nothing can resolve. (clearTask below clears only the focused
-		// session's; disposal is the one place a blanket clear is correct.)
+		// suspended on a promise nothing can resolve. (clearTask below is view-only — it names
+		// no session, so it ends none; sessions.dispose() right after sweeps every live session
+		// by id with honest end-stamping, and disposal is the one place a blanket end is correct.)
 		this.interactions.clearAllPending("Controller disposed")
 		// Clear MCP tool list change callback before disposing McpHub
 		this.mcpHub?.clearToolListChangeCallback()
@@ -1497,13 +1505,55 @@ export class Controller {
 	 * proxies and translators live in per-session maps keyed by id, and per-session bookkeeping
 	 * is dropped by onSessionEnded.
 	 */
-	async closeSession(sessionId: string): Promise<void> {
-		await this.sessions.endActiveSession("closeSession", { sessionId })
+	async closeSession(sessionId: string, options: { awaitStop?: boolean } = {}): Promise<void> {
+		await this.sessions.endSession("closeSession", { sessionId, awaitStop: options.awaitStop })
 		if (this.task?.taskId === sessionId) {
 			this.task = undefined
 			this.turnStateTracker.set("idle")
 		}
 		await this.postStateToWebview()
+	}
+
+	/**
+	 * Cline Cubed: apply a mutation to EVERY live task proxy, each resolved by its own id —
+	 * plus the focused proxy when it is a non-live chat merely on screen (its shim/settings
+	 * feed UI and telemetry reads, and it was always covered before). A settings change is a
+	 * statement about the account, not about whichever chat is in front: per the approved
+	 * 2026-08-30 rule, a config event acts on the named session, every session, or none —
+	 * never "whichever is focused" — and it applies immediately, not on some later turn.
+	 */
+	/** Cline Cubed: the ids of every LIVE session — read-only, e.g. for a dialog naming the
+	 *  blast radius of a destructive action before it runs. */
+	liveSessionIds(): string[] {
+		return this.sessions.getLiveSessionIds()
+	}
+
+	applyToLiveTasks(fn: (task: TaskProxy) => void): void {
+		const applied = new Set<string>()
+		for (const sessionId of this.sessions.getLiveSessionIds()) {
+			const task = this.taskProxies.get(sessionId)
+			if (task) {
+				fn(task)
+				applied.add(task.taskId)
+			}
+		}
+		if (this.task && !applied.has(this.task.taskId)) {
+			fn(this.task)
+		}
+	}
+
+	/**
+	 * Cline Cubed: end EVERY live session, each by its own id through the funnel — the
+	 * reset-everything semantics. "Everything" means every session, named; never "whichever
+	 * was focused" (no session action without a session id, 2026-08-31). Each stop is awaited
+	 * so end times land before whatever destructive step follows (state reset, bulk delete).
+	 */
+	async endAllSessions(reason: string): Promise<void> {
+		for (const sessionId of this.sessions.getLiveSessionIds()) {
+			await this.sessions.endSession(reason, { awaitStop: true, sessionId })
+		}
+		this.task = undefined
+		this.turnStateTracker.set("idle")
 	}
 
 	/**
@@ -1615,13 +1665,14 @@ export class Controller {
 		await this.compaction.compactTask()
 	}
 
-	async clearTask(options: { stopActiveSession?: boolean } = {}): Promise<void> {
+	async clearTask(options: { endSessionId?: string } = {}): Promise<void> {
 		this.pendingClineAuthRetryPrompt = undefined
 		// No active task — UI returns to idle (input enabled, no buttons/thinking).
 		this.turnStateTracker.set("idle")
-		// Cline Cubed: `stopActiveSession: false` clears the task VIEW without ending anyone's
-		// session — for callers that only need a clean view (the external startNewTask API),
-		// where bare clearTask killed whichever chat the user had focused.
+		// Cline Cubed: a clear ends a session ONLY when the caller names it (`endSessionId`).
+		// Without an id this clears the task VIEW and ends nothing — there is no
+		// focused-session fallback, so bare clearTask can no longer kill whichever chat the
+		// user happened to have in front (no session action without a session id, 2026-08-31).
 		await this.taskControl.clearTask(options)
 		await this.postStateToWebview()
 	}
@@ -2270,17 +2321,48 @@ export class Controller {
 		return this.taskHistory.deleteTaskFromState(id)
 	}
 
-	async deleteAllTaskHistory(): Promise<DeleteAllTaskHistoryCount> {
-		await this.clearTask()
+	/**
+	 * Cline Cubed: end and evict the sessions whose history is about to be bulk-deleted —
+	 * each LIVE one ended by its own id through the funnel (honest end stamp, awaited so the
+	 * write lands before the rows vanish), and each surface showing one sent to its Home so
+	 * nobody is left typing into a deleted chat. Sessions NOT in the set (e.g. preserved
+	 * favorites) keep streaming, untouched. This runs only AFTER the user confirms — the old
+	 * shape bare-cleared the focused session before even asking, ending a chat the user then
+	 * chose not to delete.
+	 */
+	private async endAndEvictDeletedSessions(deletedIds: string[]): Promise<void> {
+		const deleted = new Set(deletedIds)
+		for (const sessionId of this.sessions.getLiveSessionIds()) {
+			if (deleted.has(sessionId)) {
+				await this.sessions.endSession("deleteAllTaskHistory", { awaitStop: true, sessionId })
+			}
+		}
+		for (const id of deletedIds) {
+			evictSessionFromItsSurface(id)
+		}
+		if (this.task && deleted.has(this.task.taskId)) {
+			this.task = undefined
+			this.turnStateTracker.set("idle")
+		}
+	}
 
+	async deleteAllTaskHistory(): Promise<DeleteAllTaskHistoryCount> {
 		const taskHistory = await this.taskHistory.listHistory({ hydrate: false })
 		const totalTasks = taskHistory.length
+		const isFavorited = (task: (typeof taskHistory)[number]) =>
+			metadataBoolean(task.metadata, "isFavorited") ?? metadataBoolean(task.metadata, "is_favorited") ?? false
 
+		// Cline Cubed: the dialog names its blast radius. Deleting history is not only about
+		// records — chats currently open land on their Home, and chats mid-turn are stopped.
+		const anyOpen = taskHistory.some((task) => chatSurfaceForSession(task.sessionId) !== undefined)
+		const anyRunning = this.sessions.getLiveSessionIds().length > 0
+		const impact =
+			anyOpen || anyRunning ? " Deleted chats that are open will be closed; any still running will be stopped." : ""
 		const userChoice = (
 			await HostProvider.window.showMessage(
 				ShowMessageRequest.create({
 					type: ShowMessageType.WARNING,
-					message: "What would you like to delete?",
+					message: `What would you like to delete?${impact}`,
 					options: {
 						modal: true,
 						items: ["Delete All Except Favorites", "Delete Everything"],
@@ -2294,12 +2376,12 @@ export class Controller {
 		}
 
 		if (userChoice === "Delete All Except Favorites") {
-			const hasFavoritedTasks = taskHistory.some(
-				(task) =>
-					metadataBoolean(task.metadata, "isFavorited") ?? metadataBoolean(task.metadata, "is_favorited") ?? false,
-			)
+			const hasFavoritedTasks = taskHistory.some(isFavorited)
 
 			if (hasFavoritedTasks) {
+				await this.endAndEvictDeletedSessions(
+					taskHistory.filter((task) => !isFavorited(task)).map((task) => task.sessionId),
+				)
 				const tasksDeleted = await this.taskHistory.deleteAllTaskHistory({
 					preserveFavorites: true,
 				})
@@ -2323,6 +2405,7 @@ export class Controller {
 			}
 		}
 
+		await this.endAndEvictDeletedSessions(taskHistory.map((task) => task.sessionId))
 		const tasksDeleted = await this.taskHistory.deleteAllTaskHistory()
 		await this.postStateToWebview()
 		return DeleteAllTaskHistoryCount.create({
@@ -2377,10 +2460,15 @@ export class Controller {
 			return
 		}
 
-		await this.taskHistory.updateTaskHistory({
-			...historyItem,
-			isFavorited,
-		})
+		// Cline Cubed: marking a chat a favourite says something ABOUT the chat; it is not work in
+		// it. So it leaves the chat's last-used date alone and the list keeps its order.
+		await this.taskHistory.updateTaskHistory(
+			{
+				...historyItem,
+				isFavorited,
+			},
+			true,
+		)
 		await this.postStateToWebview()
 	}
 
@@ -2572,16 +2660,29 @@ export class Controller {
 			// out-of-order state pushes and fence traffic from a previous task/render. Sampled
 			// synchronously here (no await between sampling and return).
 			const minter = this.messageTranslatorState.getMinter()
-			return {
-				...state,
-				currentTaskItem: task?.taskId ? processedTaskHistory.find((item) => item.id === task?.taskId) : undefined,
-				taskHistory: processedTaskHistory,
-				// V7: the snapshot carries the SESSION's own turn phase.
-				turnState: this.getTurnStateTrackerFor(sessionId).get(),
-				queuedPrompts,
-				stateVersion: minter.nextSeq(),
-				epoch: minter.epoch,
-			}
+			// Cline Cubed: the three-answer contract (shared/conversation-snapshot.ts). A named
+			// session whose conversation is not in hand is answered honestly — "loading" when a
+			// load is in flight (with the chat's identity attached), the leave-alone form when
+			// none is — NEVER a fabricated empty conversation, which renders as the Home screen
+			// and is exactly how a reload used to blank a slow-loading chat.
+			return applyConversationResidency(
+				{
+					...state,
+					currentTaskItem: task?.taskId ? processedTaskHistory.find((item) => item.id === task?.taskId) : undefined,
+					taskHistory: processedTaskHistory,
+					// V7: the snapshot carries the SESSION's own turn phase.
+					turnState: this.getTurnStateTrackerFor(sessionId).get(),
+					queuedPrompts,
+					stateVersion: minter.nextSeq(),
+					epoch: minter.epoch,
+				},
+				{
+					sessionId,
+					resident: !!task,
+					restoring: sessionId ? isSessionRestoring(sessionId) : false,
+					historyItem: sessionId ? processedTaskHistory.find((item) => item.id === sessionId) : undefined,
+				},
+			)
 		} catch (error) {
 			Logger.error("[SdkController] Failed to get state for webview:", error)
 			throw error

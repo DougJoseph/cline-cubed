@@ -277,7 +277,7 @@ describe("SdkCompactionCoordinator", () => {
 		expect(resumedHost.stop).toHaveBeenCalledWith("history-task")
 		expect(resumedHost.dispose).toHaveBeenCalledWith("compactDisplayedTask")
 		expect(options.sessions.startNewSession).not.toHaveBeenCalled()
-		expect(options.sessions.endActiveSession).not.toHaveBeenCalled()
+		expect(options.sessions.endSession).not.toHaveBeenCalled()
 		const rows = compactionRows(options)
 		expect(rows[rows.length - 1].info).toMatchObject({ status: "completed", messagesBefore: 2, messagesAfter: 1 })
 	})
@@ -342,7 +342,7 @@ describe("SdkCompactionCoordinator", () => {
 			version: 1,
 			messages: [{ role: "user", content: "summary" }],
 		})
-		expect(options.sessions.endActiveSession).not.toHaveBeenCalled()
+		expect(options.sessions.endSession).not.toHaveBeenCalled()
 	})
 
 	it("finishes owned compaction without emitting into a replacement active session", async () => {
@@ -368,7 +368,7 @@ describe("SdkCompactionCoordinator", () => {
 		)
 		expect(options.messages.appendAndEmit).not.toHaveBeenCalled()
 		expect(replacementSession.sdkHost.stop).not.toHaveBeenCalled()
-		expect(options.sessions.endActiveSession).not.toHaveBeenCalled()
+		expect(options.sessions.endSession).not.toHaveBeenCalled()
 		expect(resumedHost.stop).toHaveBeenCalledWith("history-task")
 		expect(resumedHost.dispose).toHaveBeenCalledWith("compactDisplayedTask")
 	})
@@ -413,7 +413,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 				sdkHost: resumedHost,
 			})),
 			setRunning: vi.fn(),
-			endActiveSession: vi.fn().mockResolvedValue(undefined),
+			endSession: vi.fn().mockResolvedValue(undefined),
 			waitForPendingStop: vi.fn().mockResolvedValue(undefined),
 		},
 		rebuilds: {
@@ -440,7 +440,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 			getActiveSession: ReturnType<typeof vi.fn>
 			startNewSession: ReturnType<typeof vi.fn>
 			setRunning: ReturnType<typeof vi.fn>
-			endActiveSession: ReturnType<typeof vi.fn>
+			endSession: ReturnType<typeof vi.fn>
 			waitForPendingStop: ReturnType<typeof vi.fn>
 		}
 		rebuilds: { runExclusive: ReturnType<typeof vi.fn> }

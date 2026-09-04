@@ -23,6 +23,7 @@ import path from "node:path"
 import type { ExtensionContext } from "vscode"
 import { HostProvider } from "@/hosts/host-provider"
 import { vscodeHostBridgeClient } from "@/hosts/vscode/hostbridge/client/host-grpc-client"
+import { offerUpdateWhenAutoUpdateIsOff } from "@/hosts/vscode/update-check"
 import { createStorageContext } from "@/shared/storage/storage-context"
 import { readTextFromClipboard, writeTextToClipboard } from "@/utils/env"
 import { initialize, tearDown } from "./common"
@@ -30,6 +31,7 @@ import { addToCline } from "./core/controller/commands/addToCline"
 import { explainWithCline } from "./core/controller/commands/explainWithCline"
 import { fixWithCline } from "./core/controller/commands/fixWithCline"
 import { improveWithCline } from "./core/controller/commands/improveWithCline"
+import { hasWhatsNewNotes } from "./core/controller/state/getStateToPostToWebview"
 import { sendAddToInputEvent } from "./core/controller/ui/subscribeToAddToInput"
 import { sendShowWebviewEvent } from "./core/controller/ui/subscribeToShowWebview"
 import { HookDiscoveryCache } from "./core/hooks/HookDiscoveryCache"
@@ -46,7 +48,9 @@ import {
 	adoptRevivedChatPanel,
 	CHAT_PANEL_VIEW_TYPE,
 	enqueueReviveHydration,
+	isChatPanelTab,
 	openOrCreateChat,
+	registerChatTabCloseReconciler,
 	revealChatSurface,
 	revealChatSurfaceById,
 } from "./hosts/vscode/chatEditorPanel"
@@ -54,6 +58,7 @@ import { findMatchingNotebookCell, getContextForCommand, showWebview } from "./h
 import { abortCommitGeneration, generateCommitMsg } from "./hosts/vscode/commit-message-generator"
 import { setFilesColumnStore } from "./hosts/vscode/editorGroups"
 import { registerClineOutputChannel } from "./hosts/vscode/hostbridge/env/debugLog"
+import { recordLifecycleEvent } from "./hosts/vscode/lifecycle-table"
 import {
 	disposeVscodeCommentReviewController,
 	getVscodeCommentReviewController,
@@ -100,6 +105,11 @@ export async function activate(context: vscode.ExtensionContext) {
 	// IMPORTANT: Must be done after host provider is setup and migrations are complete
 	const webview = (await initialize(storageContext)) as VscodeWebviewProvider
 
+	// Cline Cubed: with VS Code's automatic extension updates off, offer the newer version by
+	// name and update in place on Yes. Not awaited — it asks the Marketplace over the network and
+	// must never hold up activation; every failure inside it is logged, never thrown.
+	void offerUpdateWhenAutoUpdateIsOff()
+
 	// Cline Cubed: purge the persisted onboarding flag. It is GLOBAL state, which reaches every
 	// chat surface and SURVIVES reinstalls — a stale true left in storage drove every open chat
 	// to the Get Started screen at once. Onboarding is a targeted per-surface message now; the
@@ -113,6 +123,63 @@ export async function activate(context: vscode.ExtensionContext) {
 	if ((webview.controller.stateManager.getGlobalSettingsKey("newChatLocation") as string) === "primarySidebar") {
 		webview.controller.stateManager.setGlobalState("newChatLocation", "editor")
 	}
+
+	// Cline Cubed: harness-only introspection. The debug harness attaches a CDP inspector to
+	// the extension host and drives assertions with Runtime.evaluate; this handle is what its
+	// expressions reach for — the live controller, and the real protobus handler map so a
+	// scenario can drive an RPC through the same handler code a webview request runs. IS_DEV
+	// only: a production build never defines it.
+	if (process.env.IS_DEV === "true") {
+		const { serviceHandlers } = await import("./generated/hosts/vscode/protobus-services")
+		;(globalThis as unknown as Record<string, unknown>).__clineCubedDebug = {
+			controller: webview.controller,
+			// The chat surface commands and code actions currently aim at, read directly, so a
+			// scenario asserts the routing decision itself rather than inferring it from where
+			// text happened to land.
+			activeChatSurface: () => getActiveChatSurface(),
+			// Drive a VS Code command by its exact ID — the palette's typed-name fuzziness made
+			// gesture rows unreliable (a mistyped title silently runs nothing, or worse,
+			// something else).
+			executeCommand: (id: string, ...args: unknown[]) => vscode.commands.executeCommand(id, ...args),
+			invokeRpc: (service: string, method: string, request: unknown) => {
+				const handler = serviceHandlers[service]?.[method]
+				if (typeof handler !== "function") {
+					throw new Error(`No RPC handler for ${service}.${method}`)
+				}
+				return handler(webview.controller, request)
+			},
+		}
+	}
+
+	// Cline Cubed: Stage B1 instrumentation (IS_DEV only) — record what the tabs API reports
+	// for CHAT tabs, alongside the lifecycle handlers' own events, so the close-gesture
+	// reality table can be read straight off `lifecycle-table.jsonl`.
+	if (process.env.IS_DEV === "true") {
+		context.subscriptions.push(
+			vscode.window.tabGroups.onDidChangeTabs((e) => {
+				for (const [kind, tabs] of [
+					["opened", e.opened],
+					["closed", e.closed],
+					["changed", e.changed],
+				] as const) {
+					for (const tab of tabs) {
+						if (isChatPanelTab(tab)) {
+							recordLifecycleEvent(`tabsApi.${kind}`, {
+								label: tab.label,
+								group: tab.group.viewColumn,
+								isActive: tab.isActive,
+							})
+						}
+					}
+				}
+			}),
+		)
+	}
+
+	// Cline Cubed: closing a chat's tab (the tab's X, a group's Close All) ENDS the chat —
+	// enforced from the tabs API's closed reports, because the panel dispose event does not
+	// arrive for real tab closes (see registerChatTabCloseReconciler's docblock).
+	context.subscriptions.push(registerChatTabCloseReconciler())
 
 	// 5. Register services and commands specific to VS Code
 	// Initialize hook discovery cache for performance optimization
@@ -313,25 +380,62 @@ export async function activate(context: vscode.ExtensionContext) {
 			surface?.postMessage({ type: "showOnboarding" })
 		}),
 	)
+	// Cline Cubed: the chat view's toolbar commands, run from the palette. Each lands in the chat
+	// the user is working in, on the same rule as FocusChatInput below: bring the working surface
+	// into view — or, with none known, the configured location — and send to the surface that was
+	// actually revealed. So a palette command always has somewhere to land, and it is the same
+	// somewhere a code action would choose.
+	const revealWorkingChat = async (): Promise<string | undefined> => {
+		const { surfaceId } = await revealChatSurfaceById(
+			context,
+			webview,
+			getActiveChatSurface(),
+			webview.controller.stateManager.getGlobalSettingsKey("newChatLocation"),
+		)
+		return surfaceId
+	}
 	context.subscriptions.push(
-		vscode.commands.registerCommand(commands.McpButton, () => sendMcpButtonClickedEvent(getActiveChatSurface())),
+		vscode.commands.registerCommand(commands.McpButton, async () => sendMcpButtonClickedEvent(await revealWorkingChat())),
 	)
 	context.subscriptions.push(
-		vscode.commands.registerCommand(commands.MarketplaceButton, () =>
-			sendMarketplaceButtonClickedEvent(getActiveChatSurface()),
+		vscode.commands.registerCommand(commands.MarketplaceButton, async () =>
+			sendMarketplaceButtonClickedEvent(await revealWorkingChat()),
 		),
 	)
 	context.subscriptions.push(
-		vscode.commands.registerCommand(commands.SettingsButton, () => sendSettingsButtonClickedEvent(getActiveChatSurface())),
+		vscode.commands.registerCommand(commands.SettingsButton, async () =>
+			sendSettingsButtonClickedEvent(await revealWorkingChat()),
+		),
+	)
+	// Cline Cubed: "What's New" on demand. The notes open exactly as they do after an update —
+	// the recorded id is cleared and the state pushed, so the modal opens in the working chat
+	// view, and closing it records the id again. A build without packaged notes says so instead
+	// of opening nothing.
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.ShowWhatsNew, async () => {
+			if (!hasWhatsNewNotes()) {
+				vscode.window.showInformationMessage("This build carries no What's New notes.")
+				return
+			}
+			webview.controller.stateManager.setGlobalState("lastShownAnnouncementId", "")
+			await revealWorkingChat()
+			await webview.controller.postStateToWebview()
+		}),
 	)
 	context.subscriptions.push(
-		vscode.commands.registerCommand(commands.HistoryButton, () => sendHistoryButtonClickedEvent(getActiveChatSurface())),
+		vscode.commands.registerCommand(commands.HistoryButton, async () =>
+			sendHistoryButtonClickedEvent(await revealWorkingChat()),
+		),
 	)
 	context.subscriptions.push(
-		vscode.commands.registerCommand(commands.AccountButton, () => sendAccountButtonClickedEvent(getActiveChatSurface())),
+		vscode.commands.registerCommand(commands.AccountButton, async () =>
+			sendAccountButtonClickedEvent(await revealWorkingChat()),
+		),
 	)
 	context.subscriptions.push(
-		vscode.commands.registerCommand(commands.WorktreesButton, () => sendWorktreesButtonClickedEvent(getActiveChatSurface())),
+		vscode.commands.registerCommand(commands.WorktreesButton, async () =>
+			sendWorktreesButtonClickedEvent(await revealWorkingChat()),
+		),
 	)
 
 	context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(DIFF_VIEW_URI_SCHEME, diffContentProvider))
@@ -847,6 +951,7 @@ async function getBinaryLocation(name: string): Promise<string> {
 
 // This method is called when your extension is deactivated
 export async function deactivate() {
+	recordLifecycleEvent("extension.deactivate", {})
 	// Dispose Non-VSCode-specific services
 	try {
 		await tearDown()

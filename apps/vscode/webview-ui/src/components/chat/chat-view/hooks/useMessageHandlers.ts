@@ -13,8 +13,14 @@ import type { ChatState, MessageHandlers } from "../types/chatTypes"
  * Handles sending messages, button clicks, and task management
  */
 export function useMessageHandlers(messages: ClineMessage[], chatState: ChatState): MessageHandlers {
-	const { backgroundCommandRunning, turnState, getSurfaceBoundTaskId, setSurfaceBoundTaskId, showNewChatHomeLocally } =
-		useExtensionState()
+	const {
+		activeTaskId,
+		backgroundCommandRunning,
+		turnState,
+		getSurfaceBoundTaskId,
+		setSurfaceBoundTaskId,
+		showNewChatHomeLocally,
+	} = useExtensionState()
 
 	// Cline Cubed: stamp a chat-bound request with THIS surface's bound session so the host
 	// routes it to the right conversation (Claude Code's per-session model).
@@ -176,7 +182,24 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 					}
 				}
 
-				if (messages.length === 0) {
+				if (messages.length === 0 && getSurfaceBoundTaskId()) {
+					// Cline Cubed: this surface is BOUND to a chat whose transcript has not arrived yet —
+					// one just opened from the history list, or adopted into this surface a moment ago.
+					// Zero messages means "not loaded", never "does not exist": reply into the bound chat
+					// and let the host revive it. Starting a new chat here is how a person ends up in a
+					// different conversation from the one they opened, with the one they opened still in
+					// history and everything they were doing somewhere else.
+					await sendAskResponseWithPendingState(
+						AskResponseRequest.create({
+							responseType: "messageResponse",
+							text: messageToSend,
+							images,
+							files,
+						}),
+						{ showPendingMessage: true },
+					)
+					messageSent = true
+				} else if (messages.length === 0) {
 					const request = NewTaskRequest.create({
 						text: messageToSend,
 						images,
@@ -368,8 +391,11 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 		if (typeof closingSessionId === "string") {
 			await TaskServiceClient.closeTaskSession(StringRequest.create({ value: closingSessionId }))
 		} else if (window.__CLINE_CUBED_SURFACE_ID__ === undefined) {
-			// Single-chat hosts (no surface routing): closing means "clear the focused task".
-			await TaskServiceClient.clearTask(EmptyRequest.create({}))
+			// Single-chat hosts (no surface routing): closing means "clear the focused task",
+			// and the focused task is the only chat there is — so its id is sent explicitly.
+			// Sessions end only by named id; an id-less clearTask clears the view and ends
+			// nothing (no session action without a session id, 2026-08-31).
+			await TaskServiceClient.clearTask(StringRequest.create({ value: activeTaskId ?? "" }))
 		}
 		// Cline Cubed: a surface WITH a routing id but NO bound session is a Home, and closing a
 		// Home ends nothing — no RPC goes out. Bare clearTask here ended the ACTIVE session, so
@@ -380,6 +406,7 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 		setActiveQuote,
 		setPendingUserMessage,
 		setPendingResponse,
+		activeTaskId,
 		getSurfaceBoundTaskId,
 		showNewChatHomeLocally,
 	])

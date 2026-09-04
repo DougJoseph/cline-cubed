@@ -10,6 +10,13 @@ vi.mock("@/context/ClineAuthContext", () => ({
 	useClineAuth: () => mockAuth,
 }))
 
+// This component asks the extension state which chat its surface is bound to, so the answer rides
+// along on the askResponse it sends. Rendered without a provider there is nothing to ask, so the
+// render throws before any assertion is reached — a gap in this file, not in the component.
+vi.mock("@/context/ExtensionStateContext", () => ({
+	useExtensionState: () => ({ getSurfaceBoundTaskId: () => undefined }),
+}))
+
 const askResponseMock = vi.fn()
 vi.mock("@/services/grpc-client", () => ({
 	TaskServiceClient: {

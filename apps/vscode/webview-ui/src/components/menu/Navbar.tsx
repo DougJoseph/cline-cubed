@@ -14,6 +14,7 @@ export const Navbar = () => {
 		navigateToAccount,
 		navigateToMarketplace,
 		navigateToChat,
+		activeTaskId,
 		getSurfaceBoundTaskId,
 	} = useExtensionState()
 
@@ -31,17 +32,18 @@ export const Navbar = () => {
 							source: "navbar",
 						}),
 					).catch((error) => console.error("Failed to track new task click:", error))
-					// Cline Cubed: close only THIS surface's own chat, then navigate. Bare
-					// clearTask ends the ACTIVE session — with several chats open, a different
-					// chat entirely. A surface with a routing id but no bound session is a Home:
-					// nothing to close, so no RPC goes out. Bare clearTask survives only for
-					// single-chat hosts with no surface routing.
+					// Cline Cubed: close only THIS surface's own chat, then navigate. A surface
+					// with a routing id but no bound session is a Home: nothing to close, so no
+					// RPC goes out. Single-chat hosts (no surface routing) send their focused
+					// task's id — the only chat there is — because sessions end only by named
+					// id; an id-less clearTask clears the view and ends nothing (no session
+					// action without a session id, 2026-08-31).
 					const boundTaskId = getSurfaceBoundTaskId()
 					const closing =
 						typeof boundTaskId === "string"
 							? TaskServiceClient.closeTaskSession(StringRequest.create({ value: boundTaskId }))
 							: window.__CLINE_CUBED_SURFACE_ID__ === undefined
-								? TaskServiceClient.clearTask({})
+								? TaskServiceClient.clearTask(StringRequest.create({ value: activeTaskId ?? "" }))
 								: Promise.resolve()
 					closing
 						.catch((error) => {
@@ -79,7 +81,15 @@ export const Navbar = () => {
 				navigate: navigateToSettings,
 			},
 		],
-		[navigateToAccount, navigateToChat, navigateToHistory, navigateToMarketplace, navigateToSettings, getSurfaceBoundTaskId],
+		[
+			navigateToAccount,
+			navigateToChat,
+			navigateToHistory,
+			navigateToMarketplace,
+			navigateToSettings,
+			activeTaskId,
+			getSurfaceBoundTaskId,
+		],
 	)
 
 	return (

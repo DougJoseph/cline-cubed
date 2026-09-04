@@ -68,7 +68,7 @@ describe("SdkSessionLifecycle", () => {
 
 		// biome-ignore lint/suspicious/noExplicitAny: focused fake for lifecycle unit test
 		await lifecycle.startNewSession({} as any)
-		await lifecycle.endActiveSession("test")
+		await lifecycle.endSession("test", { sessionId: "session-1" })
 		// biome-ignore lint/suspicious/noExplicitAny: focused fake for lifecycle unit test
 		await lifecycle.startNewSession({} as any)
 
@@ -425,7 +425,7 @@ describe("SdkSessionLifecycle", () => {
 
 		// The follow-up resume path ends the idle session without awaiting the
 		// stop, then starts a new session reusing the taskId as the sessionId.
-		await lifecycle.endActiveSession("askResponse")
+		await lifecycle.endSession("askResponse", { sessionId: "task-1" })
 		const resumePromise = lifecycle.startNewSession({ config: { sessionId: "task-1" } } as unknown as StartInput)
 		await new Promise((resolve) => setTimeout(resolve, 0))
 

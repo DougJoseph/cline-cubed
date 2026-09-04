@@ -16,7 +16,7 @@ export function createClineAPI(sidebarController: Controller): ClineAPI {
 				apiConfiguration: sidebarController.stateManager.getApiConfiguration(),
 				providerConfigStore: sidebarController.getProviderConfigStore(),
 				mode: sidebarController.stateManager.getGlobalSettingsKey("mode"),
-				debugEnabled: sidebarController.stateManager.getGlobalSettingsKey("imageBridgeDebugEnabled"),
+				debugEnabled: sidebarController.stateManager.getGlobalSettingsKey("debugLoggingEnabled"),
 			})
 		} catch (error) {
 			Logger.warn("Image bridge interception skipped:", error)
@@ -27,8 +27,8 @@ export function createClineAPI(sidebarController: Controller): ClineAPI {
 	const api: ClineAPI = {
 		startNewTask: async (task?: string, images?: string[]) => {
 			// Cline Cubed: another extension starting a task must not end a chat the user has
-			// running — clear only the task view, never the active session.
-			await sidebarController.clearTask({ stopActiveSession: false })
+			// running — this view-only clear names no session, so it ends none by construction.
+			await sidebarController.clearTask({})
 			await sidebarController.postStateToWebview()
 
 			await sendChatButtonClickedEvent()

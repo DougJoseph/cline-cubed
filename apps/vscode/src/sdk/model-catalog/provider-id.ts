@@ -101,7 +101,14 @@ export function parseProviderId(raw: string): ProviderId {
 	const normalized = normalizeProviderId(raw)
 	if (normalized.length > 0 && !knownProviderIds.has(normalized) && !warnedUnknownProviderIds.has(normalized)) {
 		warnedUnknownProviderIds.add(normalized)
-		Logger.warn(`[model-catalog] Unknown provider id "${normalized}". Treating as a custom provider.`)
+		// Cline Cubed: gated on the master debug-logging switch. The SDK ships the models.dev
+		// roster, so on a normal launch ~160 ids have no first-class entry here and each writes
+		// a line — for the designed behaviour of every one of them. The cost is not the noise:
+		// it is that a genuine startup warning is invisible inside a 160-line flood. Left at
+		// warn level and worded as upstream wrote it; it simply waits for the switch.
+		if (Logger.isDebugEnabled()) {
+			Logger.warn(`[model-catalog] Unknown provider id "${normalized}". Treating as a custom provider.`)
+		}
 	}
 	return normalized as ProviderId
 }

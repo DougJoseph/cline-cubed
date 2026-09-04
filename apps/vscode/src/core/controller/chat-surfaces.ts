@@ -12,6 +12,8 @@
  * host-neutral (the fork's lint rule) and this is imported from there.
  */
 
+import { Logger } from "@/shared/services/Logger"
+
 /** surfaceId → the session that surface displays. `null` = a new chat (the home), no session yet. */
 const surfaceSessions = new Map<string, string | null>()
 
@@ -136,12 +138,67 @@ export function bindChatSurfaceToSession(surfaceId: string, sessionId: string | 
 		}
 	}
 	surfaceSessions.set(surfaceId, sessionId)
+	// A chat was just put HERE — by an open from the history list, an adopt into a sidebar, a
+	// new task binding its own panel. That is the person choosing where they are working, which
+	// focus and visibility events cannot see: a chat adopted into a sidebar that was already
+	// showing fires no visibility change at all. Releasing to null (eviction, close) claims nothing.
+	if (sessionId !== null) {
+		setActiveChatSurface(surfaceId)
+	}
 	notifySurfacesChanged()
 }
 
 /** The session a surface displays. `undefined` = the surface is not registered. */
 export function sessionForChatSurface(surfaceId: string): string | null | undefined {
 	return surfaceSessions.get(surfaceId)
+}
+
+/**
+ * Sessions whose conversation is being LOADED right now — a restore after a window reload, or
+ * a slow open from History. RECORDED by the thing that starts the load, never inferred: a
+ * failed proxy lookup cannot tell "loading" from "gone", so without this mark the state
+ * builder used to answer "empty chat" for a chat that was seconds from arriving (the
+ * title-then-Home reload bug, Doug 2026-08-31). A Set, so double-marking is harmless.
+ */
+const restoringSessions = new Set<string>()
+
+/** Record that a load is in flight for this session — called AT QUEUE TIME, before any webview
+ *  can ask, so there is no front-side race. */
+export function markSessionRestoring(sessionId: string): void {
+	restoringSessions.add(sessionId)
+}
+
+/** The load finished or failed — either way it is no longer in flight. */
+export function clearSessionRestoring(sessionId: string): void {
+	restoringSessions.delete(sessionId)
+}
+
+/** Is a load in flight for this session? Read by the state builder to give its third answer. */
+export function isSessionRestoring(sessionId: string): boolean {
+	return restoringSessions.has(sessionId)
+}
+
+/**
+ * Send the surface showing `sessionId` (if any) back to its Home, releasing the binding.
+ *
+ * The deletion counterpart of eviction: when a session is deleted, the surface rendering it
+ * must not keep showing a chat that no longer exists — typing there would silently start a
+ * NEW chat behind a dead transcript. Reuses the per-surface eviction notifier, which resets
+ * the webview's replica properly (panels also release their task claim first). A session
+ * shown nowhere is a no-op.
+ */
+export function evictSessionFromItsSurface(sessionId: string): void {
+	let changed = false
+	for (const [surfaceId, boundSession] of surfaceSessions) {
+		if (boundSession === sessionId) {
+			surfaceSessions.set(surfaceId, null)
+			evictionNotifiers.get(surfaceId)?.()
+			changed = true
+		}
+	}
+	if (changed) {
+		notifySurfacesChanged()
+	}
 }
 
 /** The surface currently showing a session, if any. */
@@ -228,18 +285,31 @@ export function clearActiveChatSurface(surfaceId: string): void {
 /**
  * Should this subscription receive an event aimed at `targetSurfaceId`?
  *
- * `undefined` target = the event is genuinely global (workspace-wide data), so everyone gets it.
- * An untagged stream has no surface identity and always receives events.
+ * Only when the target is known, the stream is tagged, and the two agree. Every event that asks
+ * this question is a per-chat gesture — a focus, an insert, a navigation button — so there is no
+ * reading in which "no target" means "all of them": one person's Add to Chat arriving in every
+ * open chat is the worst answer available. Genuinely workspace-wide data never comes through
+ * here; its senders take no target and ask no question.
  */
 export function streamIsTargeted(stream: object, targetSurfaceId: string | undefined): boolean {
 	if (targetSurfaceId === undefined) {
+		return false
+	}
+	return streamSurfaces.get(stream) === targetSurfaceId
+}
+
+/**
+ * Whether a per-chat event may be sent at all. Called once per send, before the per-stream
+ * filter: an event with no target reaches nobody, and the fact is recorded at ERROR — this is a
+ * real failure of routing, never debug noise — so it shows up as a missing insert or focus with a
+ * line in the log naming it, rather than as the same text in every chat.
+ */
+export function requireTargetSurface(eventName: string, targetSurfaceId: string | undefined): targetSurfaceId is string {
+	if (targetSurfaceId !== undefined) {
 		return true
 	}
-	const surfaceId = streamSurfaces.get(stream)
-	if (surfaceId === undefined) {
-		return true
-	}
-	return surfaceId === targetSurfaceId
+	Logger.error(`[chat-surfaces] ${eventName} has no target surface; delivered to nobody`)
+	return false
 }
 
 /** Test seam — drops all registrations. */

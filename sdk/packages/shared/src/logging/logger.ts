@@ -35,6 +35,12 @@ export interface BasicLogger {
 		message: string,
 		metadata?: BasicLogMetadata & { error?: unknown },
 	) => void;
+	/**
+	 * LOCAL PATCH (2026-09-03): whether `debug` will actually emit, so a caller that suppresses
+	 * repeats of an unchanged line can tell a printed line from a dropped one. Optional: a host
+	 * that does not implement it is treated as emitting.
+	 */
+	isDebugEnabled?: () => boolean;
 }
 
 /** All levels implemented as no-ops; safe default when no logger is injected. */

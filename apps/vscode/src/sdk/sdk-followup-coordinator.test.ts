@@ -320,7 +320,10 @@ describe("SdkFollowupCoordinator", () => {
 		await coordinator.askResponse("continue")
 
 		expect(replacementTask.taskId).toBe("task-2")
-		expect(options.sessions.endActiveSession).toHaveBeenCalledWith("followupTargetChanged", { awaitStop: true })
+		expect(options.sessions.endSession).toHaveBeenCalledWith("followupTargetChanged", {
+			awaitStop: true,
+			sessionId: "resumed-session",
+		})
 		expect(options.sessions.fireAndForgetSend).not.toHaveBeenCalled()
 		// askResponse pre-set the streaming phase; abandoning must settle it.
 		expect(options.onFollowUpAbandoned).toHaveBeenCalledOnce()
@@ -703,7 +706,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 				startResult: { sessionId: "resumed-session" },
 				sdkHost: { send: vi.fn() },
 			}),
-			endActiveSession: vi.fn().mockResolvedValue(undefined),
+			endSession: vi.fn().mockResolvedValue(undefined),
 		},
 		messages: {
 			appendAndEmit: vi.fn(),
@@ -743,7 +746,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 			setRunning: ReturnType<typeof vi.fn>
 			fireAndForgetSend: ReturnType<typeof vi.fn>
 			startNewSession: ReturnType<typeof vi.fn>
-			endActiveSession: ReturnType<typeof vi.fn>
+			endSession: ReturnType<typeof vi.fn>
 		}
 		messages: SdkFollowupCoordinatorOptions["messages"] & {
 			appendAndEmit: ReturnType<typeof vi.fn>

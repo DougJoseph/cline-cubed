@@ -2,7 +2,7 @@
 	"name": "cline-cubed",
 	"displayName": "Cline Cubed",
 	"description": "A Cline fork running multiple coding chats at once, each with its own conversation, plus image understanding for text-only models — with your permission every step of the way.",
-	"version": "4.1.22",
+	"version": "4.1.23",
 	"icon": "assets/icons/icon.png",
 	"engines": {
 		"vscode": "^1.106.0"
@@ -147,7 +147,8 @@
 		"commands": [
 			{
 				"command": "cline.plusButtonClicked",
-				"title": "New Task",
+				"title": "New Chat",
+				"category": "Cline Cubed",
 				"icon": "$(add)"
 			},
 			{
@@ -179,7 +180,7 @@
 			},
 			{
 				"command": "cline.chatsListMarketplace",
-				"title": "Customize",
+				"title": "Marketplace",
 				"icon": "$(wrench)"
 			},
 			{
@@ -200,26 +201,31 @@
 			{
 				"command": "cline.mcpButtonClicked",
 				"title": "MCP Servers",
+				"category": "Cline Cubed",
 				"icon": "$(server)"
 			},
 			{
 				"command": "cline.marketplaceButtonClicked",
-				"title": "Customize",
+				"title": "Marketplace",
+				"category": "Cline Cubed",
 				"icon": "$(wrench)"
 			},
 			{
 				"command": "cline.historyButtonClicked",
 				"title": "History",
+				"category": "Cline Cubed",
 				"icon": "$(history)"
 			},
 			{
 				"command": "cline.accountButtonClicked",
 				"title": "Account",
+				"category": "Cline Cubed",
 				"icon": "$(account)"
 			},
 			{
 				"command": "cline.settingsButtonClicked",
 				"title": "Settings",
+				"category": "Cline Cubed",
 				"icon": "$(settings-gear)"
 			},
 			{
@@ -247,6 +253,11 @@
 			{
 				"command": "cline.focusChatInput",
 				"title": "Jump to Chat Input",
+				"category": "Cline Cubed"
+			},
+			{
+				"command": "cline.showWhatsNew",
+				"title": "What's New",
 				"category": "Cline Cubed"
 			},
 			{
@@ -468,7 +479,7 @@
 		"watch": "bun run --parallel watch:esbuild watch:tsc",
 		"watch:esbuild": "bun esbuild.mjs --watch",
 		"watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-		"package": "bun run check-types && bun run build:webview && bun run lint && bun esbuild.mjs --production",
+		"package": "bun scripts/changelog-into-package.mjs && bun run check-types && bun run build:webview && bun run lint && bun esbuild.mjs --production",
 		"protos": "node scripts/build-proto.mjs",
 		"protos-python": "node scripts/build-python-proto.mjs",
 		"download-ripgrep": "node scripts/download-ripgrep.mjs",
@@ -494,7 +505,7 @@
 		"pretest": "bun run compile && bun run compile-tests && bun run compile-standalone && bun run lint",
 		"test": "bun run test:unit && bun run test:integration",
 		"test:integration": "bun run compile-tests && vscode-test",
-		"test:unit": "bun scripts/run-bun-unit-tests.ts && bun run test:vitest",
+		"test:unit": "bun scripts/run-bun-unit-tests.ts && bun run test:vitest && bun run test:webview",
 		"test:vitest": "vitest run --config vitest.config.ts",
 		"test:vitest:watch": "vitest --config vitest.config.ts",
 		"test:bun": "bun scripts/run-bun-tests.ts",

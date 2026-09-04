@@ -32,7 +32,11 @@ interface TaskHeaderProps {
 	onSendMessage?: (command: string, files: string[], images: string[]) => void
 }
 
-const BUTTON_CLASS = "max-h-3 border-0 font-bold bg-transparent hover:opacity-100 text-foreground"
+// These buttons hold ICONS and no text, so `font-bold` (here in stock Cline) changed nothing on
+// screen — its only effect was on the clipboard: a serializer reading the copied HTML saw a bold
+// run with nothing inside it and emitted a stray, unclosed `**` before each turn, which is what
+// showed up in pasted chats (Doug, 2026-08-30; element identified in the live DOM 2026-08-31).
+const BUTTON_CLASS = "max-h-3 border-0 bg-transparent hover:opacity-100 text-foreground"
 
 const TaskHeader: React.FC<TaskHeaderProps> = ({
 	task,

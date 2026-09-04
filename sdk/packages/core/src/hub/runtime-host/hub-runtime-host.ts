@@ -1365,6 +1365,13 @@ export class HubRuntimeHost implements RuntimeHost {
 			prompt?: string | null;
 			metadata?: Record<string, unknown> | null;
 			title?: string | null;
+			/**
+			 * LOCAL PATCH (2026-09-02): accepted so this host satisfies the interface, but it
+			 * cannot be honoured here — `session.update` carries metadata only, and the hub
+			 * stamps the date at its own end. A hub-backed session therefore still moves in the
+			 * list when it is renamed. See `preserveUpdatedAt` in types/session.ts.
+			 */
+			preserveUpdatedAt?: boolean;
 		},
 	): Promise<{ updated: boolean }> {
 		const metadata: Record<string, unknown> = {

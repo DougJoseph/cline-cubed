@@ -229,6 +229,8 @@ export class UnifiedSessionPersistenceService {
 		prompt?: string | null;
 		metadata?: Record<string, unknown> | null;
 		title?: string | null;
+		/** LOCAL PATCH (2026-09-02): see `preserveUpdatedAt` in types/session.ts. */
+		preserveUpdatedAt?: boolean;
 	}): Promise<{ updated: boolean }> {
 		for (let attempt = 0; attempt < OCC_MAX_RETRIES; attempt++) {
 			const row = await this.adapter.getSession(input.sessionId);
@@ -271,6 +273,7 @@ export class UnifiedSessionPersistenceService {
 					: undefined,
 				title: nextTitle,
 				expectedStatusLock: row.statusLock,
+				preserveUpdatedAt: input.preserveUpdatedAt,
 			});
 			if (!changed.updated) continue;
 

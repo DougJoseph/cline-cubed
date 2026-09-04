@@ -4,18 +4,55 @@
 // This allows the SdkController to reuse the classic state-building logic
 // without inheriting the entire classic Controller implementation.
 
+import * as fs from "node:fs"
+import * as path from "node:path"
 import { isModelToolEnabledGlobally, readCompactionStrategyGlobally } from "@cline/core"
-import { getBridgeDebugLines, isLastBridgeCallFailed } from "@core/bridge/bridgeDebug"
+import { getBridgeDebugRuns } from "@core/bridge/bridgeDebug"
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import type { ExtensionState, Platform } from "@shared/ExtensionMessage"
 import { ClineEnv } from "@/config"
+import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
 import { BannerService } from "@/services/banner/BannerService"
 import { featureFlagsService } from "@/services/feature-flags"
 import { getDistinctId } from "@/services/logging/distinctId"
 import { getExtensionVariant } from "@/services/telemetry/rollout-metadata"
+import { Logger } from "@/shared/services/Logger"
 import { getLatestAnnouncementId } from "@/utils/announcements"
 import { getClineOnboardingModels } from "../models/getClineOnboardingModels"
+
+/**
+ * Cline Cubed: the What's New notes for the running version, read once from the package's
+ * `whats-new.md` (written at package time by `scripts/changelog-into-package.mjs`). The state is
+ * rebuilt often, so the file is read on the first request and the result — including an empty
+ * result for a missing file — is kept for the life of the process. A missing file is logged as an
+ * error: a packaged build always carries it, and a development host never does.
+ */
+let whatsNewNotesCache: string | undefined
+
+function readWhatsNewNotes(): string {
+	if (whatsNewNotesCache !== undefined) {
+		return whatsNewNotesCache
+	}
+	try {
+		const file = path.join(HostProvider.get().extensionFsPath, "whats-new.md")
+		try {
+			whatsNewNotesCache = fs.readFileSync(file, "utf8")
+		} catch (error) {
+			Logger.error(`What's New notes are not readable at ${file}:`, error)
+			whatsNewNotesCache = ""
+		}
+	} catch (error) {
+		Logger.error("What's New notes could not be located — the host provider is not set up:", error)
+		whatsNewNotesCache = ""
+	}
+	return whatsNewNotesCache
+}
+
+/** Whether this build carries What's New notes at all — a development host never does. */
+export function hasWhatsNewNotes(): boolean {
+	return readWhatsNewNotes().length > 0
+}
 
 /**
  * Builds the ExtensionState object to push to the webview.
@@ -58,9 +95,10 @@ export async function getStateToPostToWebview(controller: {
 	const telemetrySetting = stateManager.getGlobalSettingsKey("telemetrySetting")
 	const planActSeparateModelsSetting = stateManager.getGlobalSettingsKey("planActSeparateModelsSetting")
 	const enableCheckpointsSetting = stateManager.getGlobalSettingsKey("enableCheckpointsSetting")
-	// Cline Cubed: image-bridge debug toggle + recent bridge call lines (the
-	// in-memory buffer; the webview shows them inline next to the bridge block).
-	const imageBridgeDebugEnabled = stateManager.getGlobalSettingsKey("imageBridgeDebugEnabled")
+	// Cline Cubed: the master debug-logging switch, plus the retained bridge
+	// interception runs (the in-memory buffer; the webview shows a message's own
+	// run inline next to its bridge block, whether or not logging is on).
+	const debugLoggingEnabled = stateManager.getGlobalSettingsKey("debugLoggingEnabled")
 	const globalClineRulesToggles = stateManager.getGlobalStateKey("globalClineRulesToggles")
 	const globalWorkflowToggles = stateManager.getGlobalStateKey("globalWorkflowToggles")
 	const globalSkillsToggles = stateManager.getGlobalStateKey("globalSkillsToggles")
@@ -150,9 +188,9 @@ export async function getStateToPostToWebview(controller: {
 		telemetrySetting,
 		planActSeparateModelsSetting,
 		enableCheckpointsSetting: enableCheckpointsSetting ?? true,
-		// Cline Cubed: image-bridge debug state for the inline debug panel.
-		imageBridgeDebugEnabled,
-		imageBridgeDebug: { lines: getBridgeDebugLines(), lastFailed: isLastBridgeCallFailed() },
+		// Cline Cubed: master debug logging + the inline bridge debug panel's data.
+		debugLoggingEnabled,
+		imageBridgeDebug: getBridgeDebugRuns(),
 		platform,
 		environment,
 		distinctId,
@@ -206,6 +244,7 @@ export async function getStateToPostToWebview(controller: {
 		showFeatureTips,
 		banners,
 		welcomeBanners,
+		whatsNewNotes: readWhatsNewNotes(),
 		openAiCodexIsAuthenticated,
 	} as ExtensionState
 }

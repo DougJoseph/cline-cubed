@@ -1,6 +1,6 @@
 import type { EmptyRequest, String as ProtoString } from "@shared/proto/cline/common"
 import { Logger } from "@/shared/services/Logger"
-import { streamIsTargeted } from "../chat-surfaces"
+import { requireTargetSurface, streamIsTargeted } from "../chat-surfaces"
 import { getRequestRegistry, type StreamingResponseHandler } from "../grpc-handler"
 import type { Controller } from "../index"
 
@@ -39,6 +39,9 @@ export async function subscribeToAddToInput(
  * @param text The text to add to the input
  */
 export async function sendAddToInputEvent(text: string, targetSurfaceId?: string): Promise<void> {
+	if (!requireTargetSurface("addToInput", targetSurfaceId)) {
+		return
+	}
 	// Send the event to all active subscribers
 	const promises = Array.from(activeAddToInputSubscriptions).map(async (responseStream) => {
 		// Cline Cubed: a navigation event is aimed at ONE chat, not every open chat.

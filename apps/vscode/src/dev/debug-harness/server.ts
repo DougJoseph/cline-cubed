@@ -392,8 +392,20 @@ class DebugHarness {
 	 * starts — the only moment that works, since the extension reads its settings at activation.
 	 * It is how a scenario tests behaviour that depends on a SETTING (where new chats open, say)
 	 * rather than on what it clicks.
+	 *
+	 * `settings` writes VS Code settings (not the extension's) into the debugee's own fresh
+	 * profile before launch — e.g. `{"extensions.autoUpdate": false}` — the only place VS Code's
+	 * own behaviour can be set for a run without touching the developer's real settings.
 	 */
-	async launch(opts: { workspace?: string; skipBuild?: boolean; state?: Record<string, unknown> } = {}): Promise<any> {
+	async launch(
+		opts: {
+			workspace?: string
+			skipBuild?: boolean
+			state?: Record<string, unknown>
+			env?: Record<string, string>
+			settings?: Record<string, unknown>
+		} = {},
+	): Promise<any> {
 		if (this.app) return { status: "already_running" }
 
 		const workspace = opts.workspace || WORKSPACE_ARG || DEFAULT_WORKSPACE
@@ -465,6 +477,17 @@ class DebugHarness {
 		const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "cline-debug-profile-"))
 		log(`User data dir: ${userDataDir}`)
 
+		// Modal dialogs must render in the workbench DOM (`.monaco-dialog-box`), not as native
+		// OS dialogs — Playwright cannot click a native macOS dialog, and the delete flows
+		// confirm through one. Written into the fresh profile before launch, the only moment
+		// VS Code reads it.
+		const settingsDir = path.join(userDataDir, "User")
+		fs.mkdirSync(settingsDir, { recursive: true })
+		fs.writeFileSync(
+			path.join(settingsDir, "settings.json"),
+			JSON.stringify({ "window.dialogStyle": "custom", ...(opts.settings ?? {}) }, null, "\t"),
+		)
+
 		// Launch VSCode with Playwright
 		log("Launching VSCode...")
 		try {
@@ -502,6 +525,8 @@ class DebugHarness {
 					// ── Browser capture: intercept openExternal() for OAuth testing unless explicitly disabled ──
 					CLINE_CAPTURE_BROWSER: BROWSER_CAPTURE ? "1" : "0",
 					CLINE_DEBUG_HARNESS_PORT: String(PORT),
+					// Cline Cubed: scenario-supplied debugee env (e.g. the restore-delay seam).
+					...(opts.env ?? {}),
 				},
 				timeout: LAUNCH_TIMEOUT_MS,
 			})
@@ -554,6 +579,33 @@ class DebugHarness {
 		})
 
 		log("Extension host CDP connected")
+	}
+
+	/**
+	 * Cline Cubed: reload the debugee's window ("Developer: Reload Window") and re-attach.
+	 *
+	 * A reload kills the extension host (the inspector connection dies with it) and reloads the
+	 * renderer in place; the Electron process and Playwright's Page survive. Scenarios use this
+	 * to prove restore behavior — nothing could before, which is exactly how the
+	 * title-then-Home restore bug shipped: no scenario ever reloaded a window.
+	 */
+	async reloadWindow(): Promise<any> {
+		if (!this.page) throw new Error("VSCode not running")
+		// Drop our side of the dying host's inspector socket first, and forget cached frames —
+		// every frame handle is invalid after the reload.
+		try {
+			this.extCdp.close()
+		} catch {}
+		this.sidebarFrame = null
+		await this.uiCommandPalette({ command: "Developer: Reload Window" })
+		await sleep(3000)
+		try {
+			await this.page.waitForSelector(".monaco-workbench", { timeout: 30000 })
+		} catch {}
+		// The restarted extension host brings its inspector back up on the same port.
+		await this.connectExtensionCdp()
+		await sleep(1000)
+		return { status: "reloaded", extCdpConnected: this.extCdp.connected }
 	}
 
 	async connectWebview(): Promise<any> {
@@ -773,6 +825,12 @@ class DebugHarness {
 			// Skip the welcome view so a scenario's first action is opening a chat, not dismissing
 			// onboarding it did not ask for.
 			welcomeViewCompleted: true,
+			// Cline Cubed: where new chats open, reset to the product default on EVERY launch. This
+			// file is merged, not replaced, so without this a scenario that launched with
+			// `secondarySidebar` would leave it behind for every later scenario that did not say
+			// otherwise — and a scenario whose gestures are editor gestures would then find its
+			// chats in the sidebar. A scenario that wants another location overrides it below.
+			newChatLocation: "editor",
 		})
 		// A scenario's own overrides go on LAST, so it can change anything above — including a
 		// setting whose default this method just wrote.
@@ -997,6 +1055,9 @@ class DebugHarness {
 			expression: params.expression,
 			returnByValue: true,
 			generatePreview: true,
+			// A promise-returning expression resolves to its value instead of an opaque
+			// Promise handle; a plain value is unaffected.
+			awaitPromise: true,
 		})
 	}
 
@@ -1184,9 +1245,46 @@ class DebugHarness {
 		return { path: filePath, counter: this.screenshotCounter }
 	}
 
-	async uiClick(params: { selector: string; frame?: string; delay?: number }): Promise<void> {
+	/**
+	 * `timeout` is worth passing on anything that might not have settled yet. Without it
+	 * Playwright waits its own 30s default for the element to become visible/enabled/stable,
+	 * which silently eats a caller's whole retry budget on the FIRST attempt — a stuck click
+	 * then looks exactly like "the button was never there" (2026-08-31).
+	 */
+	/**
+	 * Cline Cubed: a REAL mouse drag on the workbench — press on one element, move in steps,
+	 * release over another. The only way to exercise dragging the docked chat between sidebars,
+	 * which is the entire reason the sidebar's 1.5-second close/move re-check exists. Steps
+	 * matter: VS Code's drop targets only light up on intermediate move events.
+	 */
+	async uiDrag(params: { from: string; to: string; steps?: number }): Promise<any> {
+		if (!this.page) throw new Error("VSCode not running")
+		const source = this.page.locator(params.from).first()
+		const target = this.page.locator(params.to).first()
+		await source.waitFor({ state: "visible", timeout: 10000 })
+		await target.waitFor({ state: "visible", timeout: 10000 })
+		const from = await source.boundingBox()
+		const to = await target.boundingBox()
+		if (!from || !to) throw new Error("drag endpoints have no bounding box")
+		const fx = from.x + from.width / 2
+		const fy = from.y + from.height / 2
+		const tx = to.x + to.width / 2
+		const ty = to.y + to.height / 2
+		await this.page.mouse.move(fx, fy)
+		await this.page.mouse.down()
+		const steps = params.steps ?? 25
+		for (let i = 1; i <= steps; i++) {
+			await this.page.mouse.move(fx + ((tx - fx) * i) / steps, fy + ((ty - fy) * i) / steps)
+			await sleep(20)
+		}
+		await sleep(300)
+		await this.page.mouse.up()
+		return { status: "dragged", from: { x: fx, y: fy }, to: { x: tx, y: ty } }
+	}
+
+	async uiClick(params: { selector: string; frame?: string; delay?: number; timeout?: number }): Promise<void> {
 		const target = await this.getTarget(params.frame)
-		await target.click(params.selector, { delay: params.delay })
+		await target.click(params.selector, { delay: params.delay, timeout: params.timeout })
 	}
 
 	async uiFill(params: { selector: string; text: string; frame?: string }): Promise<void> {
@@ -1744,6 +1842,8 @@ class DebugHarness {
 				return this.shutdown()
 			case "status":
 				return this.status()
+			case "reload_window":
+				return this.reloadWindow()
 			case "connect_webview":
 				return this.connectWebview()
 
@@ -1810,6 +1910,8 @@ class DebugHarness {
 				return this.uiScreenshot(params)
 			case "ui.sidebar_screenshot":
 				return this.uiSidebarScreenshot()
+			case "ui.drag":
+				return this.uiDrag(params)
 			case "ui.click":
 				return this.uiClick(params)
 			case "ui.fill":

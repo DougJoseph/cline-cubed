@@ -297,6 +297,12 @@ export class VscodeSessionHost implements SdkSessionHost {
 			prompt?: string | null
 			metadata?: Record<string, unknown> | null
 			title?: string | null
+			/**
+			 * Cline Cubed: this write is bookkeeping about the chat, not work in it, so the
+			 * chat's last-used date is left alone and the list does not reorder. Renaming and
+			 * favouriting set it. See `preserveUpdatedAt` in the SDK's types/session.ts.
+			 */
+			preserveUpdatedAt?: boolean
 		},
 	): Promise<{ updated: boolean }> {
 		return this.inner.update(sessionId, updates)

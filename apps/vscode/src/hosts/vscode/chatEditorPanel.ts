@@ -1,7 +1,8 @@
 import {
 	bindChatSurfaceToSession,
 	chatSurfaceForSession,
-	getActiveChatSurface,
+	clearSessionRestoring,
+	markSessionRestoring,
 	onChatTitleChanged,
 	registerChatSurface,
 	sessionForChatSurface,
@@ -10,6 +11,7 @@ import {
 	unregisterChatSurface,
 } from "@core/controller/chat-surfaces"
 import { mintSurfaceId } from "@core/webview/WebviewProvider"
+import { recordLifecycleEvent } from "@hosts/vscode/lifecycle-table"
 import { NewChatLocation } from "@shared/storage/types"
 import * as vscode from "vscode"
 import { handleGrpcRequest, handleGrpcRequestCancel } from "@/core/controller/grpc-handler"
@@ -72,6 +74,29 @@ let unboundChatPanel: vscode.WebviewPanel | undefined
 const panelTaskIds = new WeakMap<vscode.WebviewPanel, string>()
 /** Cline Cubed: each editor chat panel's routing id, so state/transcript are addressed to it. */
 const panelSurfaceIds = new WeakMap<vscode.WebviewPanel, string>()
+/** Cline Cubed: every wired, not-yet-disposed editor chat panel. The two maps above are WeakMaps
+ *  (deliberately — they must not keep dead panels alive), so this Set is the enumerable record the
+ *  tab-close reconciler walks to ask "whose tab is gone?". Entries leave in onDidDispose. */
+const liveChatPanels = new Set<vscode.WebviewPanel>()
+/** Cline Cubed: each chat panel's LAST KNOWN editor column. `WebviewPanel.viewColumn` is undefined
+ *  while a panel is not visible — and a panel whose tab just closed is never visible — so the
+ *  tab-close reconciler cannot read the column off the panel at the moment it needs it. Recorded
+ *  here whenever the host does report one (at wiring, and on every view-state change). */
+const panelColumns = new WeakMap<vscode.WebviewPanel, number>()
+/** Cline Cubed: each panel's own "this tab is done" routine (`endThisPanel` in `wireChatPanel`),
+ *  so the tab-close reconciler can run the SAME ending the dispose handler runs. It cannot go
+ *  through `dispose()` for that: on a tab's X and on Close All the host has already torn the panel
+ *  down without firing `onDidDispose`, so `dispose()` returns having done nothing. */
+const panelEnders = new WeakMap<vscode.WebviewPanel, (trigger: string) => void>()
+
+/** The column this panel is in, or was last seen in. See `panelColumns`. */
+function columnOfChatPanel(panel: vscode.WebviewPanel): number | undefined {
+	try {
+		return panel.viewColumn ?? panelColumns.get(panel)
+	} catch {
+		return panelColumns.get(panel)
+	}
+}
 
 /** Cline Cubed: the routing id of an editor chat panel. */
 export function surfaceIdForChatPanel(panel: vscode.WebviewPanel): string | undefined {
@@ -202,6 +227,10 @@ function wireChatPanel(
 	// shows the home; a task-bound panel boots already bound to its session.
 	const surfaceId = mintSurfaceId("editor-panel")
 	panelSurfaceIds.set(panel, surfaceId)
+	liveChatPanels.add(panel)
+	if (panel.viewColumn !== undefined) {
+		panelColumns.set(panel, panel.viewColumn)
+	}
 	registerChatSurface(surfaceId, taskId ?? null)
 	// If this tab's session is reopened elsewhere (evicted), clear the tab's task claim FIRST —
 	// otherwise focusing the tab would re-bind the session and steal it right back — then tell
@@ -251,6 +280,12 @@ function wireChatPanel(
 				}
 				break
 			}
+			case "surfaceFocused": {
+				// Cline Cubed: the person clicked into this tab. VS Code's view-state event covers
+				// the same ground for tabs; this keeps every surface on one rule.
+				setActiveChatSurface(surfaceId)
+				break
+			}
 			case "bindSurfaceSession": {
 				// Cline Cubed: this surface now shows that session — deliver its state and
 				// transcript here, and release any other surface that was claiming it.
@@ -292,9 +327,31 @@ function wireChatPanel(
 		}
 	})
 
-	panel.onDidDispose(() => {
+	// Cline Cubed: everything that must happen when this tab stops showing a chat, in ONE place,
+	// callable from either trigger. `onDidDispose` is the trigger for the closes the host does
+	// announce; the tab-close reconciler calls it for the ones it does not (a tab's X, a group's
+	// Close All — where the panel is torn down without the event, so `dispose()` is a no-op and
+	// nothing here would ever run). Idempotent by the `liveChatPanels` membership check, so
+	// whichever trigger arrives first does the work and a later one finds nothing to do.
+	const endThisPanel = (trigger: string): void => {
+		if (!liveChatPanels.has(panel)) {
+			return
+		}
+		recordLifecycleEvent("panel.disposed", {
+			surfaceId,
+			binding: sessionForChatSurface(surfaceId) ?? null,
+			title: (() => {
+				try {
+					return panel.title
+				} catch {
+					return undefined // a torn-down panel's own properties throw
+				}
+			})(),
+			trigger,
+		})
 		messageListener.dispose()
 		titleListener()
+		liveChatPanels.delete(panel)
 		// Cline Cubed: closing the tab is the user closing this chat — record the ending at the
 		// moment it happens, instead of leaving the session to linger unended until a teardown
 		// sweep invents a time for it. Captured BEFORE unregistering, then checked AFTER: if any
@@ -310,17 +367,39 @@ function wireChatPanel(
 		if (unboundChatPanel === panel) {
 			unboundChatPanel = undefined
 		}
+		const otherSurfaceClaims = typeof closingSessionId === "string" && chatSurfaceForSession(closingSessionId) !== undefined
+		recordLifecycleEvent("panel.disposed.verdict", {
+			surfaceId,
+			binding: closingSessionId ?? null,
+			verdict:
+				typeof closingSessionId !== "string"
+					? "no-binding (nothing to end)"
+					: otherSurfaceClaims
+						? "moved (another surface claims it)"
+						: "ENDING the chat",
+		})
 		if (typeof closingSessionId === "string" && chatSurfaceForSession(closingSessionId) === undefined) {
 			provider.controller.closeSession(closingSessionId).catch((error) => {
 				Logger.error(`Failed to end session ${closingSessionId} on tab close:`, error)
 			})
 		}
-	})
+	}
+	panelEnders.set(panel, endThisPanel)
+	panel.onDidDispose(() => endThisPanel("onDidDispose"))
 
 	// Cline Cubed: each editor tab renders its OWN session, because state and transcript are
 	// delivered per surface. Focusing a tab therefore only re-asserts that binding — it must not
 	// switch the shared controller's task, which would interrupt whichever chat is streaming.
 	panel.onDidChangeViewState(({ webviewPanel }) => {
+		if (webviewPanel.viewColumn !== undefined) {
+			panelColumns.set(webviewPanel, webviewPanel.viewColumn)
+		}
+		recordLifecycleEvent("panel.viewStateChanged", {
+			surfaceId: panelSurfaceIds.get(webviewPanel),
+			active: webviewPanel.active,
+			visible: webviewPanel.visible,
+			binding: panelTaskIds.get(webviewPanel) ?? null,
+		})
 		if (!webviewPanel.active) {
 			return
 		}
@@ -348,11 +427,30 @@ function wireChatPanel(
  */
 let reviveHydrationChain: Promise<void> = Promise.resolve()
 export function enqueueReviveHydration(sessionId: string, hydrate: () => Promise<unknown>): void {
+	// Cline Cubed: the mark is set HERE, synchronously at queue time — before any webview can
+	// ask for state — so a snapshot built while this chat waits its turn (or loads) answers
+	// "loading", never a fabricated empty chat. One site covers both revive callers (the
+	// sidebar restore in extension.ts and adoptRevivedChatPanel). Cleared when the load
+	// settles, success or failure — a failed restore falls back to the leave-alone answer and
+	// the failure is already logged below.
+	markSessionRestoring(sessionId)
+	// Harness-only test seam (IS_DEV): hold the restore open for a deterministic interval so a
+	// scenario can PROVE the mid-load behavior — the loading state showing instead of Home, and
+	// the completion update landing on a panel that subscribed during the load. A real large
+	// chat opens this window naturally (1,558 messages ≈ 3.9s, Doug's logs); the seam makes the
+	// window a fact of the test instead of a race. A production build never reads it.
+	const debugRestoreDelayMs =
+		process.env.IS_DEV === "true" ? Number(process.env.CLINE_CUBED_DEBUG_RESTORE_DELAY_MS ?? 0) || 0 : 0
 	reviveHydrationChain = reviveHydrationChain.then(async () => {
 		try {
+			if (debugRestoreDelayMs > 0) {
+				await new Promise((resolve) => setTimeout(resolve, debugRestoreDelayMs))
+			}
 			await hydrate()
 		} catch (error) {
 			Logger.error(`Failed to hydrate restored session ${sessionId}:`, error)
+		} finally {
+			clearSessionRestoring(sessionId)
 		}
 	})
 }
@@ -446,6 +544,140 @@ export function isChatPanelTab(tab: vscode.Tab): boolean {
 }
 
 /**
+ * Cline Cubed: closing a chat's editor tab must END the chat (Doug's ruling) — and the panel's
+ * own `onDidDispose` is not a signal that arrives for it. The recorded gesture runs (plan doc
+ * `2026-08-31_7.49pm…`, B1 amendment) show a tab's X and a group's Close All reported by the
+ * tabs API — once per closed tab, correct label — while the dispose handler stays silent, so the
+ * closed tab's chat runs on invisibly and the registry keeps claiming the dead tab.
+ *
+ * So the ending keys off the signal that provably fires. On every closed-chat-tab report,
+ * reconcile the panels this module tracks against the tabs that actually remain, and end each
+ * panel whose tab is gone by running that panel's OWN ending routine (`endThisPanel`) — the same
+ * one the dispose handler runs, so the bookkeeping, the moved-not-closed guard and the by-id
+ * session ending stay a single implementation.
+ *
+ * The ending must be called DIRECTLY. `dispose()` is not a route to it on these gestures: by the
+ * time the tab-closed report arrives the host has already torn the panel down, so the call
+ * returns having done nothing and the disposal event — which did not fire at close time — does
+ * not fire late either. It is still called first, for the case where the host has NOT torn the
+ * panel down; the ending is idempotent, so exactly one of the two paths does the work. If the
+ * host DID dispose the panel itself, it has already left `liveChatPanels` and there is nothing
+ * to reconcile.
+ *
+ * Matching is by (editor column, tab label) COUNTED against the tabs still present with the same
+ * identity — so a tab dragged between groups (closed+opened in one report, present in the final
+ * state) is accounted for and survives, as does a same-named tab that stays open. The count is the
+ * whole decision, and nothing may be added to it as a "safety".
+ *
+ * In particular, do NOT filter on `panel.visible`. Only two properties of a panel are trustworthy
+ * here: its title, and the column it was last seen in (`panelColumns`, since `viewColumn` reads
+ * undefined while a panel is hidden). Visibility is not: a panel whose tab has closed still
+ * reports `visible: true`, because the host never disposes it and so never updates its view
+ * state — a `!visible` requirement excludes precisely the panel the reconcile exists to find.
+ *
+ * The one residual ambiguity — identically-labeled chat tabs in the SAME column with only some of
+ * them closed — is refused and logged rather than guessed at: ending the wrong twin's chat would
+ * be worse than the lingering one, and the corner needs two identically-named chats side by side.
+ *
+ * Shutdown cannot misfire this: window reload and window close deliver no tab-closed reports at
+ * all (observed fact, same amendment) — only `deactivate` runs.
+ */
+export function registerChatTabCloseReconciler(): vscode.Disposable {
+	return vscode.window.tabGroups.onDidChangeTabs((event) => {
+		const closedChatTabs = event.closed.filter(isChatPanelTab)
+		if (closedChatTabs.length === 0) {
+			return
+		}
+		// The chat tabs still open, counted by (column, label) — the event reports post-state.
+		const presentCounts = new Map<string, number>()
+		for (const group of vscode.window.tabGroups.all) {
+			for (const tab of group.tabs) {
+				if (isChatPanelTab(tab)) {
+					const key = `${group.viewColumn} ${tab.label}`
+					presentCounts.set(key, (presentCounts.get(key) ?? 0) + 1)
+				}
+			}
+		}
+		const closedKeys = new Set(closedChatTabs.map((tab) => `${tab.group.viewColumn} ${tab.label}`))
+		for (const key of closedKeys) {
+			const sep = key.indexOf(" ")
+			const column = Number(key.slice(0, sep))
+			const label = key.slice(sep + 1)
+			// Every tracked panel, as the host describes it AT THIS MOMENT — recorded whole, so a
+			// reconcile that ends nothing says which predicate declined rather than falling silent.
+			// Without this, a mismatch between what the host reports and what this code expects is
+			// indistinguishable from "there was nothing to do".
+			const tracked = [...liveChatPanels].map((panel) => {
+				try {
+					return {
+						panel,
+						surfaceId: panelSurfaceIds.get(panel),
+						title: panel.title,
+						column: columnOfChatPanel(panel),
+						visible: panel.visible,
+					}
+				} catch {
+					// A panel torn down mid-enumeration has nothing left to reconcile.
+					return { panel, surfaceId: panelSurfaceIds.get(panel), title: undefined, column: undefined, visible: true }
+				}
+			})
+			recordLifecycleEvent("tabsApi.reconcile.scan", {
+				label,
+				column,
+				present: presentCounts.get(key) ?? 0,
+				tracked: tracked.map(({ surfaceId, title, column: col, visible }) => ({
+					surfaceId,
+					title,
+					column: col,
+					visible,
+				})),
+			})
+			const candidates = tracked
+				.filter((entry) => entry.title === label && entry.column === column)
+				.map((entry) => entry.panel)
+			const present = presentCounts.get(key) ?? 0
+			const missing = candidates.length - present
+			if (missing <= 0) {
+				continue // every tracked panel with this identity still has an open tab
+			}
+			if (missing < candidates.length) {
+				// Some identically-labeled same-column tabs remain: which panel lost ITS tab is
+				// not knowable from what the host reports. Refuse to guess, and say so.
+				Logger.warn(
+					`A chat tab labeled "${label}" closed in column ${column}, but ${present} identical tab(s) remain for ${candidates.length} tracked chats — cannot tell which chat was closed; none ended.`,
+				)
+				recordLifecycleEvent("tabsApi.reconcile.ambiguous", {
+					label,
+					column,
+					candidates: candidates.length,
+					present,
+				})
+				continue
+			}
+			for (const panel of candidates) {
+				recordLifecycleEvent("tabsApi.reconcile.disposing", {
+					surfaceId: panelSurfaceIds.get(panel),
+					binding: panelTaskIds.get(panel) ?? null,
+					label,
+					column,
+				})
+				// dispose() first, for the case where the host has NOT already torn this panel down
+				// (it then fires onDidDispose, which runs the ending and marks it done); then the
+				// ending directly, because on these gestures dispose() is a no-op and the event
+				// never comes. The ending is idempotent, so exactly one of the two does the work.
+				try {
+					panel.dispose()
+				} catch {
+					// Already torn down by the host — expected on these gestures, and the reason the
+					// ending below cannot be left to the disposal event.
+				}
+				panelEnders.get(panel)?.("tabClosed")
+			}
+		}
+	})
+}
+
+/**
  * Mirrors Claude's `createPanel` column choice: reuse a column that is already entirely
  * chat panels (group the chats together), else pick a column with no tabs (`findUnusedColumn`).
  */
@@ -480,25 +712,41 @@ export async function revealChatSurface(
 	location: NewChatLocation,
 	taskId?: string,
 ): Promise<ChatSurfaceHandle | undefined> {
-	return revealChatSurfaceInner(context, provider, location, taskId)
+	return (await revealChatSurfaceInner(context, provider, location, taskId)).handle
 }
 
+/**
+ * Reveal a surface at `location` and say WHICH surface that was. The id is known the moment the
+ * reveal is issued — a created panel's id, or the sidebar provider's own — so a caller that goes
+ * on to address that surface does not have to wait for VS Code's visibility or view-state events
+ * to mark it active, and does not read a stale answer if it asks before they have fired.
+ */
 async function revealChatSurfaceInner(
 	context: { extensionUri: vscode.Uri },
 	provider: VscodeWebviewProvider,
 	location: NewChatLocation,
 	taskId?: string,
-): Promise<ChatSurfaceHandle | undefined> {
+): Promise<{ handle: ChatSurfaceHandle | undefined; surfaceId: string | undefined }> {
 	switch (location) {
 		case "editor": {
 			const panel = openChatInEditorPanel(context, provider, taskId ? { taskId } : {})
-			return webviewHandle(panel.webview)
+			const surfaceId = panelSurfaceIds.get(panel)
+			// Revealing a surface makes it the one being worked in, whether the panel was just
+			// created (which already claims the slot) or an existing one was brought forward.
+			if (surfaceId) {
+				setActiveChatSurface(surfaceId)
+			}
+			return { handle: webviewHandle(panel.webview), surfaceId }
 		}
 		case "secondarySidebar":
 		default: {
 			await vscode.commands.executeCommand(`workbench.view.extension.${ExtensionRegistryInfo.views.ActivityBarSecondary}`)
 			provider.getWebview()?.show(true)
-			return webviewHandle(provider.getWebview()?.webview)
+			// Claimed here, synchronously — the sidebar's own claim rides its visibility event,
+			// which arrives later and not at all if the sidebar was already showing.
+			const surfaceId = provider.getSurfaceId()
+			setActiveChatSurface(surfaceId)
+			return { handle: webviewHandle(provider.getWebview()?.webview), surfaceId }
 		}
 	}
 }
@@ -656,21 +904,25 @@ export async function revealChatSurfaceById(
 		if (provider.getSurfaceId() === surfaceId) {
 			await vscode.commands.executeCommand(`workbench.view.extension.${ExtensionRegistryInfo.views.ActivityBarSecondary}`)
 			provider.getWebview()?.show(true)
+			setActiveChatSurface(surfaceId)
 			return { handle: webviewHandle(provider.getWebview()?.webview), surfaceId }
 		}
-		const panels = new Set<vscode.WebviewPanel>([...taskChatPanels.values()])
-		if (unboundChatPanel) {
-			panels.add(unboundChatPanel)
-		}
-		for (const panel of panels) {
+		// Every open panel is a candidate — including one that has gone back to the home after
+		// its chat closed or moved elsewhere. A person can be working in that tab (composing the
+		// next chat), so a command aimed at it must find it. `liveChatPanels` is the set every
+		// wired panel belongs to until it is disposed; the task map and the reserved empty-tab
+		// slot serve other purposes and do not hold every panel.
+		for (const panel of liveChatPanels) {
 			if (panelSurfaceIds.get(panel) === surfaceId) {
 				panel.reveal()
+				setActiveChatSurface(surfaceId)
 				return { handle: webviewHandle(panel.webview), surfaceId }
 			}
 		}
 	}
-	const handle = await revealChatSurfaceInner(context, provider, fallbackLocation)
-	return { handle, surfaceId: getActiveChatSurface() }
+	// No surface matched — reveal the configured location and address the surface that reveal
+	// actually opened, not whatever the active slot happens to hold afterwards.
+	return revealChatSurfaceInner(context, provider, fallbackLocation)
 }
 
 /**
@@ -683,8 +935,9 @@ export async function revealChatSurfaceById(
  * - A sidebar already showing a chat → a sidebar holds ONE chat at full height, so the new,
  *   independent chat opens as an editor tab beside it and the sidebar chat is left completely
  *   alone — still bound, still streaming, still visible. (Claude Code's shipped model: a
- *   capacity-1 docked chat plus unlimited editor chats.) An occupied-but-hidden sidebar
- *   overflows the same way without being forced open.
+ *   capacity-1 docked chat plus unlimited editor chats.)
+ * - A sidebar that is not on screen → reveal it. Closing the sidebar ENDS the chat it held, so
+ *   there is nothing to come back to: the sidebar returns on its home, ready for a first prompt.
  */
 export async function openOrCreateChat(
 	context: { extensionUri: vscode.Uri },
@@ -695,9 +948,9 @@ export async function openOrCreateChat(
 		// ONE question, asked of the window itself: is the sidebar chat on screen right now?
 		//
 		//   NOT on screen — never opened, its view disposed, the bar closed, or another view in
-		//   front of it → REVEAL it. If it holds a chat the user gets that chat back (a hidden
-		//   chat is shown, never skipped past); if it is empty they get its New Chat home, ready
-		//   for a first prompt. Either way the press produces something visible.
+		//   front of it → REVEAL it, and it comes back on its home. Closing the sidebar ends the
+		//   chat it held (Doug: close means close), so there is no old chat left to be handed
+		//   back by a press that says New Chat.
 		//
 		//   ON screen — showing its home OR an active chat → the sidebar's one slot is in use, so
 		//   a NEW chat opens as an editor tab beside it.

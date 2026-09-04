@@ -47,20 +47,46 @@ export class ClineFileStorage<T = any> extends ClineSyncStorage<T> {
 	 * Set multiple keys in a single write operation.
 	 * More efficient than calling set() for each key individually,
 	 * since it only writes to disk once.
+	 *
+	 * Cline Cubed: the changed keys are applied onto the file's CURRENT contents, re-read here,
+	 * rather than onto the copy this instance loaded at construction.
+	 *
+	 * Every process using this file has its own instance, and an instance's `data` is a snapshot
+	 * of the moment it was constructed. Writing that snapshot back — which is what serialising
+	 * `this.data` does — restores it over the file, erasing every key anything else has changed
+	 * since. Each VS Code window runs its own extension host with its own instance over the same
+	 * `globalState.json`, and ordinary startup writes (a version stamp, a distinct-id update) are
+	 * enough to fire it, so a window that has been open a while can silently undo settings changed
+	 * in another one.
+	 *
+	 * Re-reading makes last-writer-wins apply per KEY instead of per FILE: an instance can only
+	 * overwrite what it actually changed, never keys it has never heard of. The cost is one
+	 * synchronous read of a small JSON file on a path that already writes synchronously, and
+	 * `StateManager` debounces callers, so it is not per keystroke.
+	 *
+	 * This does NOT make instances agree with each other — a second window still shows its own
+	 * cached values until it restarts, which `StateManager` documents as deliberate. It stops that
+	 * staleness from destroying data.
 	 */
 	public setBatch(entries: Record<string, T | undefined>): Thenable<void> {
+		const onDisk = this.readFromDisk()
 		const changedKeys: string[] = []
 		for (const [key, value] of Object.entries(entries)) {
 			if (value === undefined) {
-				if (key in this.data) {
-					delete this.data[key]
+				// Report the delete as a change if EITHER view still holds the key: this instance's
+				// listeners care about its own view, and the file is what has to end up without it.
+				if (key in onDisk || key in this.data) {
 					changedKeys.push(key)
 				}
+				delete onDisk[key]
 			} else {
-				this.data[key] = value
+				onDisk[key] = value
 				changedKeys.push(key)
 			}
 		}
+		// The merged result becomes this instance's view — its own writes are reflected, and it
+		// picks up whatever else the file gained. Reads between writes stay in memory as before.
+		this.data = onDisk
 		if (changedKeys.length > 0) {
 			this.writeToDisk()
 			for (const key of changedKeys) {

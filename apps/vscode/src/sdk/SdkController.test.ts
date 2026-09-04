@@ -124,7 +124,7 @@ describe("SDK remote-config coordination", () => {
 			}),
 			sessions: {
 				getLiveSessionIds: vi.fn(() => ["session-a", "session-b"]),
-				endActiveSession: vi.fn(async (_reason: string, options: { sessionId?: string }) => {
+				endSession: vi.fn(async (_reason: string, options: { sessionId: string }) => {
 					events.push(`end:${options.sessionId}`)
 				}),
 			},
@@ -134,11 +134,11 @@ describe("SDK remote-config coordination", () => {
 		await SdkController.prototype.rematerializeRemoteConfig.call(controller as never)
 
 		expect(events).toEqual(["refresh", "end:session-a", "end:session-b", "post"])
-		expect(controller.sessions.endActiveSession).toHaveBeenCalledWith("remoteConfigToggle", {
+		expect(controller.sessions.endSession).toHaveBeenCalledWith("remoteConfigToggle", {
 			awaitStop: true,
 			sessionId: "session-a",
 		})
-		expect(controller.sessions.endActiveSession).toHaveBeenCalledWith("remoteConfigToggle", {
+		expect(controller.sessions.endSession).toHaveBeenCalledWith("remoteConfigToggle", {
 			awaitStop: true,
 			sessionId: "session-b",
 		})

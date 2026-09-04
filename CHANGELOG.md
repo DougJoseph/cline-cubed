@@ -1,5 +1,116 @@
 # Changelog
 
+## [4.1.23]
+
+**After this update, restart VS Code — or reload every open window — and then look over your
+Cline Cubed settings (gear icon below every chat).** Every VS Code window runs its own copy of
+each extension, and a window that has not been reloaded since an update is still running the
+build it started with; nothing an extension ships can reach into a window to change that. Until
+every window is on 4.1.23, one still on the older build can save your settings as that build
+understood them, over what you set from the new one. A restart, or a reload of each window, puts
+them all on 4.1.23, and from then on what you save stays saved.
+
+### Added
+
+- **One switch for debug logging, and it is off.** Settings → General → **Debug logging** turns
+  diagnostic output for the whole extension on and off at runtime — no special build required.
+  Left alone, the output channel stays quiet: what used to stream constantly (provider reads,
+  per-chunk agent events, session and compaction diagnostics) now only appears when you ask for
+  it. Errors and warnings are never gated by it, so a real failure still reports itself either
+  way. The image bridge's own per-call logging is part of this switch instead of having a
+  separate one, a failed bridge call still shows its recent calls inline in the chat, and a
+  diagnostic line that used to repeat about 150 times per action now prints once, when it
+  changes.
+
+- **Commands land in the chat you are working in, and the palette says whose they are.** Tap
+  into a chat — click its prompt box — and it becomes the one your commands reach: Jump to Chat
+  Input, Settings, History, MCP Servers, Marketplace, Account and New Chat all arrive there, or,
+  with no chat tapped, in the location you have chosen. In the Command Palette the toolbar
+  commands now carry the "Cline Cubed" prefix, so "Cline Cubed: Settings" is never mistaken for
+  VS Code's own. Three are renamed to say what they do: **New Chat** (was New Task),
+  **Marketplace** (was Customize — in the palette and on the Chats list's wrench), and the X that
+  closes a chat reads **Close Chat** (was Start a New Task).
+
+- **In the Chats list, the name opens the chat and the pencil renames it.** Clicking a chat's
+  name used to start a rename; now it opens the chat, as the row invites, and the pencil beside
+  it renames. A row's icons — details, favorite, delete — sit level with its title.
+
+- **The image-bridge debug panel shows each message's own calls.** With Debug logging on, the
+  panel under a message keeps that message's bridge calls even after later messages are sent; a
+  failed call shows its failure line and time; and an empty panel says no record is available
+  and points at the full log, rather than implying no call was made.
+
+- **Destructive actions tell you their reach before they act.** The delete confirmation now says
+  when a chat is open or running and exactly what will happen to it ("This chat is open and
+  currently running — deleting it will stop the run and close it"); "Delete Everything" says that
+  open chats will close and running ones stop; and resetting state — which used to fire on a
+  single click — now asks first, naming how many running chats it will stop.
+
+- **Updates are now announced, right in the chat.** After Cline Cubed updates, a notice names the
+  new version and the chat view opens **What's New** — this fork's own notes for that version,
+  shipped inside the extension, nothing fetched from anywhere. Every release gets its notice,
+  patch releases included; the notes stay due until you close them, so a reload never makes them
+  vanish unread; a first install shows nothing at all; and **Cline Cubed: What's New** in the
+  Command Palette brings the notes back any time. If you keep VS Code's automatic
+  extension updates off, Cline Cubed checks the Marketplace when it starts and asks — "A newer
+  version, Cline Cubed 4.1.24, is available. Would you like to update?" — **Yes** installs it in
+  place and offers a window reload; **Not now** waits for the next start. The fork's changelog
+  ships inside the extension as well, so the Marketplace's Changelog tab shows it.
+
+### Changed
+
+- **Cline Cubed identifies itself as "the multi-chat Cline fork."** Ask what it is and it answers
+  with the name the Marketplace uses, rather than the early "(image bridge)" descriptor from when
+  the image bridge was the whole of the fork. That descriptor lives in the extension's own system
+  prompt, so the answer comes from the harness rather than from a guess. The **Image Mode** feature
+  keeps its name — it is still very much here, and "image bridge" is still what it is called.
+
+### Fixed
+
+- **Deleting a chat reaches the chat.** Delete a chat from your chats list and everything showing
+  it responds: the tab or docked panel steps back to the home screen, a mid-turn run is stopped,
+  and the record leaves your history — while every other chat keeps streaming, completely
+  untouched. Stock Cline tracked only a single "active" task, so a delete could leave an open tab
+  rendering a conversation that no longer existed, and typing into that ghost silently started a
+  different chat.
+
+- **"Delete Everything" deletes everything — and nothing more.** It acts only after you confirm,
+  ends every chat by its own name rather than "whichever was in front", lands every open chat on
+  its home, and when you keep your favorites, a favorite that is running keeps running, genuinely
+  untouched.
+
+- **A settings change reaches every open chat, immediately.** Change your model, provider, or
+  auto-approval settings and every running chat picks it up at once. Stock's single-active-task
+  assumption applied a change only to the chat in front, leaving every other running chat silently
+  on the old configuration.
+
+- **Resetting state resets everything.** A state reset now cleanly ends every running chat, not
+  just the focused one — the last of stock's "there is only one chat" assumptions, retired: no
+  action can touch a session without naming exactly which one, so nothing can ever land on the
+  wrong conversation.
+
+- **Renaming or favoriting a chat no longer moves it in the list.** The Chats list is ordered by
+  last use, and a rename or a favorite is not use, so the chat stays where it was.
+
+- **A chat dragged from one sidebar to the other comes with you.** Drag the docked chat to the
+  other side and the same conversation is there when it lands. Closing the sidebar, by contrast,
+  ends its chat, and reopening it shows the home.
+
+- **Closing a chat's editor tab ends that chat.** The X on a tab, or a group's Close All, ends the
+  chat it held; before, such chats ran on unseen.
+
+- **A chat that loads slowly is never shown as an empty home.** Opening a long conversation used
+  to blank to the home screen while its transcript was still loading; now the chat shows it is
+  loading, then its own messages.
+
+- **A setting saved in one window is no longer erased by another.** Each window now writes only
+  the settings it changed, instead of rewriting the whole settings file from its own copy — so
+  changing a setting in one window and a different one in another keeps both, and a reinstall in
+  the middle keeps them too.
+
+- **Copied chats no longer carry a stray `**` before every turn.** Pasting a chat used to put an
+  unclosed `**` in front of each of your messages; the copy now reads clean.
+
 ## [4.1.22]
 
 This release is about the two things you do all day: arranging your workspace, and coming back to
@@ -24,7 +135,7 @@ transcripts live.
   instead of ten. A tab you opened yourself is never closed and never quietly converted.
 
 - **Your chats come back.** Reload the window and every editor tab returns with its own
-  conversation, and the docked sidebar chat with its own. Uninstall, reinstall, reload — still
+  conversation, and the docked secondary-sidebar chat with its own. Uninstall, reinstall, reload — still
   there, because the record rides in VS Code's own workspace storage. A chat opened from your
   history is restored exactly like one you started by typing.
 
@@ -76,13 +187,13 @@ from the previous release is still the big news.
   single-active-session design, where there was only ever one place a chat could go.
 
 - **A chat's date is now the truth, on every path.** A chat's date in the history list is its
-  recorded end time. Closing the editor tab or sidebar view holding a chat used to end nothing —
+  recorded end time. Closing the editor tab or secondary-sidebar view holding a chat used to end nothing —
   the chat lived on unseen — and the next time VS Code started, every one of those chats was
   marked ended at the moment it was noticed, so chats last used hours apart all surfaced dated the
   same instant. One more remnant of stock Cline's single-active-session design: with only ever one
   chat to catch up on, a single stamp landed on a single chat and looked right; with concurrent
   chats, that same stamp can land on several of them at once. Now closing a chat — by its tab, its
-  sidebar view, or the chat's own close button — marks it ended right then; moving a chat between
+  secondary-sidebar view, or the chat's own close button — marks it ended right then; moving a chat between
   sidebars still preserves it; and a chat still running when VS Code goes away is dated by the last
   moment it actually did work.
 
@@ -109,7 +220,7 @@ from the previous release is still the big news.
 ### Changed
 
 - **"Where new chat sessions open" is clearer, and no longer repeated above every new chat.** The
-  note under the setting now states the part that matters — a sidebar holds one chat, so further
+  note under the setting now states the part that matters — the secondary sidebar holds one chat, so further
   chats open as editor tabs whichever location you choose — and the picker lives in Settings →
   General and on Get Started rather than on every chat's home screen.
 
@@ -122,10 +233,10 @@ from the previous release is still the big news.
   the location chosen in Settings**. When the target area has **no chat**, you get the
   **"What can I do for you?"** home — a chat whose default is also the history chooser (recent
   chats, plus the prompt input at the bottom). When a chat is **already there**, a **new,
-  independent chat** opens beside it and the existing one keeps running, untouched. (The left
-  activity-bar icon opens your chats list rather than a chat.)
+  independent chat** opens beside it and the existing one keeps running, untouched. (The Cline
+  Cubed icon in the primary sidebar opens your chats list rather than a chat.)
 - **Multiple chat sessions side by side.** Each chat is keyed to its own conversation, so
-  several run at once and each shows its own work. The sidebar hosts one chat at full height;
+  several run at once and each shows its own work. The secondary sidebar hosts one chat at full height;
   further chats open as editor tabs, which you can arrange side by side.
 - **A chat lives in one place.** Opening an existing chat somewhere else moves it there — the
   spot it left cleanly returns to the "What can I do for you?" home.
@@ -142,7 +253,7 @@ from the previous release is still the big news.
 - **Editor-area chat panels** — per-session panels in a fresh, locked editor group, with
   find-in-chat support and light/dark icons.
 - **"Cline Cubed: New Chat" command**, plus the reworked activity-bar icon.
-- **A chats list in the activity bar.** The left activity-bar icon now opens a list of your
+- **A chats list in the primary sidebar.** The Cline Cubed icon now opens a list of your
   chats rather than a chat: the ones open right now sit at the top, each labelled with where it
   is, and the full history follows underneath. A New Chat button sits above them, and the
   Settings, Account, and Marketplace buttons open right there in the panel instead of

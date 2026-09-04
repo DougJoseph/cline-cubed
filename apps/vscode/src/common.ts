@@ -45,6 +45,10 @@ export async function initialize(storageContext: StorageContext): Promise<Webvie
 		debug: (message) => Logger.debug(message),
 		log: (message) => Logger.log(message),
 		error: (message) => Logger.error(message),
+		// Cline Cubed: lets the SDK ask whether a debug line will actually be printed, so a
+		// component that suppresses repeats of an unchanged line does not remember one that was
+		// dropped by this switch and then stay silent for the rest of the session.
+		isDebugEnabled: () => Logger.isDebugEnabled(),
 	})
 
 	// Initialize ClineEndpoint configuration (reads bundled and ~/.cline/endpoints.json if present)
@@ -79,6 +83,12 @@ export async function initialize(storageContext: StorageContext): Promise<Webvie
 	const webview = HostProvider.get().createWebviewProvider()
 
 	const stateManager = StateManager.get()
+	// Cline Cubed: the master debug-logging switch, applied as soon as state exists.
+	// Everything before this line runs with debug output OFF, which is the correct
+	// default for a shipped build; from here the user's own setting governs. Errors
+	// and warnings were never gated, so a failure during startup still reaches the
+	// channel either way.
+	Logger.setDebugEnabled(stateManager.getGlobalSettingsKey("debugLoggingEnabled") === true)
 	// Non-blocking announcement check and display
 	showVersionUpdateAnnouncement(stateManager)
 	// Check if this workspace was opened from worktree quick launch
@@ -96,30 +106,30 @@ export async function initialize(storageContext: StorageContext): Promise<Webvie
 	return webview
 }
 
+/**
+ * Cline Cubed: the "What's New" notice, on the first activation after a version change.
+ *
+ * A first-ever install is an install, not an update: the version is recorded, this version's
+ * notes are marked as seen so the What's New modal on the chat home stays closed, and nothing is
+ * said. Any later change of version — patch bumps included, since every fork release is one —
+ * shows one toast naming the version; the modal, opened by `shouldShowAnnouncement` in the
+ * webview state, carries the notes themselves.
+ */
 async function showVersionUpdateAnnouncement(stateManager: StateManager) {
-	// Version checking for autoupdate notification
 	const currentVersion = ExtensionRegistryInfo.version
 	const previousVersion = stateManager.getGlobalStateKey("clineVersion")
-	// Perform post-update actions if necessary
 	try {
-		if (!previousVersion || currentVersion !== previousVersion) {
-			Logger.log(`Cline version changed: ${previousVersion} -> ${currentVersion}. First run or update detected.`)
-
-			// Check if there's a new announcement to show
-			const lastShownAnnouncementId = stateManager.getGlobalStateKey("lastShownAnnouncementId")
-			const latestAnnouncementId = getLatestAnnouncementId()
-
-			if (lastShownAnnouncementId !== latestAnnouncementId) {
-				// Show notification when there's a new announcement (major/minor updates or fresh installs)
-				const message = previousVersion
-					? `Cline has been updated to v${currentVersion}`
-					: `Welcome to Cline v${currentVersion}`
-				HostProvider.window.showMessage({
-					type: ShowMessageType.INFORMATION,
-					message,
-				})
-			}
-			// Always update the main version tracker for the next launch.
+		if (!previousVersion) {
+			stateManager.setGlobalState("clineVersion", currentVersion)
+			stateManager.setGlobalState("lastShownAnnouncementId", getLatestAnnouncementId())
+			return
+		}
+		if (currentVersion !== previousVersion) {
+			Logger.log(`Cline Cubed version changed: ${previousVersion} -> ${currentVersion}.`)
+			HostProvider.window.showMessage({
+				type: ShowMessageType.INFORMATION,
+				message: `Cline Cubed has been updated to ${currentVersion}.`,
+			})
 			stateManager.setGlobalState("clineVersion", currentVersion)
 		}
 	} catch (error) {

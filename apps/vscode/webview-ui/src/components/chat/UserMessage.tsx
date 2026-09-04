@@ -129,6 +129,14 @@ export const MessageTimeLabel: React.FC<{ createdAt?: number; speaker: "User" | 
 	)
 }
 
+/**
+ * Cline Cubed: the clock time of one bridge-debug line, in the reader's own timezone. Seconds are
+ * included because a run's lines land within the same minute and their order is the point.
+ */
+function formatBridgeTime(ts: number): string {
+	return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+}
+
 const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageTs, createdAt, canRestoreWorkspace = true }) => {
 	const [isEditing, setIsEditing] = useState(false)
 	const [editedText, setEditedText] = useState(text ?? "")
@@ -141,8 +149,44 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 	const [bridgeExpanded, setBridgeExpanded] = useState(false)
 	// Cline Cubed: bridged-description copy feedback (resets after 1.5s).
 	const [bridgeCopied, setBridgeCopied] = useState(false)
-	// Cline Cubed: image-bridge debug toggle + recent call lines from webview state.
-	const { imageBridgeDebugEnabled, imageBridgeDebug } = useExtensionState()
+	// Cline Cubed: image-bridge debug toggle + the retained interception runs from webview state.
+	const { debugLoggingEnabled, imageBridgeDebug, currentTaskItem } = useExtensionState()
+	/**
+	 * Cline Cubed: this message's OWN bridge calls, or null when none can be shown for it.
+	 *
+	 * The state carries several recent runs. This message's run is the LATEST one that began at or
+	 * before the message existed, among the runs belonging to this chat:
+	 *
+	 *  - WHICH CHAT. Each run carries its session id, matched against the chat this surface is
+	 *    showing. Timing alone cannot answer this: a message in one chat is routinely created after
+	 *    a bridge run in another, and would otherwise claim its lines.
+	 *  - WHICH MESSAGE. A bridge run always completes before the message it produced exists, so a
+	 *    run that began AFTER this message cannot be its own; of those that began before, the most
+	 *    recent is the one this message came from, and older ones belong to earlier messages.
+	 *
+	 * A message with no creation stamp claims nothing, which is honest rather than a guess. So does
+	 * a message whose run is no longer retained — see the empty state, which says only that no
+	 * record is available, never that no calls were made.
+	 */
+	const ownBridgeLines = useMemo(() => {
+		if (!imageBridgeDebug || imageBridgeDebug.length === 0 || createdAt === undefined) {
+			return null
+		}
+		const thisChat = currentTaskItem?.id
+		let own: (typeof imageBridgeDebug)[number] | null = null
+		for (const run of imageBridgeDebug) {
+			if (run.lines.length === 0 || run.startedAt > createdAt) {
+				continue
+			}
+			if (run.sessionId && thisChat && run.sessionId !== thisChat) {
+				continue
+			}
+			if (own === null || run.startedAt > own.startedAt) {
+				own = run
+			}
+		}
+		return own ? own.lines : null
+	}, [imageBridgeDebug, createdAt, currentTaskItem])
 	const { userText, bridgeText } = useMemo(() => splitImageBridgeBlock(text ?? ""), [text])
 	const highlightedText = useMemo(() => highlightText(userText), [userText])
 
@@ -365,7 +409,7 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 									{bridgeText}
 								</div>
 							)}
-							{(imageBridgeDebugEnabled === true || bridgeText.includes("[Image bridge failed")) && (
+							{(debugLoggingEnabled === true || bridgeText.includes("[Image bridge failed")) && (
 								<div
 									onClick={(event) => event.stopPropagation()}
 									style={{
@@ -374,49 +418,95 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 										fontSize: "11px",
 										color: "var(--vscode-descriptionForeground)",
 									}}>
-									<div style={{ fontWeight: 600, marginBottom: "4px" }}>
+									<div style={{ fontWeight: 600, marginBottom: "2px", opacity: 0.9 }}>
 										<i className="codicon codicon-debug" style={{ marginRight: 4 }} />
-										Image bridge debug
+										Debug output — image bridge calls for this message
 									</div>
-									{(imageBridgeDebug?.lines ?? []).slice(-3).map((line, index) => (
-										<div
-											key={index}
-											style={{
-												fontFamily: "var(--vscode-editor-font-family)",
-												whiteSpace: "pre-wrap",
-												wordBreak: "break-word",
-												margin: "2px 0",
-											}}>
-											{line}
-										</div>
-									))}
-									<div style={{ marginTop: "4px" }}>
+									{/* Cline Cubed: say what this block IS. It appears mid-conversation, unasked,
+									    and without this it reads as part of the chat rather than as diagnostics
+									    someone switched on — and a reader who did not switch it on has no idea
+									    where it came from or how to stop it. */}
+									<div style={{ marginBottom: "6px", opacity: 0.7, fontSize: "10px" }}>
+										{debugLoggingEnabled === true
+											? "You are seeing this because Debug logging is ON (Settings → General → Debug logging)."
+											: "Shown because this bridge call failed. Debug logging is OFF (Settings → General)."}
+									</div>
+									{/* Cline Cubed: only THIS message's bridge calls. A message created before a
+									    run began cannot have caused it, so it shows the empty state rather than
+									    borrowing another run's lines. A line that is a true statement about a
+									    different message reads, under this one, as a claim about this one.
+
+									    The empty state reports AVAILABILITY, never absence. Having no lines to
+									    show has several causes — nothing bridged since this window loaded, a run
+									    already pushed out by later ones, a message with no creation stamp — and
+									    only one of them means no call was made. This panel cannot tell them
+									    apart, so it must not claim the one it cannot establish: the calls may be
+									    sitting in the log named just below. */}
+									{/* Cline Cubed: the RESULT, and it is the only thing here at full text colour.
+									    Everything around it — the heading, the line saying why the panel is on, the
+									    log pointer and the switch — is chrome, and chrome set at the same weight as
+									    the finding buries the finding. A left rule and its own space mark where the
+									    answer is, so a glance lands on it rather than reading four lines to find
+									    it. The empty state sits in the same block: "no record is available" is an
+									    answer too, and just as easy to miss. */}
+									<div
+										style={{
+											borderLeft: "2px solid var(--vscode-editorGroup-border)",
+											paddingLeft: "8px",
+											margin: "6px 0",
+											color: "var(--vscode-foreground)",
+											fontSize: "12px",
+										}}>
+										{ownBridgeLines === null ? (
+											<div style={{ fontStyle: "italic" }}>
+												No bridge-call record is available for this message. Records are kept in memory
+												for recent messages only, so an older message's calls — and anything from before
+												this window last loaded — are in the full log rather than here.
+											</div>
+										) : (
+											ownBridgeLines.map((entry, index) => (
+												<div
+													key={index}
+													style={{
+														fontFamily: "var(--vscode-editor-font-family)",
+														whiteSpace: "pre-wrap",
+														wordBreak: "break-word",
+														margin: "3px 0",
+													}}>
+													<span style={{ opacity: 0.6 }}>{formatBridgeTime(entry.ts)}</span>{" "}
+													{entry.line}
+												</div>
+											))
+										)}
+									</div>
+									<div style={{ marginTop: "4px", opacity: 0.8 }}>
 										Full log: <code>View → Output → Cline Cubed</code>
 										{" · "}
+										{/* Cline Cubed: this switch used to cover the image bridge alone. It now
+										    flips the extension-wide master setting, which is a bigger action than
+										    it used to take — so the label says so instead of quietly doing more
+										    than it says. */}
 										<span
 											className="cursor-pointer hover:brightness-110"
 											onClick={(event) => {
 												event.stopPropagation()
 												void StateServiceClient.updateSettings(
 													UpdateSettingsRequest.create({
-														imageBridgeDebugEnabled: imageBridgeDebugEnabled !== true,
+														debugLoggingEnabled: debugLoggingEnabled !== true,
 													}),
 												)
 											}}
 											role="button"
 											style={{ textDecoration: "underline" }}
 											tabIndex={0}
-											title="Toggle image-bridge debug logging in Settings">
-											Debug logging:{" "}
-											{imageBridgeDebugEnabled === true
-												? "on — click to turn off"
-												: "off — click to turn on"}
+											title="Toggle debug logging for the whole extension (General Settings → Debug logging)">
+											Debug logging (whole extension):{" "}
+											{debugLoggingEnabled === true ? "on — click to turn off" : "off — click to turn on"}
 										</span>
 									</div>
 									{bridgeText.includes("[Image bridge failed") && (
 										<div style={{ marginTop: "2px" }}>
-											If you ever need this log again, enable it in Settings → API Configuration → Image
-											tab.
+											If you ever need this log again, turn on <b>Debug logging</b> in General Settings.
 										</div>
 									)}
 								</div>

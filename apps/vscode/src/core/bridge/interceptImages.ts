@@ -4,7 +4,7 @@ import { resolveActiveModelIdFromApiConfiguration } from "@/core/controller/mode
 import type { ProviderConfigStore } from "@/sdk/model-catalog/contracts"
 import { parseProviderId } from "@/sdk/model-catalog/provider-id"
 import { Logger } from "@/shared/services/Logger"
-import { recordBridgeDebug } from "./bridgeDebug"
+import { beginBridgeSubmission, recordBridgeDebug } from "./bridgeDebug"
 import { bridgeImage } from "./imageBridge"
 
 const DATA_URL_RE = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/
@@ -26,9 +26,15 @@ export interface ImageInterceptionInput {
 	 * Cline Cubed: when true the bridge debug lines are also written to the VS
 	 * Code output channel (the in-memory buffer records regardless, so inline
 	 * display works without the toggle). Sourced from the
-	 * `imageBridgeDebugEnabled` setting.
+	 * master `debugLoggingEnabled` setting.
 	 */
 	debugEnabled?: boolean
+	/**
+	 * Cline Cubed: the chat this submission belongs to, so the inline debug panel in ANOTHER chat
+	 * never shows these lines. Absent when a new chat is being started — the id does not exist yet,
+	 * and the caller names it afterwards.
+	 */
+	sessionId?: string
 }
 
 export interface ImageInterceptionResult {
@@ -50,7 +56,10 @@ export interface ImageInterceptionResult {
  * text-only-reasoner + vision-bridge value proposition).
  */
 export async function interceptImagesForNonVisionModel(input: ImageInterceptionInput): Promise<ImageInterceptionResult> {
-	const { text, images, apiConfiguration, providerConfigStore, mode, debugEnabled } = input
+	const { text, images, apiConfiguration, providerConfigStore, mode, debugEnabled, sessionId } = input
+	// Cline Cubed: every line recorded below belongs to THIS run, in THIS chat, so the panel under
+	// the message this submission produces shows its own calls and no one else's.
+	beginBridgeSubmission(sessionId)
 	const debug = (line: string, failed?: boolean) => recordBridgeDebug(line, failed ?? false, debugEnabled ?? false)
 
 	// No images to bridge, or no Image Mode model is configured — leave
@@ -137,8 +146,15 @@ export async function interceptImagesForNonVisionModel(input: ImageInterceptionI
 		} catch (error) {
 			// A failed bridge must not silently drop the image's existence from
 			// the reasoner's context — surface the failure inline.
-			Logger.error("Image bridge failed:", error)
-			descriptions.push(`[Image bridge failed: ${error instanceof Error ? error.message : String(error)}]`)
+			//
+			// It is recorded through the same channel as every other outcome, because the failure
+			// is the case the inline panel exists for: a run that records only its successes
+			// leaves the panel with nothing to show at the one moment someone is looking. The
+			// `failed` flag also sends it to the output channel whether or not debug logging is
+			// on, so this reaches the log as well without a second call.
+			const reason = error instanceof Error ? error.message : String(error)
+			debug(`failed: ${reason}`, true)
+			descriptions.push(`[Image bridge failed: ${reason}]`)
 			bridgedCount++
 		}
 	}

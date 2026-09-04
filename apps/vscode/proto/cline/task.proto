@@ -21,8 +21,11 @@ service TaskService {
   // Detaches the running foreground terminal command ("Proceed While Running"):
   // the agent receives the partial output and a log file path for the rest.
   rpc proceedWhileRunningCommand(EmptyRequest) returns (Empty);
-  // Clears the current task
-  rpc clearTask(EmptyRequest) returns (Empty);
+  // Clears the task view. The string is the SESSION ID of the chat whose session to end
+  // along with the clear — sessions end only by explicit id (no "whichever is focused"
+  // fallback). Empty = clear the view only; no session ends. Single-chat hosts (no surface
+  // routing) send their focused task's id, which in a one-chat world names the only chat.
+  rpc clearTask(StringRequest) returns (Empty);
   // Cline Cubed: close ONE chat session by id. Ends that session and clears its task —
   // never the focused one, which may belong to a different chat surface.
   rpc closeTaskSession(StringRequest) returns (Empty);

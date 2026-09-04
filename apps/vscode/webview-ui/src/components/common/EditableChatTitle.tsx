@@ -17,16 +17,21 @@ type EditableChatTitleProps = {
 	/** Called after a rename lands, for surfaces that fetch their own list and must refresh. */
 	onRenamed?: () => void
 	/**
-	 * Where the hover that reveals the pencil comes from.
+	 * Where this name lives — which decides both what reveals the pencil AND what a click on the
+	 * name itself does.
 	 *
-	 * `"self"` (default) — hovering the NAME reveals it. Right at the top of a chat, where the name
-	 * is the only thing on its line and the surrounding row means "expand the header".
+	 * `"self"` (default) — the name stands alone, at the top of a chat, with nothing behind it to
+	 * click through to. Hovering the name reveals the pencil, and clicking the name renames.
 	 *
-	 * `"row"` — the enclosing row's hover reveals it, along with that row's other icons, so one
-	 * hover advertises everything the row can do at once. Requires an ancestor with Tailwind's
-	 * bare `group` class. Doug, 2026-08-28: on a history row the self-scoped version meant the
-	 * pencil only appeared once you had already found the title, while the delete and details
-	 * icons appeared from anywhere on the row.
+	 * `"row"` — the name sits inside a row whose own job is to OPEN the chat. The row's hover
+	 * reveals the pencil along with its other icons, so one hover advertises everything the row can
+	 * do; and the name is plain text, so a click passes through to the row and opens the chat. The
+	 * pencil alone renames. Requires an ancestor with Tailwind's bare `group` class.
+	 *
+	 * Doug, 2026-08-28: on a history row the self-scoped hover meant the pencil only appeared once
+	 * you had already found the title, while the delete and details icons appeared from anywhere on
+	 * the row. Doug, 2026-09-02: the name is where a person clicks to OPEN a chat, so a click there
+	 * that starts a rename instead is a surprise the row itself invites.
 	 */
 	revealOn?: "self" | "row"
 }
@@ -34,9 +39,11 @@ type EditableChatTitleProps = {
 /**
  * Cline Cubed: a chat's name, edited in place.
  *
- * Hovering tints the name and shows a pencil; clicking either the name or the pencil drops into an
- * input. Enter or blur commits, Escape cancels. Clearing the box removes the name and restores the
- * chat's first prompt, so a rename is always undoable.
+ * A pencil appears on hover and starts the rename. Where the name has nothing behind it to click
+ * through to (`revealOn="self"`), clicking the name starts it too; inside a row that opens the chat
+ * (`revealOn="row"`), the name is plain text and only the pencil renames. Enter or blur commits,
+ * Escape cancels. Clearing the box removes the name and restores the chat's first prompt, so a
+ * rename is always undoable.
  *
  * It writes to `setTaskTitle`, which stores the name in its own field — renaming never rewrites
  * what the person actually typed as their first prompt.
@@ -124,34 +131,63 @@ const EditableChatTitle = ({ taskId, title, fallback, className, onRenamed, reve
 
 	const revealWithRow = revealOn === "row"
 
+	const startEditing = (e: React.SyntheticEvent) => {
+		e.stopPropagation()
+		e.preventDefault()
+		setEditing(true)
+	}
+
+	// Inside a row that opens the chat, the pencil is the whole rename affordance: the name is
+	// plain text so its click reaches the row. Standing alone, the name is the affordance and the
+	// pencil is a hint, so it takes no clicks of its own.
+	const pencil = (
+		<PencilIcon
+			className={cn(
+				"size-2 shrink-0 stroke-1 text-description opacity-0 transition-opacity",
+				revealWithRow
+					? "group-hover:opacity-100 focus-visible:opacity-100"
+					: "group-hover/title:opacity-100 group-focus-within/title:opacity-100",
+			)}
+		/>
+	)
+
+	if (revealWithRow) {
+		return (
+			<span className="inline-flex items-center gap-1 min-w-0">
+				<span className={cn("min-w-0", className)}>{displayed}</span>
+				<span
+					aria-label={`Rename chat: ${displayed}`}
+					className="shrink-0 inline-flex items-center rounded-xs p-1 -m-1 cursor-pointer transition-colors hover:bg-accent/20"
+					onClick={startEditing}
+					onKeyDown={(e) => {
+						if (e.key === "Enter" || e.key === " ") {
+							startEditing(e)
+						}
+					}}
+					role="button"
+					tabIndex={0}
+					title="Rename this chat">
+					{pencil}
+				</span>
+			</span>
+		)
+	}
+
 	return (
 		<span
 			aria-label={`Rename chat: ${displayed}`}
-			className={cn(
-				"group/title inline-flex items-center gap-1 min-w-0 rounded-xs px-1 -mx-1 cursor-text transition-colors",
-				revealWithRow ? "group-hover:bg-accent/10" : "hover:bg-accent/10",
-			)}
-			onClick={(e) => {
-				e.stopPropagation()
-				setEditing(true)
-			}}
+			className="group/title inline-flex items-center gap-1 min-w-0 rounded-xs px-1 -mx-1 cursor-text transition-colors hover:bg-accent/10"
+			onClick={startEditing}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
-					e.stopPropagation()
-					e.preventDefault()
-					setEditing(true)
+					startEditing(e)
 				}
 			}}
 			role="button"
 			tabIndex={0}
 			title="Click to rename this chat">
 			<span className={cn("min-w-0", className)}>{displayed}</span>
-			<PencilIcon
-				className={cn(
-					"size-2 shrink-0 stroke-1 text-description opacity-0 transition-opacity group-focus-within/title:opacity-100",
-					revealWithRow ? "group-hover:opacity-100" : "group-hover/title:opacity-100",
-				)}
-			/>
+			{pencil}
 		</span>
 	)
 }

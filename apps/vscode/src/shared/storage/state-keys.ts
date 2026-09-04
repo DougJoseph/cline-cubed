@@ -303,9 +303,11 @@ const USER_SETTINGS_FIELDS = {
 	backgroundEditEnabled: { default: false as boolean },
 	optOutOfRemoteConfig: { default: false as boolean },
 	showFeatureTips: { default: false as boolean },
-	// Cline Cubed: gate the image-bridge debug log lines in the output channel
-	// (the in-memory buffer always records; only the channel log is gated).
-	imageBridgeDebugEnabled: { default: false as boolean },
+	// Cline Cubed: the ONE master debug-logging switch. Off by default, flipped at
+	// runtime in General Settings, and gating every debug emission the extension
+	// makes — the fork's own and, because `setSdkLogger` routes them through
+	// `Logger`, the SDK's too. Errors and warnings are never gated by it.
+	debugLoggingEnabled: { default: false as boolean },
 
 	// OpenTelemetry configuration
 	openTelemetryEnabled: { default: true as boolean },

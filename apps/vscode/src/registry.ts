@@ -33,6 +33,8 @@ const ClineCommands = {
 	ExplainCode: prefix + ".explainCode",
 	ImproveCode: prefix + ".improveCode",
 	FocusChatInput: prefix + ".focusChatInput",
+	// Cline Cubed: reopen the What's New notes on demand, in the working chat view.
+	ShowWhatsNew: prefix + ".showWhatsNew",
 	Walkthrough: prefix + ".openWalkthrough",
 	GenerateCommit: prefix + ".generateGitCommitMessage",
 	AbortCommit: prefix + ".abortGitCommitMessage",

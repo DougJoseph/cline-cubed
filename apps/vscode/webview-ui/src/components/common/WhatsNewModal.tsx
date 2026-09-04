@@ -1,29 +1,22 @@
-import { BannerAction, BannerCardData } from "@shared/cline/banner"
 import React from "react"
-import { useMount } from "react-use"
-import DiscordIcon from "@/assets/DiscordIcon"
-import GitHubIcon from "@/assets/GitHubIcon"
-import LinkedInIcon from "@/assets/LinkedInIcon"
-import RedditIcon from "@/assets/RedditIcon"
-import XIcon from "@/assets/XIcon"
-import WhatsNewItems from "@/components/common/WhatsNewItems"
+import Markdown from "react-markdown"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { useExtensionState } from "@/context/ExtensionStateContext"
 
 interface WhatsNewModalProps {
 	open: boolean
 	onClose: () => void
 	version: string
-	welcomeBanners?: BannerCardData[]
-	onBannerAction?: (action: BannerAction) => void
+	/** The fork's CHANGELOG entry for the running version, as markdown — shipped in the package. */
+	notes: string
 }
 
-const WhatsNewModal: React.FC<WhatsNewModalProps> = ({ open, onClose, version, welcomeBanners, onBannerAction }) => {
-	const { refreshOpenRouterModels } = useExtensionState()
-
-	// Get latest model list in case user hits shortcut button to set model
-	useMount(refreshOpenRouterModels)
-
+/**
+ * Cline Cubed: the What's New modal, opened on the chat home after a version change. It shows the
+ * fork's own notes for the running version and nothing else. Stock rendered banners fetched from
+ * Cline's server here, with a row of Cline's community links beneath them; neither is the fork's,
+ * so neither appears.
+ */
+const WhatsNewModal: React.FC<WhatsNewModalProps> = ({ open, onClose, version, notes }) => {
 	const inlineCodeStyle: React.CSSProperties = {
 		backgroundColor: "var(--vscode-textCodeBlock-background)",
 		padding: "2px 6px",
@@ -43,83 +36,36 @@ const WhatsNewModal: React.FC<WhatsNewModalProps> = ({ open, onClose, version, w
 						className="text-lg font-semibold mb-3 pr-6"
 						id="whats-new-title"
 						style={{ color: "var(--vscode-editor-foreground)" }}>
-						🎉 New in v{version}
+						New in Cline Cubed {version}
 					</h2>
 
-					<WhatsNewItems
-						inlineCodeStyle={inlineCodeStyle}
-						onBannerAction={onBannerAction}
-						onClose={onClose}
-						welcomeBanners={welcomeBanners}
-					/>
-
-					{/* Social Icons Section */}
-					<div className="flex flex-col items-center gap-3 mt-4 pt-4 border-t border-[var(--vscode-widget-border)]">
-						{/* Icon Row */}
-						<div className="flex items-center gap-4">
-							{/* X/Twitter */}
-							<a
-								aria-label="Follow us on X"
-								className="text-[var(--vscode-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] transition-colors"
-								href="https://x.com/cline"
-								rel="noopener noreferrer"
-								target="_blank">
-								<XIcon />
-							</a>
-
-							{/* Discord */}
-							<a
-								aria-label="Join our Discord"
-								className="text-[var(--vscode-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] transition-colors"
-								href="https://discord.gg/cline"
-								rel="noopener noreferrer"
-								target="_blank">
-								<DiscordIcon />
-							</a>
-
-							{/* GitHub */}
-							<a
-								aria-label="Star us on GitHub"
-								className="text-[var(--vscode-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] transition-colors"
-								href="https://github.com/cline/cline"
-								rel="noopener noreferrer"
-								target="_blank">
-								<GitHubIcon />
-							</a>
-
-							{/* Reddit */}
-							<a
-								aria-label="Join our subreddit"
-								className="text-[var(--vscode-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] transition-colors"
-								href="https://www.reddit.com/r/cline/"
-								rel="noopener noreferrer"
-								target="_blank">
-								<RedditIcon />
-							</a>
-
-							{/* LinkedIn */}
-							<a
-								aria-label="Follow us on LinkedIn"
-								className="text-[var(--vscode-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] transition-colors"
-								href="https://www.linkedin.com/company/clinebot/"
-								rel="noopener noreferrer"
-								target="_blank">
-								<LinkedInIcon />
-							</a>
-						</div>
-
-						{/* GitHub Star CTA */}
-						<p className="text-sm text-center" style={{ color: "var(--vscode-descriptionForeground)" }}>
-							Please support Cline by{" "}
-							<a
-								href="https://github.com/cline/cline"
-								rel="noopener noreferrer"
-								style={{ color: "var(--vscode-textLink-foreground)" }}
-								target="_blank">
-								starring us on GitHub
-							</a>
-							.
-						</p>
+					<div
+						className="text-sm max-h-[60vh] overflow-y-auto"
+						style={{ color: "var(--vscode-descriptionForeground)" }}>
+						<Markdown
+							components={{
+								a: ({ href, children }) => (
+									<a
+										href={href}
+										rel="noopener noreferrer"
+										style={{ color: "var(--vscode-textLink-foreground)" }}
+										target="_blank">
+										{children}
+									</a>
+								),
+								code: ({ children }) => <code style={inlineCodeStyle}>{children}</code>,
+								h3: ({ children }) => (
+									<h3
+										className="text-sm font-semibold mt-3 mb-1"
+										style={{ color: "var(--vscode-editor-foreground)" }}>
+										{children}
+									</h3>
+								),
+								li: ({ children }) => <li className="mb-2">{children}</li>,
+								ul: ({ children }) => <ul className="pl-4 list-disc">{children}</ul>,
+							}}>
+							{notes}
+						</Markdown>
 					</div>
 				</div>
 			</DialogContent>

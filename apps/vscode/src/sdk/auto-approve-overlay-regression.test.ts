@@ -57,7 +57,7 @@ describe("auto-approve settings after New Task (#13260)", () => {
 	const makeCoordinator = () =>
 		new SdkTaskControlCoordinator({
 			sessions: {
-				endActiveSession: async () => {},
+				endSession: async () => {},
 				// Cline Cubed: clearTask asks whether the outgoing chat's session is still live
 				// before wiping its transcript, and which session is active (to scope its
 				// pending-interaction clear). Nothing is live or active in this fixture — it
@@ -82,6 +82,13 @@ describe("auto-approve settings after New Task (#13260)", () => {
 	const makeController = () =>
 		({
 			task,
+			// The real applyToLiveTasks covers every live proxy plus the focused one; this
+			// harness has no session map, so the focused task is the whole set.
+			applyToLiveTasks: (fn: (t: TaskProxy) => void) => {
+				if (task) {
+					fn(task)
+				}
+			},
 			getStateToPostToWebview: async () => ({ autoApprovalSettings: resolveSettings() }),
 			postStateToWebview,
 			stateManager,

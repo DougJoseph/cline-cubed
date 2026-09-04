@@ -66,6 +66,12 @@ function inferLegacyDataDir(filePath: string): string | undefined {
 export class ProviderSettingsManager {
 	private readonly filePath: string;
 	private readonly dataDir?: string;
+	/**
+	 * LOCAL PATCH (2026-09-03): the last `providers.read` line printed, so an identical one is not
+	 * printed again. Static, because the repetition comes from many managers and many call sites
+	 * within one action, not from one instance calling itself.
+	 */
+	private static lastReadLine: string | undefined;
 
 	constructor(options: ProviderSettingsManagerOptions = {}) {
 		this.filePath = options.filePath ?? resolveProviderSettingsPath();
@@ -105,9 +111,18 @@ export class ProviderSettingsManager {
 			if (result.success) {
 				registerConfiguredProvidersFromSettings(result.data);
 				const clineAuth = result.data.providers["cline"]?.settings?.auth;
-				sdkDebug(
-					`providers.read providers=[${Object.keys(result.data.providers).join(",")}] lastUsed=${result.data.lastUsedProvider ?? "none"} clineAuthPresent=${!!clineAuth?.accessToken} clineAccessTokenHash=${hashSecret(clineAuth?.accessToken)} clineRefreshTokenHash=${hashSecret(clineAuth?.refreshToken)}`,
-				);
+				// LOCAL PATCH (2026-09-03): print this line only when it says something new.
+				//
+				// `read()` is called many times for a single user action — fourteen call sites,
+				// several inside loops — so one action produced about 150 identical copies of this
+				// line, which buried everything else in the log. The reading itself is left
+				// exactly as it was: the file is still read, parsed and validated on every call,
+				// and the providers are still re-registered each time. Only the repetition of an
+				// unchanged line is suppressed, so a line that appears is a line that changed.
+				const line = `providers.read providers=[${Object.keys(result.data.providers).join(",")}] lastUsed=${result.data.lastUsedProvider ?? "none"} clineAuthPresent=${!!clineAuth?.accessToken} clineAccessTokenHash=${hashSecret(clineAuth?.accessToken)} clineRefreshTokenHash=${hashSecret(clineAuth?.refreshToken)}`;
+				if (line !== ProviderSettingsManager.lastReadLine && sdkDebug(line)) {
+					ProviderSettingsManager.lastReadLine = line;
+				}
 				return result.data;
 			}
 		} catch {

@@ -29,9 +29,12 @@ export async function updateAutoApprovalSettings(controller: Controller, request
 		}
 
 		controller.stateManager.setGlobalState("autoApprovalSettings", settings)
-		if (controller.task?.taskId) {
-			controller.stateManager.setTaskSettings(controller.task.taskId, "autoApprovalSettings", settings)
-		}
+		// Cline Cubed: the per-task overlay is refreshed for EVERY live chat, each keyed by its
+		// own taskId — writing only the focused chat's overlay left every other running chat on
+		// the old auto-approval settings.
+		controller.applyToLiveTasks((task) => {
+			controller.stateManager.setTaskSettings(task.taskId, "autoApprovalSettings", settings)
+		})
 
 		await controller.postStateToWebview()
 	}

@@ -175,16 +175,17 @@ export class SdkSessionLifecycle {
 	}
 
 	/**
-	 * Cline Cubed: END a specific session (default: the focused one). The session is
-	 * removed from the live map; the focused ref clears only when it pointed at this session.
-	 * A genuine user clear stops the focused session; other live sessions keep streaming.
+	 * Cline Cubed: END the NAMED session. `sessionId` is required — a function that ends a
+	 * session must be told which one; there is no focused-session default (Doug's ruling,
+	 * 2026-08-31: no session action without a session id). The session is removed from the
+	 * live map; the focused ref clears only when it pointed at this session. Other live
+	 * sessions keep streaming.
 	 */
-	async endActiveSession(
+	async endSession(
 		reason: string,
-		options: { awaitStop?: boolean; timeoutMs?: number; sessionId?: string } = {},
+		options: { sessionId: string; awaitStop?: boolean; timeoutMs?: number },
 	): Promise<ActiveSession | undefined> {
-		const sessionId = options.sessionId ?? this.activeSession?.sessionId
-		const session = sessionId ? this.sessions.get(sessionId) : this.activeSession
+		const session = this.sessions.get(options.sessionId)
 		if (!session) {
 			return undefined
 		}
@@ -303,7 +304,7 @@ export class SdkSessionLifecycle {
 
 		// No need to await the stop here: callers reuse oldSessionId in the
 		// startInput, and startNewSession waits on the pending stop for it.
-		await this.endActiveSession(options.disposeReason)
+		await this.endSession(options.disposeReason, { sessionId: oldSessionId })
 
 		const { startResult, sdkHost } = await this.startNewSession({
 			...options.startInput,
@@ -358,7 +359,7 @@ export class SdkSessionLifecycle {
 	async dispose(reason = "SdkSessionLifecycle.dispose"): Promise<void> {
 		// Cline Cubed: stop EVERY live session, not just the focused one.
 		for (const sessionId of [...this.sessions.keys()]) {
-			await this.endActiveSession(reason, { awaitStop: true, sessionId })
+			await this.endSession(reason, { awaitStop: true, sessionId })
 		}
 		this.activeSession = undefined
 

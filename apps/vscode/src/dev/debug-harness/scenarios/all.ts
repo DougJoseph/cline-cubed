@@ -30,7 +30,17 @@ const SCENARIOS = [
 	"resume-identity.ts",
 	"tab-focus-isolation.ts",
 	"in-chat-close.ts",
+	"tab-close-ends-the-chat.ts",
 	"chat-placement.ts",
+	"delete-reaches-the-surface.ts",
+	"delete-all-ends-all.ts",
+	"settings-reach-every-chat.ts",
+	"reload-restores-a-chat.ts",
+	"reload-restores-a-slow-chat.ts",
+	"jump-to-chat-input-reaches-the-sidebar-chat.ts",
+	"code-action-reaches-the-moved-chat.ts",
+	"home-tab-reaches-the-tapped-tab.ts",
+	"palette-button-always-lands.ts",
 ]
 
 function runOne(file: string): Promise<number> {

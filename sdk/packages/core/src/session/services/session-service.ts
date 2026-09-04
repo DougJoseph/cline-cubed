@@ -189,8 +189,13 @@ class LocalSessionPersistenceAdapter implements SessionPersistenceAdapter {
 			fields.push("status_lock = ?");
 			params.push(statusLock);
 		}
-		fields.push("updated_at = ?");
-		params.push(nowIso());
+		// LOCAL PATCH (2026-09-02): a write that says it is not use leaves the date alone, so
+		// renaming or favouriting a session does not reorder the list. See `preserveUpdatedAt`
+		// in types/session.ts.
+		if (!input.preserveUpdatedAt) {
+			fields.push("updated_at = ?");
+			params.push(nowIso());
+		}
 
 		let sql = `UPDATE sessions SET ${fields.join(", ")} WHERE session_id = ?`;
 		params.push(input.sessionId);

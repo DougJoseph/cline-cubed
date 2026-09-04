@@ -377,6 +377,8 @@ export interface RuntimeHost {
 			prompt?: string | null;
 			metadata?: Record<string, unknown> | null;
 			title?: string | null;
+			/** LOCAL PATCH (2026-09-02): see `preserveUpdatedAt` in types/session.ts. */
+			preserveUpdatedAt?: boolean;
 		},
 	): Promise<{ updated: boolean }>;
 	updateSessionCompactionState(

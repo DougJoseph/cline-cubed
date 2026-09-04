@@ -5,6 +5,7 @@ import { Settings } from "@shared/storage/state-keys"
 import { convertProtoToApiProvider } from "@/shared/proto-conversions/models/api-configuration-conversion"
 import { Logger } from "@/shared/services/Logger"
 import { DEFAULT_BROWSER_SETTINGS } from "../../../shared/BrowserSettings"
+import { attachBridgeSubmissionToSession, currentBridgeSubmission } from "../../bridge/bridgeDebug"
 import { interceptImagesForNonVisionModel } from "../../bridge/interceptImages"
 import { Controller } from ".."
 import { normalizeOpenaiReasoningEffort } from "../state/reasoningEffort"
@@ -85,12 +86,19 @@ export async function newTask(controller: Controller, request: NewTaskRequest): 
 			apiConfiguration: controller.stateManager.getApiConfiguration(),
 			providerConfigStore: controller.getProviderConfigStore(),
 			mode: controller.stateManager.getGlobalSettingsKey("mode"),
-			debugEnabled: controller.stateManager.getGlobalSettingsKey("imageBridgeDebugEnabled"),
+			debugEnabled: controller.stateManager.getGlobalSettingsKey("debugLoggingEnabled"),
 		})
 	} catch (error) {
 		Logger.warn("Image bridge interception skipped:", error)
 	}
 
+	// Cline Cubed: the bridge ran before this chat existed, so its lines have no chat yet. Name it
+	// now, guarded by the run number captured before initTask — if another submission has begun in
+	// the meantime, this claim is stale and is ignored rather than relabelling someone else's lines.
+	const bridgeSubmission = currentBridgeSubmission()
 	const taskId = await controller.initTask(intercepted.text, intercepted.images, request.files, undefined, filteredTaskSettings)
+	if (taskId) {
+		attachBridgeSubmissionToSession(taskId, bridgeSubmission)
+	}
 	return String.create({ value: taskId || "" })
 }

@@ -1,6 +1,6 @@
 import { Empty, EmptyRequest } from "@shared/proto/cline/common"
 import { Logger } from "@/shared/services/Logger"
-import { streamIsTargeted } from "../chat-surfaces"
+import { requireTargetSurface, streamIsTargeted } from "../chat-surfaces"
 import { getRequestRegistry, StreamingResponseHandler } from "../grpc-handler"
 import { Controller } from "../index"
 
@@ -38,6 +38,9 @@ export async function subscribeToChatButtonClicked(
  * Send a chatButtonClicked event to all active subscribers
  */
 export async function sendChatButtonClickedEvent(targetSurfaceId?: string): Promise<void> {
+	if (!requireTargetSurface("chatButtonClicked", targetSurfaceId)) {
+		return
+	}
 	// Send the event to all active subscribers
 	const promises = Array.from(activeChatButtonClickedSubscriptions).map(async (responseStream) => {
 		// Cline Cubed: a navigation event is aimed at ONE chat, not every open chat.

@@ -1,3 +1,4 @@
+import { CONVERSATION_FIELDS } from "@shared/conversation-snapshot"
 import { EmptyRequest } from "@shared/proto/cline/common"
 import { State } from "@shared/proto/cline/state"
 import { telemetryService } from "@/services/telemetry"
@@ -70,26 +71,18 @@ export async function subscribeToState(
 }
 
 /**
- * Conversation-scoped fields, OMITTED rather than emptied.
- *
  * A surface showing the new-chat home needs settings/model/UI state but no conversation.
- * Deleting the keys (rather than sending empty ones) lets the webview leave whatever it is
- * displaying alone.
+ * The field list lives in shared/conversation-snapshot.ts — the single source for the
+ * three-answer wire contract; deleting the keys (rather than sending empty ones) lets the
+ * webview leave whatever it is displaying alone. The home form also drops the loading flag:
+ * a surface on the Home is not waiting for anything.
  */
-const CONVERSATION_FIELDS = [
-	"clineMessages",
-	"currentTaskItem",
-	"activeTaskId",
-	"turnState",
-	"queuedPrompts",
-	"checkpointRestoreInput",
-] as const
-
 function withoutConversation(state: ExtensionState): Partial<ExtensionState> {
 	const copy: Record<string, unknown> = { ...state }
 	for (const field of CONVERSATION_FIELDS) {
 		delete copy[field]
 	}
+	delete copy.conversationLoading
 	return copy as Partial<ExtensionState>
 }
 

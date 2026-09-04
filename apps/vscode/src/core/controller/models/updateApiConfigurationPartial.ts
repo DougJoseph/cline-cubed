@@ -46,10 +46,14 @@ export async function updateApiConfigurationPartial(
 		// Update storage and task API model shim
 		controller.stateManager.setApiConfiguration(normalizedConfig)
 		clearOrganizationForClinePassProviderSelection(controller, normalizedConfig)
-		if (controller.task) {
+		// Cline Cubed: the new model shim reaches EVERY live chat immediately — a settings
+		// change is account-wide, not a fact about whichever chat is focused.
+		{
 			const currentMode = controller.stateManager.getGlobalSettingsKey("mode")
 			const modelId = resolveActiveModelIdFromApiConfiguration(normalizedConfig, currentMode)
-			controller.task.api = createTaskApiModelShim(modelId)
+			controller.applyToLiveTasks((task) => {
+				task.api = createTaskApiModelShim(modelId)
+			})
 		}
 		controller.handleApiConfigurationChanged(currentConfig, normalizedConfig)
 

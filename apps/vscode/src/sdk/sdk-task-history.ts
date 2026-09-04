@@ -349,7 +349,7 @@ export class SdkTaskHistory {
 	 */
 	private updateCachedSessionRecord(
 		sessionId: string,
-		updates: { prompt: string; metadata: Record<string, unknown>; updatedAt: string },
+		updates: { prompt: string; metadata: Record<string, unknown>; updatedAt?: string },
 	): void {
 		const cache = this.metadataHistoryCache
 		if (!cache) {
@@ -365,7 +365,8 @@ export class SdkTaskHistory {
 			...existing,
 			prompt: updates.prompt,
 			metadata: updates.metadata,
-			updatedAt: updates.updatedAt,
+			// Absent means the write deliberately left the date alone, so the record keeps its own.
+			updatedAt: updates.updatedAt ?? existing.updatedAt,
 		}
 		cache.records.sort(compareSessionHistoryRecordsByRecencyDesc)
 	}
@@ -553,7 +554,12 @@ export class SdkTaskHistory {
 		return appendLegacyResumeWarning(fallbackMessages as { role: string; content: unknown }[])
 	}
 
-	private async updateSession(sessionId: string, item: HistoryItem): Promise<void> {
+	/**
+	 * Cline Cubed: `notUse` marks a write as bookkeeping ABOUT the chat rather than work IN it —
+	 * favouriting is the one such caller today. The chat's last-used date is then left alone, so the
+	 * write does not send the chat to the top of a list ordered by that date.
+	 */
+	private async updateSession(sessionId: string, item: HistoryItem, notUse = false): Promise<void> {
 		const { metadata: writtenMetadata, updated } = await this.withHistoryHost(async (host) => {
 			const existing = await host.get(sessionId)
 			const metadata: Record<string, unknown> = {
@@ -572,6 +578,7 @@ export class SdkTaskHistory {
 				prompt: item.task,
 				metadata,
 				title: item.task,
+				preserveUpdatedAt: notUse,
 			})
 			return { metadata, updated: result.updated }
 		})
@@ -591,12 +598,14 @@ export class SdkTaskHistory {
 		this.updateCachedSessionRecord(sessionId, {
 			prompt: item.task,
 			metadata: writtenMetadata,
-			updatedAt: new Date().toISOString(),
+			// A write that did not stamp the date on disk must not stamp it in the cache either, or
+			// the list would reorder until the cache expired and then jump back.
+			updatedAt: notUse ? undefined : new Date().toISOString(),
 		})
 	}
 
-	async updateTaskHistoryItem(item: HistoryItem): Promise<void> {
-		await this.updateSession(item.id, item)
+	async updateTaskHistoryItem(item: HistoryItem, notUse = false): Promise<void> {
+		await this.updateSession(item.id, item, notUse)
 		// Cline Cubed: this is where a brand-new chat first gets a record, and therefore a name —
 		// its first prompt. Anything showing that chat outside a webview (an editor tab title)
 		// cannot learn the name any earlier, because the webview announces its session from the
@@ -630,7 +639,9 @@ export class SdkTaskHistory {
 			} else {
 				delete metadata.customTitle
 			}
-			await host.update(sessionId, { metadata })
+			// A rename is not use of the chat: it must not move the chat in a list ordered by when
+			// each was last used. Doug, 2026-08-31.
+			await host.update(sessionId, { metadata, preserveUpdatedAt: true })
 		})
 		// Renaming is rare, so drop the cache and let the next read re-enumerate from disk rather
 		// than patching a record in place. The patch helper rewrites `prompt` as well, which is the
@@ -706,8 +717,8 @@ export class SdkTaskHistory {
 		return deletedCount
 	}
 
-	async updateTaskHistory(item: HistoryItem): Promise<HistoryItem[]> {
-		await this.updateTaskHistoryItem(item)
+	async updateTaskHistory(item: HistoryItem, notUse = false): Promise<HistoryItem[]> {
+		await this.updateTaskHistoryItem(item, notUse)
 		return (await this.listHistory()).map(sessionHistoryRecordToHistoryItem)
 	}
 

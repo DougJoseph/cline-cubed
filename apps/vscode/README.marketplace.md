@@ -4,43 +4,69 @@
   <img src="https://raw.githubusercontent.com/DougJoseph/cline-cubed/main/assets/icons/icon.png" width="128" alt="Cline Cubed" />
 </p>
 
-Want to have multiple Cline chats running at the same time? **Get Cline Cubed!**
+Want several Cline chats running at the same time, side by side? **Get Cline Cubed!**
 
-Want to use affordable text-only models for Plan mode and Act mode, yet still paste
-an image and have your chat understand it? **Get Cline Cubed!**
+Want them all still there after you reload the window — or reinstall? **Get Cline Cubed!**
 
-Cline Cubed adds a third model channel — **Image Mode**. When you add an image to a
-prompt or reply and your Plan/Act model can't see images, the image is routed to your
-Image Mode model first and its description is added to your prompt as text. And you
-can run multiple chat sessions at once, each with its own conversation.
+Want your chats and your files to stop fighting over the same editor space?
+**Get Cline Cubed!**
+
+Want to use affordable text-only models for Plan and Act, yet still paste an image
+and have your chat understand it? **Get Cline Cubed!**
 
 If you love Cline but want more of it, get Cline Cubed.
 
 ---
 
-A fork of [Cline](https://github.com/cline/cline) that adds a third **Image Mode**
-model channel. When you paste an image into a chat running a non-vision model
-(e.g. DeepSeek Reasoner), your configured Image Mode vision model describes the
-image, and that description is bridged into the chat as a collapsible, copyable
-text block — so non-vision models get full image context without ever receiving
-raw image bytes.
+A fork of [Cline](https://github.com/cline/cline) that grows it in several directions
+at once.
 
-- **Three model channels — Plan, Act, and Image Mode.** Each tab in API
-  Configuration keeps its own provider, model, API key, and reasoning effort.
-- **Image bridge** — images are intercepted at send, described by the Image Mode
-  vision model, and rolled up as a selectable/copyable block.
-- **Capability-aware** — the bridge runs only when the active Plan/Act model is
+**Run several chats side by side** — each its own conversation, with its own work, its
+own thinking indicator and its own Cancel, so a long refactor keeps running in one while
+you ask something else in another. **Keep the workspace tidy** — chats gather as tabs in
+a single locked editor group, files open in a group of their own, and edited files leave
+one preview tab instead of a pile. **Come back to it** — after a window reload, or a full
+reinstall, every chat returns with its conversation. **Know when everything happened** —
+every message carries its own timestamp. And a third model channel, **Image Mode**, lets
+a text-only Plan/Act model understand a pasted image: your vision model describes it, the
+description is bridged in as a collapsible, copyable block, and the reasoning model never
+receives raw image bytes.
+
+- **Multiple chats at once** — each keyed to its own conversation, running side by side,
+  cancelling independently.
+- **A workspace that stays tidy** — chats gather as tabs in one locked group; files open
+  in a group of their own and leave one preview tab, not a pile.
+- **Chats that come back** — after a window reload, and after a reinstall, each with its
+  own conversation.
+- **Every message stamped with its time** — quiet in the chat, full precision on hover
+  and in every copy-and-paste.
+- **Prompt history in the chat box** — `↑` and `↓` walk back through what you typed,
+  per chat.
+- **Three model channels — Plan, Act, and Image Mode.** Each tab in API Configuration
+  keeps its own provider, model, API key, and reasoning effort.
+- **Capability-aware image bridge** — it runs only when the active Plan/Act model is
   non-vision (or unknown); vision-capable models receive the raw image as usual.
-- **Debug logging** — a Settings toggle records each bridge call (provider,
-  model, URL, image type/size, auth, status) to the output channel and shows the
-  most recent calls inline under failed bridge blocks, with a one-click toggle
-  right in the chat.
+- **One master debug-logging switch** — Settings → General → **Debug logging**, off by
+  default, turns on diagnostic output for the whole extension (the image bridge's per-call
+  records among them) in the output channel. Errors and warnings are never gated by it, and a
+  failed bridge call still shows its recent calls inline in the chat.
+- **Update notices** — after an update, a notice names the new version and **What's New** opens
+  in the chat view with this fork's own notes for that version, shipped inside the extension
+  (**Cline Cubed: What's New** in the Command Palette brings them back any time); with VS Code's
+  automatic extension updates off, Cline Cubed checks the Marketplace at start and asks whether
+  to update — Yes installs in place, Not now waits.
+- **Commands land in the chat you are working in** — click into a chat's prompt box and it
+  becomes the one your commands reach: Jump to Chat Input, Settings, History, MCP Servers,
+  Marketplace, Account and New Chat all arrive there, or, with no chat tapped, in the location
+  chosen in Settings. In the Command Palette the toolbar commands carry the "Cline Cubed" prefix,
+  and the names say what they do — New Chat, Marketplace, and Close Chat on the X that closes a
+  chat.
 
 ## Chat layout (mirrors Claude Code)
 
 Three New Chat buttons are always within reach — in the chats list's toolbar, at the top of
-the Editor, and at the top of the Secondary sidebar chat. Every one opens or creates a chat
-**in the location chosen in Settings**. (The Cline Cubed icon in the left activity bar opens
+the editor, and at the top of the secondary sidebar chat. Every one opens or creates a chat
+**in the location chosen in Settings**. (The Cline Cubed icon in the primary sidebar opens
 your chats list rather than a chat — see "Your chats, listed" below.)
 
 Every button behaves the same way. When the target area has **no chat**, you get the
@@ -50,10 +76,14 @@ Every button behaves the same way. When the target area has **no chat**, you get
 running, untouched.
 
 That gives you **multiple chat sessions side by side** — each keyed to its own
-conversation, each showing its own work. The sidebar hosts one chat at full height;
-further chats open as editor tabs, which you can arrange side by side. A chat lives in
-one place: open it somewhere else and it moves there, with its old spot returning to
-the home.
+conversation, each showing its own work. The secondary sidebar hosts one chat at full
+height; further chats gather as tabs in a single editor group, so you slide the tab strip
+between them.
+
+A chat lives in one place and stays there: try to open one that is already open and the
+panel running it comes forward with a brief notice, while the panel you clicked in is left
+exactly as it was — nothing moves. Close a chat's tab, or the sidebar holding a chat, and that
+chat ends; drag the docked chat to the other sidebar and it comes with you.
 
 **Every chat owns its own busy state.** Each shows its own thinking indicator while it
 works, and its own Cancel button, from its very first response onward — and cancelling
@@ -65,9 +95,10 @@ setting (Settings → General, and offered on Get Started):
 - **Editor area** (new tab) — the default
 - **Secondary sidebar** (typically right)
 
-A sidebar holds one chat at full height, so further chats open as editor tabs whichever
-location you pick. The setting governs where new chats open; chats you already have open
-stay where they are. A gear button in the chat input row opens Settings quickly.
+The secondary sidebar can house only one chat, at full height, so the two choices come out like this: pick
+**Secondary sidebar** and your first chat docks there while every later one opens as an editor
+tab; pick **Editor area** and nothing docks at all — every chat is an editor tab. The setting
+governs where new chats open; chats you already have open stay where they are. A gear button in the chat input row opens Settings quickly.
 
 ## Chats in one group, files in another
 
@@ -89,36 +120,36 @@ yourself is never closed and never quietly converted into a preview.
 ## Your chats come back
 
 Reload the window and your chats are still there: every editor tab with its own conversation, and
-the docked sidebar chat with its own. Uninstall, reinstall, reload — still there. The record rides
-in VS Code's own workspace storage, so it outlasts far more than a restart, and a chat you opened
-from your history is restored exactly like one you started by typing.
+the docked secondary-sidebar chat with its own. Uninstall, reinstall, reload — still there. The
+record rides in VS Code's own workspace storage, so it outlasts far more than a restart, and a chat
+you opened from your history is restored exactly like one you started by typing.
 
 ## Your chats, listed
 
-The left activity-bar icon opens a **chats list** rather than a chat: the chats open right now
+The Cline Cubed icon in the **primary sidebar** opens a **chats list** rather than a chat: the chats open right now
 sit at the top, each labelled with where it is, and your full history follows underneath. A New
 Chat button sits above them, and the Settings, Account, and Marketplace buttons open right there
 in the panel instead of commandeering one of your running chats.
 
 Clicking a row opens that chat — one target, one outcome. If that chat is already open somewhere,
-it is brought into view where it already lives rather than moved: the panel running it comes
-forward, a brief notice tells you it was already open, and the panel you clicked in stays exactly
-as it was — so a chat can never be pulled out from under a half-typed message. A chat open
-nowhere opens in the surface you clicked from when that surface is an empty home, and in a new
-editor tab when it is already showing a chat: clicking three chats gives three windows, and the
-chat you are working in is never taken from you. The per-row controls appear on hover at the right:
-details, favorite, and delete. There is no checkbox column and no full-width red delete
-button; clearing the whole history is a single quiet control under the list. The chats list and
-the history panel inside a chat are the same component, so both behave identically.
+it is brought into view where it already lives: the panel running it comes forward, a brief notice
+tells you it was already open, and the panel you clicked in stays exactly as it was — so a chat can
+never be pulled out from under a half-typed message. A chat open nowhere opens in the surface you
+clicked from when that surface is an empty home, and in a new editor tab when it is already showing
+a chat: clicking three chats gives three windows, and the chat you are working in is never taken
+from you. The per-row controls appear on hover at the right: details, favorite, and delete; clearing
+the whole history is a single quiet control under the list. The chats list and the history panel inside a chat are the same component,
+so both behave identically.
 
-Opening a chat into a new editor column evens the column widths, so a new chat never arrives as a
-sliver beside a wide one.
+When a chat does open a brand-new editor column, the column widths are evened, so it never arrives
+as a sliver beside a wide one.
 
 ## Name your chats
 
-Every chat is displayed by its first prompt until you give it a name of its own. Hover the name at
-the top of a chat, or anywhere on a row in the chats list or history — the name highlights and a
-pencil appears; click either to edit it in place. Enter or clicking away commits, Escape cancels,
+Every chat is displayed by its first prompt until you give it a name of its own. At the top of a
+chat, hover the name and click it, or the pencil beside it, to edit in place; on a row in the chats
+list or history, the name opens the chat and the pencil beside it renames. Renaming a chat, or
+marking it a favorite, never moves it in the list. Enter or clicking away commits, Escape cancels,
 and clearing the box restores the first prompt, so a rename is always undoable.
 
 Renaming never rewrites what you actually typed: the name is stored in a field of its own, and your
@@ -164,21 +195,33 @@ repository. It also knows where its own chat transcripts live and how they are l
 answer questions about your own history — what time you posted something in this chat, for
 instance — and it asks before reading anything, because those files sit outside your project.
 
-## Setup
+## Setup — Image Mode
+
+Nothing below is needed to run multiple chats, keep them through a reload, or use the rest of the
+fork — install it and all of that is already working. These steps set up **Image Mode**, the one
+feature that needs a model of its own:
 
 1. Open Settings → **API Configuration** and pick the **Image Mode** tab.
-2. Choose a vision-capable provider and model (e.g. DeepSeek, OpenAI, OpenRouter,
-   or Gemini with a vision model) and enter its API key.
+2. Choose a vision-capable **model** — DeepSeek's `deepseek-v4-flash-vision-exp`, for
+   instance, or a vision model from OpenAI, OpenRouter, or Gemini — and enter that
+   provider's API key.
 3. Paste an image into the chat — the bridge describes it and feeds the text
    description to your Plan/Act model.
 
+**The pairing this fork is developed and tested against:** `deepseek-reasoner` for Plan and Act,
+which cannot see images, with `deepseek-v4-flash-vision-exp` as the Image Mode model. That is the
+exact case the bridge exists for — a strong, affordable text-only reasoner that never has to give
+up understanding a screenshot.
+
 ## Debug logging
 
-In Settings → API Configuration → Image Mode tab, enable **Image bridge debug
-logging**. Each bridge call is then logged to the output channel (`View → Output
-→ Cline Cubed`), and the most recent calls are shown inline under the bridge
-block. If a bridge call fails, the panel appears automatically with a one-click
-way to turn the toggle off.
+One switch, in **Settings → General → Debug logging**, off by default. It turns on diagnostic
+output for the whole extension — the image bridge included — to `View → Output → Cline Cubed`.
+Turn it on while you are looking into something and off afterwards; it is verbose.
+
+Errors and warnings are always reported, whether debug logging is on or off. A failed image-bridge
+call still shows its recent-calls panel inline in the chat either way, with a one-click switch —
+which now turns debug logging off for the whole extension, and says so.
 
 ## More
 

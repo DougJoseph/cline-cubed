@@ -44,7 +44,8 @@ export interface SdkTaskStartCoordinatorOptions {
 		},
 	) => StartInput
 	createHistoryItemFromSession: (sessionId: string, prompt: string, modelId?: string, cwd?: string) => HistoryItem
-	clearTask: (options?: { stopActiveSession?: boolean }) => Promise<void>
+	/** Cline Cubed: view-only unless `endSessionId` names a session to end with the clear. */
+	clearTask: (options?: { endSessionId?: string }) => Promise<void>
 	setTask: (task: TaskProxy | undefined) => void
 	onAskResponse: (text?: string, images?: string[], files?: string[], sessionId?: string) => Promise<void>
 	/** Cline Cubed: `sessionId` names the chat being cancelled — the proxy always passes its own. */
@@ -87,9 +88,10 @@ export class SdkTaskStartCoordinator {
 		let providerId: string | undefined
 		let modelId: string | undefined
 		try {
-			// Cline Cubed: bookkeeping only. Chats run side by side, so starting a new one must
-			// never stop the session another surface is showing.
-			await this.options.clearTask({ stopActiveSession: false })
+			// Cline Cubed: bookkeeping only — a view clear naming no session, so it ends
+			// nothing by construction. Chats run side by side; starting a new one must never
+			// stop the session another surface is showing.
+			await this.options.clearTask({})
 
 			const cwd = await this.options.getWorkspaceRoot()
 			const mode = this.getCurrentMode()
@@ -215,9 +217,10 @@ export class SdkTaskStartCoordinator {
 				return
 			}
 
-			// Bookkeeping only — do NOT stop the currently-focused session: it may be a
-			// different chat that must keep streaming while this one is reinitialized (V7).
-			await this.options.clearTask({ stopActiveSession: false })
+			// Bookkeeping only — a view clear naming no session ends nothing, so the
+			// currently-focused session (possibly a different chat that must keep streaming
+			// while this one is reinitialized, V7) is untouched by construction.
+			await this.options.clearTask({})
 
 			const historyItem = await this.options.taskHistory.findHistoryItem(taskId)
 			if (!historyItem) {

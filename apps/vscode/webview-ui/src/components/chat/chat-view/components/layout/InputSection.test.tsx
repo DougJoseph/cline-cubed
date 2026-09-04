@@ -6,8 +6,11 @@ import type { ChatState, MessageHandlers, ScrollBehavior } from "../../types/cha
 import { InputSection } from "./InputSection"
 
 const mockTurnState = vi.fn<() => TurnState | undefined>(() => undefined)
+// The component also reads this chat's own transcript, to offer its previous prompts on the up
+// arrow. These tests are about whether submit is allowed, so an empty transcript is right — but it
+// must be an array, or the render throws before any assertion is reached.
 vi.mock("@/context/ExtensionStateContext", () => ({
-	useExtensionState: () => ({ turnState: mockTurnState() }),
+	useExtensionState: () => ({ turnState: mockTurnState(), clineMessages: [] }),
 }))
 
 vi.mock("@/components/chat/ChatTextArea", () => ({

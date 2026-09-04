@@ -147,7 +147,7 @@ export async function waitForHeldTurns(n: number, timeoutMs = 20000): Promise<bo
 /** Relaunch VS Code and clear the overlays, leaving the app ready for `openChat()`.
  *  Chats left over from an earlier run no longer confuse addressing — every chat is named by its
  *  own id — but a known-empty app still makes a failure far easier to read. */
-export async function freshApp(state?: Record<string, unknown>): Promise<void> {
+export async function freshApp(state?: Record<string, unknown>, env?: Record<string, string>): Promise<void> {
 	await requireStub()
 	const status = await api("status")
 	if (status.running) {
@@ -158,7 +158,7 @@ export async function freshApp(state?: Record<string, unknown>): Promise<void> {
 	// `state` is written into the debugee's settings BEFORE VS Code starts — the only moment that
 	// works, since the extension reads them at activation. It is how a scenario exercises
 	// behaviour that depends on a SETTING rather than on what it clicks.
-	await api("launch", { skipBuild: true, ...(state ? { state } : {}) })
+	await api("launch", { skipBuild: true, ...(state ? { state } : {}), ...(env ? { env } : {}) })
 	await sleep(3000)
 	await api("ui.open_sidebar")
 	await dismissOverlays()
@@ -191,6 +191,7 @@ export async function surfaceIds(): Promise<string[]> {
 
 /** The chat's message box. Named once: several helpers wait for it before touching a chat. */
 const CHAT_INPUT = '[data-testid="chat-input"]'
+const NEW_CHAT_BUTTON = 'vscode-button:has-text("New Chat")'
 
 /** The `frame` selector that addresses one chat for the life of the run. */
 export function frameOf(surfaceId: string): string {
@@ -266,13 +267,29 @@ export async function newChatFromChatsList(label = "chat", timeoutMs = 30000): P
 	const before = new Set(await surfaceIds())
 	const deadline = Date.now() + timeoutMs
 
+	// The last failure, kept so the abort can say WHY rather than only that nothing opened.
+	let lastError = "no attempt completed"
+
 	for (let attempt = 1; Date.now() < deadline; attempt++) {
 		if (attempt > 1) {
 			await sleep(700)
 		}
 		await api("ui.open_sidebar").catch(() => {})
-		await sleep(800)
-		await api("ui.click", { frame: "chats-list", selector: 'vscode-button:has-text("New Chat")' }).catch(() => {})
+		// Wait for the button to EXIST before clicking it: right after a cold launch the chats
+		// list is still laying out, and a click issued then sits waiting for the element to become
+		// stable. Both waits are BOUNDED — with Playwright's own 30s default, one stuck click ate
+		// this helper's entire retry budget on the first attempt and the loop never got a second
+		// try, which is exactly how a settling view came to look like a missing button (2026-08-31).
+		await api("ui.wait_for_selector", {
+			frame: "chats-list",
+			selector: NEW_CHAT_BUTTON,
+			timeout: 8000,
+		}).catch((error) => {
+			lastError = `chats list never showed its New Chat button: ${error}`
+		})
+		await api("ui.click", { frame: "chats-list", selector: NEW_CHAT_BUTTON, timeout: 5000 }).catch((error) => {
+			lastError = `clicking New Chat failed: ${error}`
+		})
 
 		const attemptDeadline = Math.min(deadline, Date.now() + 8000)
 		while (Date.now() < attemptDeadline) {
@@ -287,7 +304,7 @@ export async function newChatFromChatsList(label = "chat", timeoutMs = 30000): P
 			await sleep(300)
 		}
 	}
-	throw new Error(`"${label}" did not open from the chats list within ${timeoutMs}ms`)
+	throw new Error(`"${label}" did not open from the chats list within ${timeoutMs}ms — ${lastError}`)
 }
 
 /**
@@ -331,6 +348,32 @@ export async function clickEditorTab(labelFragment: string): Promise<boolean> {
 }
 
 /**
+ * Close ONE editor tab by clicking the tab's own "X" — the gesture a person makes, in VS Code's
+ * own chrome, outside every webview.
+ *
+ * The tab is brought forward first: VS Code shows a tab's close control on the ACTIVE tab always,
+ * and on others only while hovered, so clicking the tab first makes the control a settled target
+ * rather than one that depends on where the pointer happens to be.
+ *
+ * Returns false instead of throwing, so a scenario reports "the gesture was not reachable" as a
+ * failed assertion of its own rather than dying inside a selector.
+ */
+export async function closeEditorTabByX(labelFragment: string): Promise<boolean> {
+	await clickEditorTab(labelFragment)
+	await sleep(500)
+	for (const selector of [
+		`.tab:has-text("${labelFragment}") .codicon-close`,
+		`.tab:has-text("${labelFragment}") .tab-actions .action-label`,
+	]) {
+		try {
+			await api("ui.click", { selector, timeout: 5000 })
+			return true
+		} catch {}
+	}
+	return false
+}
+
+/**
  * The text of ONE editor group's tab strip — the first `.tabs-container` in the window — purely
  * for diagnostics. It is NOT a list of every open tab: VS Code gives each editor group its own
  * strip, and chats opened side by side commonly live in more than one, so this shows a slice.
@@ -350,7 +393,7 @@ export async function oneEditorTabStripText(): Promise<string> {
 /** Press the in-chat "X" — the control that returns a chat to the home WITHOUT closing its tab. */
 export async function pressInChatClose(surfaceId: string): Promise<boolean> {
 	try {
-		await api("ui.click", { frame: frameOf(surfaceId), selector: '[aria-label="New Task"]' })
+		await api("ui.click", { frame: frameOf(surfaceId), selector: '[aria-label="Close Chat"]' })
 		return true
 	} catch {
 		return false
@@ -405,6 +448,113 @@ export async function waitForQuiet(surfaceId: string, timeoutMs = 20000): Promis
 /** Assert one chat holds its own probe and none of the others'. The content check that decides
  *  isolation — a transcript hash is reported alongside it as a secondary signal only, because any
  *  late self-update (a cost counter, a status row) moves the hash without anything being wrong. */
+/**
+ * Every chat surface's visible text, sampled POSITIONALLY (`surface:0`, `surface:1`, …).
+ *
+ * Deliberately not addressed by surface id: right after a reload the frames are still
+ * settling and an id lookup THROWS, so a caller sampling by id silently skips exactly the
+ * window it is trying to observe (this cost a scenario its evidence, 2026-08-31). Positional
+ * targeting resolves throughout. Returns [] rather than throwing.
+ */
+export async function allSurfaceTexts(max = 4): Promise<string[]> {
+	const texts: string[] = []
+	for (let i = 0; i < max; i++) {
+		try {
+			const res = await api("ui.transcript", { frame: `surface:${i}` })
+			texts.push(String(res?.text ?? ""))
+		} catch {
+			// A frame that is still settling throws — that is "not readable YET", not "no more
+			// surfaces". Breaking here silently skipped the very window this exists to observe.
+			texts.push("")
+		}
+	}
+	return texts
+}
+
+/**
+ * Reload the debugee's window and wait for the harness to re-attach. Frame handles and surface
+ * ids from before the reload are all invalid afterward — re-enumerate with surfaceIds().
+ */
+export async function reloadWindow(): Promise<void> {
+	await api("reload_window")
+}
+
+// ── Extension-host introspection (IS_DEV debug handle) ─────────────────────────────────────
+
+/**
+ * Evaluate an expression in the EXTENSION HOST and return its value. The debugee exposes
+ * `globalThis.__clineCubedDebug` ({ controller, invokeRpc }) under IS_DEV — see extension.ts.
+ * Promise results are awaited by the server (Runtime.evaluate awaitPromise).
+ */
+export async function extEval<T>(expression: string): Promise<T> {
+	const res = await api("ext.evaluate", { expression })
+	if (res?.exceptionDetails) {
+		throw new Error(`ext.evaluate threw: ${res.exceptionDetails.text ?? JSON.stringify(res.exceptionDetails)}`)
+	}
+	return res?.result?.value as T
+}
+
+/**
+ * Run a VS Code command by its EXACT id, through the extension host's own `executeCommand`.
+ *
+ * Exact ids only — never the palette's typed name. A mistyped title silently runs nothing, or runs
+ * something else, and the scenario then reports on a gesture that never happened. This is the same
+ * reason the debug handle exposes `executeCommand` at all (see extension.ts).
+ */
+export async function runCommand(id: string, ...args: unknown[]): Promise<void> {
+	const call = [id, ...args].map((a) => JSON.stringify(a)).join(", ")
+	await extEval(`globalThis.__clineCubedDebug.executeCommand(${call}).then(() => "ran")`)
+}
+
+/**
+ * Drive one RPC through the REAL protobus handler — the same function a webview request runs,
+ * minus the wire hop. Returns the handler's result (JSON round-tripped).
+ */
+export async function invokeRpc<T = unknown>(service: string, method: string, request: unknown): Promise<T> {
+	const expr = `globalThis.__clineCubedDebug.invokeRpc(${JSON.stringify(service)}, ${JSON.stringify(method)}, ${JSON.stringify(request)}).then((r) => JSON.parse(JSON.stringify(r ?? null)))`
+	return await extEval<T>(expr)
+}
+
+/**
+ * Fire an RPC WITHOUT awaiting it — for handlers that block on a modal dialog (the delete
+ * confirmations), where the scenario must go click the dialog while the handler waits.
+ */
+export async function invokeRpcDetached(service: string, method: string, request: unknown): Promise<void> {
+	const expr = `void globalThis.__clineCubedDebug.invokeRpc(${JSON.stringify(service)}, ${JSON.stringify(method)}, ${JSON.stringify(request)}).catch((e) => console.error("detached rpc failed", e)); "fired"`
+	await extEval(expr)
+}
+
+/** Every live chat's task proxy — id and the model its API shim carries right now. */
+export async function liveTaskShims(): Promise<{ id: string; model: string }[]> {
+	const expr = `(() => {
+		const out = [];
+		globalThis.__clineCubedDebug.controller.applyToLiveTasks((t) => out.push({ id: t.taskId, model: t.api.getModel().id }));
+		return out;
+	})()`
+	return (await extEval<{ id: string; model: string }[]>(expr)) ?? []
+}
+
+/**
+ * Click a button in a WORKBENCH modal dialog (`window.dialogStyle: "custom"` — the harness
+ * profile pins it, because a native macOS dialog is unreachable). No `frame` = the window.
+ */
+export async function clickDialogButton(label: string, timeoutMs = 10000): Promise<boolean> {
+	const selector = `.monaco-dialog-box a.monaco-button:has-text(${JSON.stringify(label)})`
+	try {
+		await api("ui.wait_for_selector", { selector, timeout: timeoutMs })
+		await api("ui.click", { selector, timeout: 5000 })
+		return true
+	} catch {
+		return false
+	}
+}
+
+/** The chats list's full visible text (the primary sidebar's own webview). */
+export async function chatsListText(): Promise<string> {
+	const res = await api("ui.get_text", { frame: "chats-list", selector: "body" })
+	return String(res?.text ?? res ?? "")
+}
+
 export function assertHoldsOnly(
 	label: string,
 	transcript: { text: string },

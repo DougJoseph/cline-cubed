@@ -18,6 +18,10 @@ export interface WebviewMessage {
 		// Cline Cubed: the chats list's New Chat button, routed through the same
 		// openOrCreateChat every chat button uses.
 		| "newChatFromList"
+		// Cline Cubed: a chat surface was clicked into. VS Code reports an editor tab gaining focus
+		// but says nothing when a sidebar view does, so the webview reports it itself — that is what
+		// lets a click count as "I am working here" on every surface, not only tabs.
+		| "surfaceFocused"
 	grpc_request?: GrpcRequest
 	grpc_request_cancel?: GrpcCancel
 	/** Cline Cubed: session carried by "bindSurfaceSession" (null = a new chat, no session yet). */

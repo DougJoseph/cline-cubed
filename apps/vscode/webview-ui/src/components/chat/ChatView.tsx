@@ -2,6 +2,7 @@ import { combineApiRequests } from "@shared/combineApiRequests"
 import { combineCommandSequences } from "@shared/combineCommandSequences"
 import { combineHookSequences } from "@shared/combineHookSequences"
 import { getApiMetrics, getLastApiReqTotalTokens } from "@shared/getApiMetrics"
+import { chatDisplayTitle } from "@shared/HistoryItem"
 import { BooleanRequest, StringRequest } from "@shared/proto/cline/common"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useMount } from "react-use"
@@ -37,8 +38,6 @@ import {
 
 interface ChatViewProps {
 	isHidden: boolean
-	showAnnouncement: boolean
-	hideAnnouncement: () => void
 	showHistoryView: () => void
 }
 
@@ -46,10 +45,9 @@ interface ChatViewProps {
 const MAX_IMAGES_AND_FILES_PER_MESSAGE = CHAT_CONSTANTS.MAX_IMAGES_AND_FILES_PER_MESSAGE
 const QUICK_WINS_HISTORY_THRESHOLD = 3
 
-const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryView }: ChatViewProps) => {
+const ChatView = ({ isHidden, showHistoryView }: ChatViewProps) => {
 	const showNavbar = useShowNavbar()
 	const {
-		version,
 		clineMessages: messages,
 		taskHistory,
 		telemetrySetting,
@@ -60,6 +58,9 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 		queuedPrompts,
 		turnState,
 		apiConfiguration,
+		conversationLoading,
+		currentTaskItem,
+		activeTaskTitle,
 	} = useExtensionState()
 	const isProdHostedApp = userInfo?.apiBaseUrl === "https://app.cline.bot"
 	const shouldShowQuickWins = isProdHostedApp && (!taskHistory || taskHistory.length < QUICK_WINS_HISTORY_THRESHOLD)
@@ -417,15 +418,29 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 						}}
 						task={task}
 					/>
+				) : conversationLoading ? (
+					// Cline Cubed: this chat is real and its conversation is being loaded (a restore
+					// after reload, or a slow open from History) — say so, with the chat's name.
+					// Rendering WelcomeSection here is what showed the Home screen over a chat that
+					// was seconds from arriving.
+					<div className="flex flex-col items-center justify-center flex-1 gap-2 px-6 select-none">
+						<span className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: 24 }} />
+						{(() => {
+							const loadingTitle = activeTaskTitle ?? (currentTaskItem ? chatDisplayTitle(currentTaskItem) : "")
+							return loadingTitle ? (
+								<div className="ph-no-capture text-base font-medium text-center whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
+									{loadingTitle}
+								</div>
+							) : null
+						})()}
+						<div className="text-description text-sm">Loading conversation…</div>
+					</div>
 				) : (
 					<WelcomeSection
-						hideAnnouncement={hideAnnouncement}
 						shouldShowQuickWins={shouldShowQuickWins}
-						showAnnouncement={showAnnouncement}
 						showHistoryView={showHistoryView}
 						taskHistory={taskHistory}
 						telemetrySetting={telemetrySetting}
-						version={version}
 					/>
 				)}
 				{task && (
@@ -439,7 +454,13 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 					/>
 				)}
 			</div>
-			<footer className="bg-(--vscode-sidebar-background) flex flex-col" style={{ gridRow: "2" }}>
+			{/* Cline Cubed: no input while the conversation is loading — a prompt typed into an
+			    empty transcript takes the new-chat path and would FORK a new chat over the one
+			    being restored (the silent-fork family). The load resolves in seconds. */}
+			<footer
+				className="bg-(--vscode-sidebar-background) flex flex-col"
+				hidden={conversationLoading && !task}
+				style={{ gridRow: "2" }}>
 				<AutoApproveBar />
 				<ActionButtons
 					chatState={chatState}

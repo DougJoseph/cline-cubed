@@ -15,6 +15,23 @@ import { sendChatButtonClickedEvent } from "../ui/subscribeToChatButtonClicked"
  */
 export async function resetState(controller: Controller, request: ResetStateRequest): Promise<Empty> {
 	try {
+		// Cline Cubed: the most destructive action in the product had NO confirmation at all —
+		// one click reset everything. It now confirms first, naming its blast radius: every
+		// running chat is ended, and the stored state is gone for good.
+		const runningCount = controller.liveSessionIds().length
+		const impact =
+			runningCount > 0 ? ` ${runningCount === 1 ? "1 running chat" : `${runningCount} running chats`} will be stopped.` : ""
+		const userChoice = (
+			await HostProvider.window.showMessage({
+				type: ShowMessageType.WARNING,
+				message: `Are you sure you want to reset ${request.global ? "global" : "workspace"} state? This cannot be undone.${impact}`,
+				options: { modal: true, items: ["Reset"] },
+			})
+		).selectedOption
+		if (userChoice !== "Reset") {
+			return Empty.create()
+		}
+
 		if (request.global) {
 			HostProvider.window.showMessage({
 				type: ShowMessageType.INFORMATION,
@@ -29,10 +46,10 @@ export async function resetState(controller: Controller, request: ResetStateRequ
 			await resetWorkspaceState()
 		}
 
-		if (controller.task) {
-			controller.task.abortTask()
-			controller.task = undefined
-		}
+		// Cline Cubed: reset-everything means EVERY live session, each ended by its own id —
+		// the old shape aborted only the focused singleton, so other running chats survived a
+		// full state reset and kept streaming against wiped state.
+		await controller.endAllSessions("resetState")
 
 		HostProvider.window.showMessage({
 			type: ShowMessageType.INFORMATION,

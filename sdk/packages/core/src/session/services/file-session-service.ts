@@ -196,7 +196,12 @@ class FileSessionPersistenceAdapter implements SessionPersistenceAdapter {
 				input.setRunning || input.parentSessionId !== undefined
 					? true
 					: existing.isSubagent,
-			updatedAt: nowIso(),
+			// LOCAL PATCH (2026-09-02): a write that says it is not use keeps the existing date,
+			// so renaming or favouriting a session does not reorder the list. See
+			// `preserveUpdatedAt` in types/session.ts.
+			updatedAt: input.preserveUpdatedAt
+				? existing.updatedAt
+				: nowIso(),
 		};
 
 		if (input.setRunning) {

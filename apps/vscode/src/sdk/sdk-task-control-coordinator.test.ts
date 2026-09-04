@@ -112,10 +112,10 @@ describe("SdkTaskControlCoordinator", () => {
 		const task = makeTask("task-1", [{ ts: 1, type: "say", say: "text", text: "hi", partial: true }])
 		const { coordinator, options, state } = makeCoordinator({ activeSession, task })
 
-		await coordinator.clearTask()
+		await coordinator.clearTask({ endSessionId: "session-123" })
 
 		expect(options.interactions.clearPending).toHaveBeenCalledWith("Task cleared", "session-123")
-		expect(options.sessions.endActiveSession).toHaveBeenCalledWith("clearTask")
+		expect(options.sessions.endSession).toHaveBeenCalledWith("clearTask", { sessionId: "session-123" })
 		expect(options.messages.finalizeMessagesForSave).not.toHaveBeenCalled()
 		expect(options.messages.cancelPendingSave).toHaveBeenCalledOnce()
 		expect(task.messageStateHandler.clear).toHaveBeenCalledOnce()
@@ -175,9 +175,9 @@ describe("SdkTaskControlCoordinator", () => {
 		expect(options.taskHistory.findHistoryItem).toHaveBeenCalledWith("task-1")
 		// Cline Cubed: the running session belongs to a DIFFERENT chat, and chats coexist — so
 		// opening this one must leave that one alone. This assertion used to be the opposite
-		// (`endActiveSession` called), which was the single-chat behaviour: opening any task tore
+		// (`endSession` called), which was the single-chat behaviour: opening any task tore
 		// down whatever was running. See the two tests below for the cases that DO tear down.
-		expect(options.sessions.endActiveSession).not.toHaveBeenCalled()
+		expect(options.sessions.endSession).not.toHaveBeenCalled()
 		expect(existingTask.messageStateHandler.clear).toHaveBeenCalledOnce()
 		expect(options.resetMessageTranslator).toHaveBeenCalledOnce()
 		expect(state.task?.taskId).toBe("task-1")
@@ -203,7 +203,7 @@ describe("SdkTaskControlCoordinator", () => {
 
 		await coordinator.showTaskWithId("session-123")
 
-		expect(options.sessions.endActiveSession).toHaveBeenCalledWith("showTaskWithId", { awaitStop: true })
+		expect(options.sessions.endSession).toHaveBeenCalledWith("showTaskWithId", { awaitStop: true, sessionId: "session-123" })
 	})
 
 	it("focuses a LIVE session in place instead of stopping it", async () => {
@@ -217,7 +217,7 @@ describe("SdkTaskControlCoordinator", () => {
 
 		await coordinator.showTaskWithId("session-123")
 
-		expect(options.sessions.endActiveSession).not.toHaveBeenCalled()
+		expect(options.sessions.endSession).not.toHaveBeenCalled()
 	})
 
 	it("does NOT wipe the outgoing chat's transcript while its session is still live", async () => {
@@ -470,7 +470,7 @@ describe("SdkTaskControlCoordinator", () => {
 		// Task B is selected afterwards and loads successfully.
 		await coordinator.showTaskWithId("task-new")
 		expect(state.task?.taskId).toBe("task-new")
-		const endActiveSessionCalls = options.sessions.endActiveSession.mock.calls.length
+		const endSessionCalls = options.sessions.endSession.mock.calls.length
 
 		// Task A's lookup finally resolves. It must neither stop the session the
 		// newer selection installed nor replace the selection.
@@ -479,7 +479,7 @@ describe("SdkTaskControlCoordinator", () => {
 
 		expect(staleResult).toBeDefined()
 		expect(state.task?.taskId).toBe("task-new")
-		expect(options.sessions.endActiveSession.mock.calls.length).toBe(endActiveSessionCalls)
+		expect(options.sessions.endSession.mock.calls.length).toBe(endSessionCalls)
 	})
 
 	it("abandons a superseded showTaskWithId so the newest selection wins", async () => {
@@ -591,7 +591,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 	const options = {
 		sessions: {
 			getActiveSession: vi.fn(() => input.activeSession),
-			endActiveSession: vi.fn().mockResolvedValue(input.activeSession),
+			endSession: vi.fn().mockResolvedValue(input.activeSession),
 			setRunning: vi.fn(),
 			// Cline Cubed: chats coexist, so "is this session still live?" is asked before any
 			// teardown — a live session is focused in place, never stopped, and its transcript is
@@ -648,7 +648,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 	} as unknown as SdkTaskControlCoordinatorOptions & {
 		sessions: SdkTaskControlCoordinatorOptions["sessions"] & {
 			getActiveSession: ReturnType<typeof vi.fn>
-			endActiveSession: ReturnType<typeof vi.fn>
+			endSession: ReturnType<typeof vi.fn>
 			setRunning: ReturnType<typeof vi.fn>
 			getLiveSession: ReturnType<typeof vi.fn>
 		}

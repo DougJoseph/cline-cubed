@@ -369,7 +369,7 @@ export class SdkFollowupCoordinator {
 		// session synchronously, but never stop a replacement session.
 		const activeSession = this.options.sessions.getActiveSession()
 		if (activeSession?.sdkHost === sdkHost && activeSession.sessionId === sessionId) {
-			await this.options.sessions.endActiveSession("followupTargetChanged", { awaitStop: true })
+			await this.options.sessions.endSession("followupTargetChanged", { awaitStop: true, sessionId })
 		}
 	}
 

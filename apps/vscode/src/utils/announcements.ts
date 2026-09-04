@@ -1,13 +1,12 @@
 import { ExtensionRegistryInfo } from "@/registry"
 
 /**
- * Gets the latest announcement ID based on the extension version
- * Uses major.minor version format (e.g., "1.2" from "1.2.3")
+ * The id of the current release's What's New notes: the full extension version.
  *
- * @param context The VSCode extension context
- * @returns The announcement ID string (major.minor version) or empty string if unavailable
+ * Cline Cubed: stock used the major.minor part, so a patch release announced nothing. Every fork
+ * release is a patch bump, so the id is the whole version — any version change is a new
+ * announcement, and `lastShownAnnouncementId` records the exact version whose notes were seen.
  */
 export function getLatestAnnouncementId(): string {
-	const version = ExtensionRegistryInfo.version
-	return version.split(".").slice(0, 2).join(".")
+	return ExtensionRegistryInfo.version
 }

@@ -8,6 +8,13 @@ import { updateAutoApprovalSettings } from "./updateAutoApprovalSettings"
 function makeController(currentSettings = DEFAULT_AUTO_APPROVAL_SETTINGS, taskId?: string) {
 	const controller = {
 		task: taskId ? { taskId } : undefined,
+		// The real applyToLiveTasks covers every live proxy plus the focused one; this double
+		// has no session map, so the focused task is the whole set.
+		applyToLiveTasks: vi.fn((fn: (task: { taskId: string }) => void) => {
+			if (controller.task) {
+				fn(controller.task)
+			}
+		}),
 		getStateToPostToWebview: vi.fn(async () => ({
 			autoApprovalSettings: currentSettings,
 		})),

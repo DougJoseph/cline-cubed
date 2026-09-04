@@ -70,6 +70,11 @@ export interface ExtensionState {
 	newChatLocation?: NewChatLocation
 	mode: Mode
 	clineMessages: ClineMessage[]
+	/** Cline Cubed: set on a snapshot for a chat whose conversation is being LOADED (a restore
+	 *  after reload, or a slow open from History). Such a snapshot OMITS the conversation
+	 *  fields and carries the chat's identity, and the surface shows the chat's name with a
+	 *  loading indication — never the Home screen. See shared/conversation-snapshot.ts. */
+	conversationLoading?: boolean
 	checkpointRestoreInput?: {
 		text: string
 		images?: string[]
@@ -114,12 +119,25 @@ export interface ExtensionState {
 	planActSeparateModelsSetting: boolean
 	enableCheckpointsSetting?: boolean
 	/** Cline Cubed: gate the image-bridge debug log lines in the output channel. */
-	imageBridgeDebugEnabled?: boolean
-	/** Cline Cubed: recent image-bridge call lines + whether the last call failed (inline debug panel). */
+	debugLoggingEnabled?: boolean
+	/**
+	 * Cline Cubed: the retained image-bridge interception runs, oldest first — each run's lines and
+	 * when it started.
+	 *
+	 * Grouped BY RUN, not "the last few lines": a panel is attached to one message, and a message
+	 * created BEFORE a run began cannot own that run's lines. That comparison is what lets a panel
+	 * show one message's calls and no other's.
+	 *
+	 * SEVERAL runs rather than only the newest, because a run begins on every send: a message keeps
+	 * its own calls available to it after later messages have been sent.
+	 */
 	imageBridgeDebug?: {
-		lines: string[]
+		submission: number
+		sessionId?: string
+		startedAt: number
+		lines: { ts: number; line: string; failed: boolean }[]
 		lastFailed: boolean
-	}
+	}[]
 	platform: Platform
 	environment?: Environment
 	shouldShowAnnouncement: boolean
@@ -181,6 +199,12 @@ export interface ExtensionState {
 	showFeatureTips?: boolean
 	banners?: BannerCardData[]
 	welcomeBanners?: BannerCardData[]
+	/**
+	 * Cline Cubed: the What's New notes for the running version — the fork's CHANGELOG entry,
+	 * shipped in the package as `whats-new.md` by `scripts/changelog-into-package.mjs`. Markdown.
+	 * Empty when the file is absent (a development host that was never packaged).
+	 */
+	whatsNewNotes?: string
 	openAiCodexIsAuthenticated?: boolean
 }
 

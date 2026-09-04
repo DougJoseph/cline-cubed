@@ -2,6 +2,7 @@ import type { Boolean, EmptyRequest } from "@shared/proto/cline/common"
 import { useCallback, useEffect } from "react"
 import AccountView from "./components/account/AccountView"
 import ChatView from "./components/chat/ChatView"
+import WhatsNewModal from "./components/common/WhatsNewModal"
 import HistoryView from "./components/history/HistoryView"
 import MarketplaceView from "./components/marketplace/MarketplaceView"
 import McpView from "./components/mcp/configuration/McpConfigurationView"
@@ -41,13 +42,27 @@ const AppContent = () => {
 		hideAccount,
 		hideWorktrees,
 		closeMarketplaceView,
-		hideAnnouncement,
+		version,
+		whatsNewNotes,
 	} = useExtensionState()
 
 	const { clineUser, organizations, activeOrganization } = useClineAuth()
 
-	const showUpdateAnnouncementModal = useCallback(() => {
-		setShowAnnouncement(true)
+	// Cline Cubed: the What's New modal opens in whichever chat view is on screen, and the version
+	// is recorded as seen only when the modal is CLOSED. Stock acknowledged the announcement the
+	// moment it was flagged and rendered the modal only on the chat home, so with a chat open the
+	// notes were marked seen without ever appearing. Every open chat surface is its own webview
+	// and shows the modal; closing it in one records the acknowledgment, the extension pushes the
+	// state to every surface, and the effect below closes the rest.
+	useEffect(() => {
+		if (!didHydrateState || showWelcome) {
+			return
+		}
+		setShowAnnouncement(shouldShowAnnouncement)
+	}, [didHydrateState, showWelcome, shouldShowAnnouncement, setShowAnnouncement])
+
+	const closeWhatsNew = useCallback(() => {
+		setShowAnnouncement(false)
 		UiServiceClient.onDidShowAnnouncement({} as EmptyRequest)
 			.then((response: Boolean) => {
 				setShouldShowAnnouncement(response.value)
@@ -56,13 +71,6 @@ const AppContent = () => {
 				console.error("Failed to acknowledge announcement:", error)
 			})
 	}, [setShouldShowAnnouncement, setShowAnnouncement])
-
-	useEffect(() => {
-		if (!didHydrateState || showWelcome || !shouldShowAnnouncement || showAnnouncement) {
-			return
-		}
-		showUpdateAnnouncementModal()
-	}, [didHydrateState, showWelcome, shouldShowAnnouncement, showAnnouncement, showUpdateAnnouncementModal])
 
 	// Open the ClinePass subscription page once auth completes. Lives here (not in OnboardingView)
 	// because handleAuthCallback unmounts onboarding before the clineUser update arrives.
@@ -113,11 +121,15 @@ const AppContent = () => {
 				/>
 			)}
 			{showWorktrees && <WorktreesView onDone={hideWorktrees} />}
+			<WhatsNewModal
+				notes={whatsNewNotes ?? ""}
+				onClose={closeWhatsNew}
+				open={showAnnouncement && !!whatsNewNotes}
+				version={version}
+			/>
 			{/* Do not conditionally load ChatView, it's expensive and there's state we don't want to lose (user input, disableInput, askResponse promise, etc.) */}
 			<ChatView
-				hideAnnouncement={hideAnnouncement}
 				isHidden={showSettings || showHistory || showMarketplace || showMcp || showAccount || showWorktrees}
-				showAnnouncement={showAnnouncement}
 				showHistoryView={navigateToHistory}
 			/>
 		</div>

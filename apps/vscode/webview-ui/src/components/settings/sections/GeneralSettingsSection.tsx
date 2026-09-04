@@ -11,7 +11,7 @@ interface GeneralSettingsSectionProps {
 }
 
 const GeneralSettingsSection = ({ renderSectionHeader }: GeneralSettingsSectionProps) => {
-	const { telemetrySetting, remoteConfigSettings } = useExtensionState()
+	const { telemetrySetting, remoteConfigSettings, debugLoggingEnabled } = useExtensionState()
 
 	return (
 		<div>
@@ -20,6 +20,25 @@ const GeneralSettingsSection = ({ renderSectionHeader }: GeneralSettingsSectionP
 				<PreferredLanguageSetting />
 
 				<NewChatLocationSetting />
+
+				{/* Cline Cubed: the ONE master debug-logging switch. Off by default; covers
+				    everything the extension logs, not one feature. */}
+				<div className="mb-[5px]">
+					<div className="flex items-center gap-2 mb-[5px]">
+						<VSCodeCheckbox
+							checked={debugLoggingEnabled === true}
+							onChange={(e: any) => {
+								updateSetting("debugLoggingEnabled", e.target.checked === true)
+							}}>
+							Debug logging
+						</VSCodeCheckbox>
+					</div>
+					<p className="text-sm mt-[5px] text-description">
+						Write detailed diagnostic output to View → Output → Cline Cubed. Off by default, and worth turning on only
+						while you are looking into something — it is verbose. Errors and warnings are always reported, whether
+						this is on or off.
+					</p>
+				</div>
 
 				<div className="mb-[5px]">
 					<Tooltip>

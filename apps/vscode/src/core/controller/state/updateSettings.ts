@@ -58,10 +58,14 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 
 			controller.stateManager.setApiConfiguration(normalizedApiConfiguration)
 
-			if (controller.task) {
+			// Cline Cubed: the new model shim reaches EVERY live chat immediately — a settings
+			// change is account-wide, not a fact about whichever chat is focused.
+			{
 				const currentMode = controller.stateManager.getGlobalSettingsKey("mode")
 				const modelId = resolveActiveModelIdFromApiConfiguration(normalizedApiConfiguration, currentMode)
-				controller.task.api = createTaskApiModelShim(modelId)
+				controller.applyToLiveTasks((task) => {
+					task.api = createTaskApiModelShim(modelId)
+				})
 			}
 			controller.handleApiConfigurationChanged(previousApiConfiguration, normalizedApiConfiguration)
 		}
@@ -188,9 +192,13 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 			setModelToolEnabledGlobally("web_search", !!request.webSearchEnabled)
 		}
 
-		// Cline Cubed: gate the image-bridge debug log lines in the output channel.
-		if (request.imageBridgeDebugEnabled !== undefined) {
-			controller.stateManager.setGlobalState("imageBridgeDebugEnabled", !!request.imageBridgeDebugEnabled)
+		// Cline Cubed: the master debug-logging switch. Persisted AND pushed into the
+		// Logger in the same breath — the Logger is called from places that have no
+		// controller to read state from, so it is told rather than asked.
+		if (request.debugLoggingEnabled !== undefined) {
+			const enabled = !!request.debugLoggingEnabled
+			controller.stateManager.setGlobalState("debugLoggingEnabled", enabled)
+			Logger.setDebugEnabled(enabled)
 		}
 
 		if (request.compactionStrategy !== undefined) {

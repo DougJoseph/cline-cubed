@@ -4,6 +4,7 @@ import { Logger } from "@/shared/services/Logger"
 import { ClineAskResponse } from "../../../shared/WebviewMessage"
 import { interceptImagesForNonVisionModel } from "../../bridge/interceptImages"
 import { Controller } from ".."
+import { chatSurfaceForSession, setActiveChatSurface } from "../chat-surfaces"
 
 /**
  * Handles a response from the webview for a previous ask operation
@@ -40,6 +41,14 @@ export async function askResponse(controller: Controller, request: AskResponseRe
 			return Empty.create()
 		}
 
+		// Sending a message is the one act that says, without inference, which chat the person is
+		// working in. A session lives in exactly one surface, so this is exact — and it covers the
+		// case that focus tracking cannot: returning to a chat bound long ago and typing into it.
+		const sendingSurface = chatSurfaceForSession(task.taskId)
+		if (sendingSurface) {
+			setActiveChatSurface(sendingSurface)
+		}
+
 		// Map the string responseType to the ClineAskResponse enum
 		let responseType: ClineAskResponse
 		switch (request.responseType) {
@@ -71,7 +80,8 @@ export async function askResponse(controller: Controller, request: AskResponseRe
 				apiConfiguration: controller.stateManager.getApiConfiguration(),
 				providerConfigStore: controller.getProviderConfigStore(),
 				mode: controller.stateManager.getGlobalSettingsKey("mode"),
-				debugEnabled: controller.stateManager.getGlobalSettingsKey("imageBridgeDebugEnabled"),
+				debugEnabled: controller.stateManager.getGlobalSettingsKey("debugLoggingEnabled"),
+				sessionId: targetSessionId || task.taskId,
 			})
 		} catch (error) {
 			Logger.warn("Image bridge interception skipped:", error)

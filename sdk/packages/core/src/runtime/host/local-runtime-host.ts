@@ -1284,6 +1284,8 @@ export class LocalRuntimeHost implements RuntimeHost {
 			title?: string | null;
 			/** LOCAL PATCH (2026-09-02): see `preserveUpdatedAt` in types/session.ts. */
 			preserveUpdatedAt?: boolean;
+			/** LOCAL PATCH (2026-09-04): see `removeMetadataKeys` in types/session.ts. */
+			removeMetadataKeys?: string[];
 		},
 	): Promise<{ updated: boolean }> {
 		const result = await this.invokeOptionalValue<{ updated?: boolean }>(
@@ -1294,6 +1296,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 				metadata: updates.metadata,
 				title: updates.title,
 				preserveUpdatedAt: updates.preserveUpdatedAt,
+				removeMetadataKeys: updates.removeMetadataKeys,
 			},
 		);
 		return { updated: result?.updated === true };
@@ -1710,8 +1713,18 @@ export class LocalRuntimeHost implements RuntimeHost {
 		const files = preparedInput?.userFiles?.length;
 		if (!prompt && !images && !files) throw new Error("prompt cannot be empty");
 
+		// LOCAL PATCH (2026-09-04): store what the PERSON typed, not the model's envelope.
+		// `prompt` above is `preparedInput.prompt` — already wrapped as
+		// <user_input mode="...">…</user_input> for the model — so recording it verbatim put that
+		// markup in the session's own prompt, and the persistence service derived an untitled
+		// session's title from it. Every display path runs normalizeUserInput, which is why it
+		// never showed on screen. This fixes what is STORED; the turn's input below is untouched
+		// and still carries the wrapper.
+		// Plan: private parent
+		// Docs/2026-09-04_9.34am_seeded-session-prompt-stored-without-its-wrapper.md
+		const storedPrompt = normalizeUserInput(prompt);
 		if (!session.artifacts && !session.pendingPrompt) {
-			session.pendingPrompt = prompt;
+			session.pendingPrompt = storedPrompt;
 		}
 		await this.ensureSessionPersisted(session);
 		// A seeded session (fork, checkpoint restore, missing-session
@@ -1721,11 +1734,11 @@ export class LocalRuntimeHost implements RuntimeHost {
 		// here: the persistence service derives the title from this prompt
 		// when the session is untitled, and leaves any user-set title alone.
 		if (!session.pendingPrompt) {
-			session.pendingPrompt = prompt;
+			session.pendingPrompt = storedPrompt;
 			try {
 				await this.invokeOptionalValue("updateSession", {
 					sessionId: session.sessionId,
-					prompt,
+					prompt: storedPrompt,
 				});
 			} catch (error) {
 				session.config.logger?.log?.(

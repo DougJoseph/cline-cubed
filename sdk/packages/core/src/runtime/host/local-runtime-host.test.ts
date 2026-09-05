@@ -953,6 +953,104 @@ describe("LocalRuntimeHost", () => {
 		});
 	});
 
+	/**
+	 * LOCAL PATCH (2026-09-04) coverage — what a session STORES as its prompt is the person's
+	 * text, never the <user_input mode="..."> envelope the model is sent. A session created
+	 * before any prompt exists (fork, checkpoint restore, recovery) backfills its row from the
+	 * first turn, and that value also names an untitled session. The model's own input is
+	 * unchanged: it still receives the wrapper.
+	 * Plan: private parent Docs/2026-09-04_9.34am_seeded-session-prompt-stored-without-its-wrapper.md
+	 */
+	/**
+	 * LOCAL PATCH (2026-09-04) coverage — a session seeded with history but no prompt (a
+	 * mode-switch restart, a fork, a missing-session recovery) has its row written before anyone
+	 * types, so the FIRST message typed afterwards backfills that row. What is stored there must
+	 * be the person's text, never the <user_input mode="..."> envelope the model is sent — the
+	 * row's own record, and the name an untitled session takes from it. The model's input is
+	 * untouched: it still receives the wrapper.
+	 * Plan: private parent Docs/2026-09-04_9.34am_seeded-session-prompt-stored-without-its-wrapper.md
+	 */
+	it("backfills a seeded session's prompt with the person's text, not the model's <user_input> envelope", async () => {
+		const sessionId = "sess-seeded-backfill-prompt";
+		const manifest = createManifest(sessionId);
+		// Seeded with history and NO prompt — what a mode-switch restart or a fork produces.
+		const initialMessages: MessageWithMetadata[] = [
+			{ role: "user" as const, content: "earlier work" },
+			{ role: "assistant" as const, content: "done" },
+		];
+		const updateSession = vi.fn().mockResolvedValue({ updated: true });
+		const runtimeBuilder = {
+			build: vi.fn().mockReturnValue({ tools: [], shutdown: vi.fn() }),
+		};
+		let promptSeenByAgent: string | undefined;
+		const agent = {
+			run: vi.fn(async (input?: unknown) => {
+				promptSeenByAgent =
+					typeof input === "string"
+						? input
+						: ((input as { prompt?: string } | undefined)?.prompt ?? undefined);
+				return createResult();
+			}),
+			continue: vi.fn(async (input?: unknown) => {
+				promptSeenByAgent =
+					typeof input === "string"
+						? input
+						: ((input as { prompt?: string } | undefined)?.prompt ?? promptSeenByAgent);
+				return createResult();
+			}),
+			getMessages: vi.fn().mockReturnValue(initialMessages),
+			getAgentId: vi.fn().mockReturnValue("agent-root-1"),
+			getConversationId: vi.fn().mockReturnValue("conv-root-1"),
+			abort: vi.fn(),
+			subscribeEvents: vi.fn().mockReturnValue(() => {}),
+			canStartRun: vi.fn().mockReturnValue(true),
+			shutdown: vi.fn().mockResolvedValue(undefined),
+		};
+		const manager = new RuntimeHostUnderTest({
+			distinctId,
+			sessionService: {
+				ensureSessionsDir: vi.fn().mockReturnValue("/tmp/sessions"),
+				createRootSessionWithArtifacts: vi.fn().mockResolvedValue({
+					manifestPath: "/tmp/manifest-seeded-backfill.json",
+					messagesPath: "/tmp/messages-seeded-backfill.json",
+					manifest,
+				}),
+				persistSessionMessages: vi.fn(),
+				updateSession,
+				updateSessionStatus: vi.fn().mockResolvedValue({ updated: true }),
+				writeSessionManifest: vi.fn(),
+				listSessions: vi.fn().mockResolvedValue([]),
+				deleteSession: vi.fn().mockResolvedValue({ deleted: true }),
+			} as never,
+			runtimeBuilder: runtimeBuilder as never,
+			createAgent: () => agent as never,
+		});
+
+		// Start seeded: history, no prompt. The row is written here, promptless.
+		await manager.startSession(
+			normalizeStartInput({
+				config: createConfig({ sessionId }),
+				interactive: true,
+				initialMessages,
+			}),
+		);
+
+		// The first thing typed afterwards is what backfills the row.
+		await manager.runTurn({ sessionId, prompt: "fix the login form" });
+
+		const backfills = updateSession.mock.calls
+			.map(([call]) => call)
+			.filter((call) => typeof call?.prompt === "string");
+		expect(backfills.length).toBeGreaterThan(0);
+		for (const call of backfills) {
+			expect(call.prompt).not.toContain("<user_input");
+			expect(call.prompt).toBe("fix the login form");
+		}
+
+		// The model still receives the wrapper — the turn's own input is untouched.
+		expect(promptSeenByAgent).toContain("<user_input");
+	});
+
 	it("ingests automation events emitted by sandbox plugins during setup", async () => {
 		const sessionId = "sess-plugin-automation-setup";
 		const ingestEvent = vi.fn().mockResolvedValue(undefined);

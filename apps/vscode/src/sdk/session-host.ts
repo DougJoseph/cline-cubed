@@ -52,6 +52,10 @@ export interface SdkSessionHost {
 			prompt?: string | null
 			metadata?: Record<string, unknown> | null
 			title?: string | null
+			/** Cline Cubed: see `preserveUpdatedAt` in the SDK's types/session.ts. */
+			preserveUpdatedAt?: boolean
+			/** Cline Cubed: see `removeMetadataKeys` in the SDK's types/session.ts. */
+			removeMetadataKeys?: string[]
 		},
 	): Promise<{ updated: boolean }>
 	handleHookEvent(payload: HookEventPayload): Promise<void>

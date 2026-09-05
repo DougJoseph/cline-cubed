@@ -50,6 +50,14 @@ type SdkTaskHistoryListOptions = ClineCoreListHistoryOptions & {
 	offset?: number
 }
 
+/**
+ * Cline Cubed: how a rename's write is retried when the host reports it did not land — see
+ * `setTaskTitle`. Five tries over about half a second comfortably outlasts a turn's end-of-turn
+ * burst of row writes, which is the one thing known to reject it.
+ */
+const RENAME_WRITE_ATTEMPTS = 5
+const RENAME_WRITE_RETRY_DELAY_MS = 100
+
 function metadataNumber(metadata: SessionHistoryRecord["metadata"] | undefined, key: string): number | undefined {
 	const value = metadata?.[key]
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined
@@ -364,7 +372,9 @@ export class SdkTaskHistory {
 		cache.records[index] = {
 			...existing,
 			prompt: updates.prompt,
-			metadata: updates.metadata,
+			// The store merged this write onto what it held; the cache mirrors that, or a name the
+			// write did not mention would vanish from the list until the cache expired.
+			metadata: { ...(existing.metadata ?? {}), ...updates.metadata },
 			// Absent means the write deliberately left the date alone, so the record keeps its own.
 			updatedAt: updates.updatedAt ?? existing.updatedAt,
 		}
@@ -562,17 +572,17 @@ export class SdkTaskHistory {
 	private async updateSession(sessionId: string, item: HistoryItem, notUse = false): Promise<void> {
 		const { metadata: writtenMetadata, updated } = await this.withHistoryHost(async (host) => {
 			const existing = await host.get(sessionId)
-			const metadata: Record<string, unknown> = {
-				...(existing?.metadata ?? {}),
-				...historyItemToSessionMetadata(item, existing?.model),
-			}
+			// ONLY the keys this writer owns. The store MERGES a write onto what is stored, so
+			// every other key survives on its own — and `existing.metadata` must NOT be spread in:
+			// for a LIVE chat `host.get` answers from the SDK's in-memory copy, which does not learn
+			// of this extension's writes (a rename, a generated name) until the SDK's next metadata
+			// write, so spreading it re-sent a STALE `customTitle` over the one on the row. Proven
+			// in the debug harness 2026-09-04: a typed rename was replaced by the earlier generated
+			// name the moment the chat's next turn ended.
+			const metadata: Record<string, unknown> = historyItemToSessionMetadata(item, existing?.model)
 			if (item.size === undefined) {
-				const existingSize = existing?.metadata?.size
-				if (existingSize !== undefined) {
-					metadata.size = existingSize
-				} else {
-					delete metadata.size
-				}
+				// Not known by this write; the stored value, if any, stays as it is.
+				delete metadata.size
 			}
 			const result = await host.update(sessionId, {
 				prompt: item.task,
@@ -630,18 +640,39 @@ export class SdkTaskHistory {
 		await this.withHistoryHost(async (host) => {
 			const existing = await host.get(sessionId)
 			if (!existing) {
-				Logger.log(`[SdkTaskHistory] Cannot rename, session not found: ${sessionId}`)
+				// UNGATED: a name was asked for and there is no chat to put it on.
+				Logger.warn(`[SdkTaskHistory] Cannot rename, session not found: ${sessionId}`)
 				return
 			}
-			const metadata: Record<string, unknown> = { ...(existing.metadata ?? {}) }
-			if (trimmed) {
-				metadata.customTitle = trimmed
-			} else {
-				delete metadata.customTitle
-			}
+			// A session write MERGES the metadata it is given onto what is stored, so clearing a
+			// name cannot be done by leaving the key out — it is named for removal instead. Only
+			// the key this write means to change is sent; everything else stays as stored.
+			const clearing = !trimmed
 			// A rename is not use of the chat: it must not move the chat in a list ordered by when
 			// each was last used. Doug, 2026-08-31.
-			await host.update(sessionId, { metadata, preserveUpdatedAt: true })
+			const updates = {
+				metadata: clearing ? {} : { customTitle: trimmed },
+				removeMetadataKeys: clearing ? ["customTitle"] : undefined,
+				preserveUpdatedAt: true,
+			}
+			// The write is guarded by the row's status lock, and the SDK gives up after four
+			// back-to-back attempts. A name that lands while the chat's turn is ending collides
+			// with the SDK's own burst of writes (status, usage, status, then the history usage
+			// write), each of which bumps that lock — proven in the debug harness, where an
+			// instant provider put the generated name inside that burst every time. So a write
+			// the host reports as not landed is tried again after a short pause, a few times,
+			// and a rename that still did not land is REPORTED rather than dropped in silence.
+			for (let attempt = 0; attempt < RENAME_WRITE_ATTEMPTS; attempt++) {
+				const result = await host.update(sessionId, updates)
+				if (result.updated) {
+					return
+				}
+				await new Promise((resolve) => setTimeout(resolve, RENAME_WRITE_RETRY_DELAY_MS))
+			}
+			// UNGATED: the name the person (or the naming request) supplied is not on the chat.
+			Logger.warn(
+				`[SdkTaskHistory] Rename of ${sessionId} did not land after ${RENAME_WRITE_ATTEMPTS} attempts — the chat still shows its previous name`,
+			)
 		})
 		// Renaming is rare, so drop the cache and let the next read re-enumerate from disk rather
 		// than patching a record in place. The patch helper rewrites `prompt` as well, which is the
@@ -682,6 +713,33 @@ export class SdkTaskHistory {
 			return sdkHistoryItem
 		}
 
+		const legacyItem = this.findLegacyTask(taskId)?.item
+		return legacyItem ? { ...legacyItem, isLegacy: true } : undefined
+	}
+
+	/**
+	 * Cline Cubed: the chat's record AS STORED — never the live session's in-memory copy.
+	 *
+	 * `findHistoryItem` goes through the active session's host, and for a LIVE chat the SDK
+	 * answers that from memory (`toActiveSessionRecord`), which does not learn of this
+	 * extension's own writes until the SDK's next metadata write re-reads the manifest. A name
+	 * written to the row mid-run is therefore invisible there. This reads through the history
+	 * host instead, which holds no live sessions and so reads the row. Used where the stored
+	 * name is the question: the editor tab's label, and the "already named?" guard on a
+	 * generated name. Size is not hydrated — a name lookup has no use for it.
+	 */
+	async findStoredHistoryItem(taskId: string): Promise<HistoryItem | undefined> {
+		const historyHost = await this.getCachedHistoryHost()
+		this.cachedHistoryHostRefCount += 1
+		try {
+			const sdkRecord = await historyHost.get(taskId)
+			if (sdkRecord && sdkRecord.isSubagent !== true) {
+				return sessionHistoryRecordToHistoryItem(sdkRecord as SessionHistoryRecord)
+			}
+		} finally {
+			this.cachedHistoryHostRefCount = Math.max(0, this.cachedHistoryHostRefCount - 1)
+			this.scheduleCachedHistoryHostDispose()
+		}
 		const legacyItem = this.findLegacyTask(taskId)?.item
 		return legacyItem ? { ...legacyItem, isLegacy: true } : undefined
 	}
@@ -784,12 +842,9 @@ export class SdkTaskHistory {
 			return
 		}
 
-		await host.update(record.sessionId, {
-			metadata: {
-				...(record.metadata ?? {}),
-				size,
-			},
-		})
+		// `size` alone: the store merges, and `record` may be the SDK's stale in-memory copy of a
+		// live chat (see `updateSession` above), so nothing else from it may be written back.
+		await host.update(record.sessionId, { metadata: { size } })
 		this.invalidateMetadataHistoryCache()
 	}
 }

@@ -130,6 +130,13 @@ so non-vision models get full image context without ever receiving raw image byt
   the in-chat history panel are the same component, so both behave identically.
 - **Even editor widths** — when a chat does open a brand-new editor column, the column widths are
   evened, so it never arrives as a sliver beside a wide one.
+- **Chats name themselves** — on its first message a new chat asks your own provider, on the
+  model you already use and in whichever channel the chat is in, for a short name taken from
+  what you asked for, and it appears in the tab, the chats list and the header. The request
+  goes out alongside your first message and is never waited on, so your reply starts exactly as
+  fast as before. A name you type yourself always stands, and a chat that already has one is
+  left alone. If no name comes back, the chat simply keeps showing your first message. On by
+  default; Settings → General → **Name new chats automatically** turns it off.
 - **Name your chats** — every chat is displayed by its first prompt until you give it a name of
   its own. At the top of a chat, hover the name and click it, or the pencil beside it, to edit
   in place; on a row in the chats list or history, the name opens the chat and the pencil beside

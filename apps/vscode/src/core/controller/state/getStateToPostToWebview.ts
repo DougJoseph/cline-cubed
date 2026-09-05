@@ -99,6 +99,8 @@ export async function getStateToPostToWebview(controller: {
 	// interception runs (the in-memory buffer; the webview shows a message's own
 	// run inline next to its bridge block, whether or not logging is on).
 	const debugLoggingEnabled = stateManager.getGlobalSettingsKey("debugLoggingEnabled")
+	// Cline Cubed: name a new chat from its first prompt (Settings -> General).
+	const autoNameChats = stateManager.getGlobalSettingsKey("autoNameChats")
 	const globalClineRulesToggles = stateManager.getGlobalStateKey("globalClineRulesToggles")
 	const globalWorkflowToggles = stateManager.getGlobalStateKey("globalWorkflowToggles")
 	const globalSkillsToggles = stateManager.getGlobalStateKey("globalSkillsToggles")
@@ -190,6 +192,7 @@ export async function getStateToPostToWebview(controller: {
 		enableCheckpointsSetting: enableCheckpointsSetting ?? true,
 		// Cline Cubed: master debug logging + the inline bridge debug panel's data.
 		debugLoggingEnabled,
+		autoNameChats,
 		imageBridgeDebug: getBridgeDebugRuns(),
 		platform,
 		environment,

@@ -4,6 +4,7 @@ import getFolderSize from "get-folder-size"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { McpHub } from "@/services/mcp/McpHub"
 import type { TelemetryService } from "@/services/telemetry/TelemetryService"
+import { Logger } from "@/shared/services/Logger"
 import { deleteLegacyTask, readApiConversationHistory, readTaskHistory, readUiMessages } from "./legacy-state-reader"
 import { sdkMessagesToClineMessages } from "./message-translator"
 import type { SdkSessionLifecycle } from "./sdk-session-lifecycle"
@@ -406,15 +407,11 @@ describe("SdkTaskHistory", () => {
 		})
 
 		expect(getFolderSize.loose).toHaveBeenCalledWith("/tmp/cline/sessions/task-1", { bigint: false })
-		expect(updateSession).toHaveBeenCalledWith(
-			"task-1",
-			expect.objectContaining({
-				metadata: expect.objectContaining({
-					title: "Build feature",
-					size: 4096,
-				}),
-			}),
-		)
+		// The fill sends `size` ALONE — the record it read may be a stale in-memory copy, and the
+		// store merges, so nothing else from the record is written back.
+		expect(updateSession).toHaveBeenCalledWith("task-1", { metadata: { size: 4096 } })
+		const [record] = await history.listHistory({ hydrate: false })
+		expect(record.metadata).toMatchObject({ title: "Build feature", size: 4096 })
 	})
 
 	it("caches zero-byte SDK task size from the session artifact directory", async () => {
@@ -483,13 +480,18 @@ describe("SdkTaskHistory", () => {
 				prompt: "new title",
 				title: "new title",
 				metadata: expect.objectContaining({
-					existing: true,
 					title: "new title",
 					tokensIn: 5,
 					totalCost: 0.02,
 				}),
 			}),
 		)
+		// A key the write does not own is not re-sent (the record read may be stale); the
+		// merging store keeps it on its own.
+		const written = updateSession.mock.calls[0][1].metadata as Record<string, unknown>
+		expect(written).not.toHaveProperty("existing")
+		const [record] = await history.listHistory({ hydrate: false })
+		expect(record.metadata).toMatchObject({ existing: true, title: "new title", tokensIn: 5 })
 	})
 
 	it("keeps cached SDK task size when updating history without measuring artifacts", async () => {
@@ -503,12 +505,12 @@ describe("SdkTaskHistory", () => {
 		await history.updateTaskHistoryItem(makeHistoryItem("task-1"))
 
 		expect(getFolderSize.loose).not.toHaveBeenCalled()
-		expect(updateSession).toHaveBeenCalledWith(
-			"task-1",
-			expect.objectContaining({
-				metadata: expect.objectContaining({ size: 1024 }),
-			}),
-		)
+		// The write does not know the size, so it does not mention it — and does not measure it —
+		// and the merging store keeps the cached value.
+		const written = updateSession.mock.calls[0][1].metadata as Record<string, unknown>
+		expect(written).not.toHaveProperty("size")
+		const [record] = await history.listHistory({ hydrate: false })
+		expect(record.metadata).toMatchObject({ size: 1024 })
 	})
 
 	it("does not cache unavailable artifact size as zero", async () => {
@@ -878,6 +880,105 @@ describe("SdkTaskHistory", () => {
 		expect(record?.prompt).toBe("original")
 		expect(record?.updatedAt).toBe("2026-01-01T00:00:00.000Z")
 	})
+
+	// A history write sends ONLY the keys it owns. The record it read may be the SDK's stale
+	// in-memory copy of a live chat, so nothing from it may be written back — the store's merge
+	// keeps everything the write does not mention.
+	describe("history writes under the merging store", () => {
+		it("does not re-send a stored name it did not compute", async () => {
+			const { history, updateSession } = makeHistory([
+				makeSessionRecord("task-1", { metadata: { customTitle: "Typed by the person", totalCost: 0.5 } }),
+			])
+
+			await history.updateTaskHistoryItem(makeHistoryItem("task-1", { task: "first prompt", totalCost: 1.25 }))
+
+			expect(updateSession).toHaveBeenCalledTimes(1)
+			const written = updateSession.mock.calls[0][1].metadata as Record<string, unknown>
+			expect(written).not.toHaveProperty("customTitle")
+			expect(written).toMatchObject({ title: "first prompt", totalCost: 1.25 })
+			// And the store, merging, still holds the name.
+			const [record] = await history.listHistory({ hydrate: false })
+			expect(record.metadata).toMatchObject({ customTitle: "Typed by the person", totalCost: 1.25 })
+		})
+
+		it("leaves a stored size alone when the write does not know it", async () => {
+			const { history, updateSession } = makeHistory([makeSessionRecord("task-1", { metadata: { size: 4096 } })])
+
+			await history.updateTaskHistoryItem(makeHistoryItem("task-1", { task: "first prompt" }))
+
+			const written = updateSession.mock.calls[0][1].metadata as Record<string, unknown>
+			expect(written).not.toHaveProperty("size")
+			expect(updateSession.mock.calls[0][1]).not.toHaveProperty("removeMetadataKeys", expect.anything())
+		})
+	})
+
+	// A session write MERGES onto what is stored (SDK LOCAL PATCH 2026-09-04), so a rename sends
+	// only the key it means to change, and clearing one has to name the key for removal.
+	describe("setTaskTitle under the merging write", () => {
+		it("sends only customTitle when naming, and does not stamp the last-used date", async () => {
+			const { history, updateSession } = makeHistory([
+				makeSessionRecord("task-1", { metadata: { totalCost: 0.5, isFavorited: true } }),
+			])
+
+			await history.setTaskTitle("task-1", "  Kill a pumpkin  ")
+
+			expect(updateSession).toHaveBeenCalledTimes(1)
+			expect(updateSession).toHaveBeenCalledWith("task-1", {
+				metadata: { customTitle: "Kill a pumpkin" },
+				removeMetadataKeys: undefined,
+				preserveUpdatedAt: true,
+			})
+		})
+
+		it("retries a write the host reports as not landed, and reports it if it never lands", async () => {
+			vi.useFakeTimers()
+			try {
+				const { history, updateSession } = makeHistory([makeSessionRecord("task-1")])
+				updateSession.mockResolvedValue({ updated: false })
+
+				const pending = history.setTaskTitle("task-1", "Kill a pumpkin")
+				await vi.runAllTimersAsync()
+				await pending
+
+				expect(updateSession).toHaveBeenCalledTimes(5)
+				expect(Logger.warn).toHaveBeenCalledWith(expect.stringContaining("did not land"))
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it("stops retrying the moment a write lands", async () => {
+			vi.useFakeTimers()
+			try {
+				const { history, updateSession } = makeHistory([makeSessionRecord("task-1")])
+				updateSession.mockResolvedValueOnce({ updated: false }).mockResolvedValueOnce({ updated: true })
+
+				const pending = history.setTaskTitle("task-1", "Kill a pumpkin")
+				await vi.runAllTimersAsync()
+				await pending
+
+				expect(updateSession).toHaveBeenCalledTimes(2)
+				expect(Logger.warn).not.toHaveBeenCalled()
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it("names customTitle for removal when clearing a rename", async () => {
+			const { history, updateSession } = makeHistory([
+				makeSessionRecord("task-1", { metadata: { customTitle: "Kill a pumpkin", totalCost: 0.5 } }),
+			])
+
+			await history.setTaskTitle("task-1", "   ")
+
+			expect(updateSession).toHaveBeenCalledTimes(1)
+			expect(updateSession).toHaveBeenCalledWith("task-1", {
+				metadata: {},
+				removeMetadataKeys: ["customTitle"],
+				preserveUpdatedAt: true,
+			})
+		})
+	})
 })
 
 function makeHistoryItem(id: string, overrides: Partial<HistoryItem> = {}): HistoryItem {
@@ -934,17 +1035,30 @@ function makeHistory(records: SessionHistoryRecord[], telemetry?: TelemetryServi
 				prompt?: string | null
 				metadata?: Record<string, unknown> | null
 				title?: string | null
+				removeMetadataKeys?: string[]
 			},
 		) => {
-			currentRecords = currentRecords.map((record) =>
-				record.sessionId === sessionId
-					? {
-							...record,
-							prompt: updates.prompt ?? record.prompt,
-							metadata: updates.metadata ?? record.metadata,
-						}
-					: record,
-			)
+			// Mirrors the real store (SDK LOCAL PATCH 2026-09-04): a write MERGES onto what is
+			// stored, `null` clears, and `removeMetadataKeys` deletes by name.
+			currentRecords = currentRecords.map((record) => {
+				if (record.sessionId !== sessionId) {
+					return record
+				}
+				let metadata: Record<string, unknown> | undefined
+				if (updates.metadata === null) {
+					metadata = {}
+				} else if (updates.metadata === undefined) {
+					metadata = record.metadata
+				} else {
+					metadata = { ...(record.metadata ?? {}), ...updates.metadata }
+				}
+				for (const key of updates.removeMetadataKeys ?? []) {
+					if (metadata) {
+						delete metadata[key]
+					}
+				}
+				return { ...record, prompt: updates.prompt ?? record.prompt, metadata }
+			})
 			return { updated: true }
 		},
 	)

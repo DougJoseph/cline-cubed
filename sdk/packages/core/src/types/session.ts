@@ -117,6 +117,15 @@ export interface PersistedSessionUpdateInput {
 	 * date is stamped as before.
 	 */
 	preserveUpdatedAt?: boolean;
+	/**
+	 * LOCAL PATCH (2026-09-04): metadata keys to REMOVE from the stored metadata.
+	 *
+	 * `metadata` is MERGED onto what is stored (see `mergeMetadata` in persistence-service.ts),
+	 * so a caller can no longer delete a key by leaving it out of the object it writes. Removal
+	 * has to be said out loud instead. Consumed by the persistence service; the adapter never
+	 * sees it — it receives the already-merged object.
+	 */
+	removeMetadataKeys?: string[];
 }
 
 export interface SessionPersistenceAdapter {

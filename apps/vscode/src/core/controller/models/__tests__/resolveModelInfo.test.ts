@@ -355,4 +355,118 @@ describe("resolveModelInfo", () => {
 		})
 		expect(response.modelInfo).toBeUndefined()
 	})
+
+	/**
+	 * Cline Cubed: Image Mode's committed model is often a custom id the SDK catalog has never
+	 * heard of, so its metadata is fallback-grade — a guess, not authority. Reported as
+	 * "committed-selection" that guess would be read as fact, and a real vision model whose
+	 * fallback metadata says nothing about images would be warned about as non-vision. So an
+	 * image-mode fallback selection is reported as "unknown" — no data — while Plan and Act keep
+	 * theirs, and any selection with authoritative metadata resolves normally in every mode.
+	 */
+	it("reports an IMAGE-mode fallback selection as unknown, not as a committed selection", async () => {
+		const { resolveModelInfo } = await import("../resolveModelInfo")
+		const providerId = parseProviderId("deepseek")
+		const store = makeStore({ providerId })
+		vi.mocked(store.readSelection).mockImplementation((_, mode) =>
+			mode === "image"
+				? {
+						providerId,
+						modelId: "my-own-vision-model",
+						modelInfo: { name: "Guessed", supportsPromptCache: false, contextWindow: 128_000 },
+						modelInfoSource: "fallback",
+					}
+				: undefined,
+		)
+
+		const response = await resolveModelInfo(makeController(store, makeCatalog()), {
+			providerId: "deepseek",
+			modelId: "my-own-vision-model",
+		})
+
+		expect(response.source).toBe("unknown")
+		expect(response.modelId).toBe("my-own-vision-model")
+	})
+
+	it("keeps committed-selection for a PLAN or ACT fallback selection", async () => {
+		const { resolveModelInfo } = await import("../resolveModelInfo")
+		const providerId = parseProviderId("deepseek")
+		const store = makeStore({ providerId })
+		vi.mocked(store.readSelection).mockImplementation((_, mode) =>
+			mode === "act"
+				? {
+						providerId,
+						modelId: "my-own-text-model",
+						modelInfo: { name: "Guessed", supportsPromptCache: false, contextWindow: 128_000 },
+						modelInfoSource: "fallback",
+					}
+				: undefined,
+		)
+
+		const response = await resolveModelInfo(makeController(store, makeCatalog()), {
+			providerId: "deepseek",
+			modelId: "my-own-text-model",
+		})
+
+		expect(response.source).toBe("committed-selection")
+		expect(response.modelId).toBe("my-own-text-model")
+	})
+
+	it("resolves an image-mode selection normally when its metadata is authoritative", async () => {
+		const { resolveModelInfo } = await import("../resolveModelInfo")
+		const providerId = parseProviderId("deepseek")
+		const store = makeStore({ providerId })
+		vi.mocked(store.readSelection).mockImplementation((_, mode) =>
+			mode === "image"
+				? {
+						providerId,
+						modelId: "deepseek-v4-flash-vision-exp",
+						modelInfo: { name: "Flash Vision", supportsPromptCache: false, contextWindow: 1_000_000 },
+					}
+				: undefined,
+		)
+
+		const response = await resolveModelInfo(makeController(store, makeCatalog()), {
+			providerId: "deepseek",
+			modelId: "deepseek-v4-flash-vision-exp",
+		})
+
+		expect(response.source).toBe("committed-selection")
+		expect(response.modelInfo?.contextWindow).toBe(1_000_000)
+	})
+
+	it("an image-mode fallback does not make a LATER authoritative match unknown", async () => {
+		const { resolveModelInfo } = await import("../resolveModelInfo")
+		const providerId = parseProviderId("deepseek")
+		const store = makeStore({ providerId })
+		// The same model id is committed in every mode: image's is fallback-grade, plan's is not.
+		// The loop reads act, then plan, then image — so plan's authoritative entry answers, and
+		// the image mode it never reached must not colour the result.
+		vi.mocked(store.readSelection).mockImplementation((_, mode) => {
+			if (mode === "image") {
+				return {
+					providerId,
+					modelId: "shared-model",
+					modelInfo: { name: "Guessed", supportsPromptCache: false, contextWindow: 128_000 },
+					modelInfoSource: "fallback",
+				}
+			}
+			if (mode === "plan") {
+				return {
+					providerId,
+					modelId: "shared-model",
+					modelInfo: { name: "Known", supportsPromptCache: true, contextWindow: 900_000 },
+				}
+			}
+			return undefined
+		})
+
+		const response = await resolveModelInfo(makeController(store, makeCatalog()), {
+			providerId: "deepseek",
+			modelId: "shared-model",
+		})
+
+		expect(response.source).toBe("committed-selection")
+		expect(response.modelInfo?.contextWindow).toBe(900_000)
+	})
 })

@@ -11,7 +11,7 @@ interface GeneralSettingsSectionProps {
 }
 
 const GeneralSettingsSection = ({ renderSectionHeader }: GeneralSettingsSectionProps) => {
-	const { telemetrySetting, remoteConfigSettings, debugLoggingEnabled } = useExtensionState()
+	const { telemetrySetting, remoteConfigSettings, debugLoggingEnabled, autoNameChats } = useExtensionState()
 
 	return (
 		<div>
@@ -20,6 +20,24 @@ const GeneralSettingsSection = ({ renderSectionHeader }: GeneralSettingsSectionP
 				<PreferredLanguageSetting />
 
 				<NewChatLocationSetting />
+
+				{/* Cline Cubed: name a new chat from its first prompt. On by default. */}
+				<div className="mb-[5px]">
+					<div className="flex items-center gap-2 mb-[5px]">
+						<VSCodeCheckbox
+							checked={autoNameChats !== false}
+							onChange={(e: any) => {
+								updateSetting("autoNameChats", e.target.checked === true)
+							}}>
+							Name new chats automatically
+						</VSCodeCheckbox>
+					</div>
+					<p className="text-sm mt-[5px] text-description">
+						On your first message, the chat gives itself a short name taken from what you asked for, using the
+						provider and model you already use. One small request per chat. Renaming a chat yourself always wins. Turn
+						this off if you would rather not spend that request.
+					</p>
+				</div>
 
 				{/* Cline Cubed: the ONE master debug-logging switch. Off by default; covers
 				    everything the extension logs, not one feature. */}

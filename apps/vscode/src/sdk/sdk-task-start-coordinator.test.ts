@@ -1,5 +1,6 @@
 import type { HistoryItem } from "@shared/HistoryItem"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { autoNameChatInBackground } from "@/core/chat-naming/autoNameChat"
 import type { StateManager } from "@/core/storage/StateManager"
 import { isDirectory } from "@/utils/fs"
 import { PROVIDER_FAILURE_ERROR_TYPE, PROVIDER_FAILURE_PHASE } from "./provider-failure-telemetry"
@@ -17,10 +18,57 @@ vi.mock("@/utils/fs", () => ({
 	isDirectory: vi.fn(),
 }))
 
+vi.mock("@/core/chat-naming/autoNameChat", () => ({
+	autoNameChatInBackground: vi.fn(),
+}))
+
 describe("SdkTaskStartCoordinator", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		vi.mocked(isDirectory).mockResolvedValue(false)
+	})
+
+	describe("chat naming", () => {
+		it("fires the naming request for a new chat after the turn is dispatched, storing through the rename path", async () => {
+			const { coordinator, options } = makeCoordinator()
+
+			const sessionId = await coordinator.initTask("How do I best kill a pumpkin?")
+
+			expect(autoNameChatInBackground).toHaveBeenCalledTimes(1)
+			const call = vi.mocked(autoNameChatInBackground).mock.calls[0][0]
+			expect(call.sessionId).toBe(sessionId)
+			expect(call.prompt).toBe("How do I best kill a pumpkin?")
+			expect(call.mode).toBe("act")
+			expect(call.applyName).toBe(options.applyGeneratedChatName)
+			// The turn was already on its way when the request was fired.
+			expect(options.sessions.fireAndForgetSend.mock.invocationCallOrder[0]).toBeLessThan(
+				vi.mocked(autoNameChatInBackground).mock.invocationCallOrder[0],
+			)
+		})
+
+		it("uses the channel the chat is in", async () => {
+			const { coordinator } = makeCoordinator({ mode: "plan" })
+
+			await coordinator.initTask("Plan the pumpkin")
+
+			expect(vi.mocked(autoNameChatInBackground).mock.calls[0][0].mode).toBe("plan")
+		})
+
+		it("makes no request when the setting is off", async () => {
+			const { coordinator } = makeCoordinator({ autoNameChats: false })
+
+			await coordinator.initTask("Kill a pumpkin")
+
+			expect(autoNameChatInBackground).not.toHaveBeenCalled()
+		})
+
+		it("does not name a chat resumed from history", async () => {
+			const { coordinator } = makeCoordinator()
+
+			await coordinator.reinitExistingTaskFromId("task-1")
+
+			expect(autoNameChatInBackground).not.toHaveBeenCalled()
+		})
 	})
 
 	it("stamps the new session's own turn phase to streaming before the early state post", async () => {
@@ -280,7 +328,10 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 	}
 	const options = {
 		stateManager: {
-			getGlobalSettingsKey: vi.fn(() => input.mode ?? "act"),
+			getGlobalSettingsKey: vi.fn((key: string) =>
+				key === "autoNameChats" ? input.autoNameChats !== false : (input.mode ?? "act"),
+			),
+			getApiConfiguration: vi.fn(() => ({ planModeApiProvider: "anthropic" })),
 		} as unknown as StateManager,
 		sessions: {
 			startNewSession: vi.fn((startInput?: { config?: { sessionId?: string } }) => ({
@@ -334,6 +385,7 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 		captureProviderApiError: vi.fn(),
 		postStateToWebview: vi.fn().mockResolvedValue(undefined),
 		setTurnPhase: vi.fn(),
+		applyGeneratedChatName: vi.fn().mockResolvedValue(undefined),
 	} as unknown as SdkTaskStartCoordinatorOptions & {
 		sessions: SdkTaskStartCoordinatorOptions["sessions"] & {
 			startNewSession: ReturnType<typeof vi.fn>
@@ -374,6 +426,8 @@ function makeCoordinator(input: Partial<MakeCoordinatorInput> = {}) {
 
 interface MakeCoordinatorInput {
 	mode: "act" | "plan"
+	/** The Settings → General switch; the helper defaults it to on, as the extension does. */
+	autoNameChats: boolean
 	config: {
 		providerId: string
 		modelId: string

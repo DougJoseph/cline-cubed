@@ -1,5 +1,39 @@
 # Changelog
 
+## [4.1.24]
+
+### Added
+
+- **Your chats name themselves.** Until recently, a chat took your first post as its name, and
+  that was not editable. Then, we made the chat name editable. Now, we've added an option that
+  can save you even that step: we let your AI give each chat a short, descriptive name based on
+  your first prompt. You're always free to edit the name yourself, but now potentially you won't
+  have to bother with that chore.
+
+  It uses the provider and model you already use, in whichever channel the chat is in, so there
+  is nothing new to set up. The request goes out alongside your first message and is never waited
+  on, so your reply starts as fast as before; the name appears a moment later in the tab, the
+  chats list and the header at the top of the chat. A name you type is never overwritten, even by
+  one already on its way, and if no name comes back the chat simply keeps showing your first
+  message. It is on by default; Settings → General → **Name new chats automatically** turns it
+  off.
+
+### Fixed
+
+- **A chat reopened from a checkpoint keeps your own words as its first prompt.** Previously,
+  forking a chat, restoring a checkpoint or recovering one stored the model's internal wrapper
+  as that chat's prompt and title instead of what you typed. Nothing on screen showed it, and
+  the record now holds your own words.
+
+- **A chat interrupted by a window reload keeps its details.** Previously, reloading the window
+  while a chat was working potentially left that chat without some of its metadata (such as your
+  favorites mark). Each part of its record is now updated on its own, so nothing already saved is
+  written over.
+
+- **A chat tab open in the editor comes back after an update.** Previously, a chat tab restored
+  on reload after an update potentially came back empty. It now comes back with its conversation,
+  or at the Home screen.
+
 ## [4.1.23]
 
 **After this update, restart VS Code — or reload every open window — and then look over your

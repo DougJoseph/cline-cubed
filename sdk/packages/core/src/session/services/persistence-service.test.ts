@@ -589,6 +589,113 @@ describe("UnifiedSessionPersistenceService", () => {
 		expect(manifest.metadata).toMatchObject({ title: "first user message" });
 	});
 
+	// LOCAL PATCH (2026-09-04): a metadata write MERGES onto what is stored. Two independent
+	// writers share the one object — the runtime host (cost, usage) and the VS Code extension's
+	// history (name, tokens, favourite) — and a replacing write let whichever landed last erase
+	// the other's keys.
+	describe("metadata merge (LOCAL PATCH 2026-09-04)", () => {
+		async function createSession(service: FileSessionService, sessionId: string) {
+			return service.createRootSessionWithArtifacts({
+				sessionId,
+				source: SessionSource.CLI,
+				pid: process.pid,
+				interactive: true,
+				provider: "mock-provider",
+				model: "mock-model",
+				cwd: "/tmp/project",
+				workspaceRoot: "/tmp/project",
+				enableTools: true,
+				enableSpawn: true,
+				enableTeams: false,
+				prompt: "first user message",
+				startedAt: "2026-01-01T00:00:00.000Z",
+			});
+		}
+
+		it("keeps stored keys a write does not mention, on the row and in the manifest", async () => {
+			const sessionsDir = mkdtempSync(join(tmpdir(), "merge-keep-sessions-"));
+			tempDirs.push(sessionsDir);
+			const service = new FileSessionService(sessionsDir);
+			const sessionId = "merge-keep-session";
+			const artifacts = await createSession(service, sessionId);
+
+			// One writer adds its keys...
+			await service.updateSession({
+				sessionId,
+				metadata: { totalCost: 0.5, isFavorited: true },
+			});
+			// ...and the other, having read an older copy, writes only what IT means to change.
+			await expect(
+				service.updateSession({ sessionId, metadata: { customTitle: "Kill a pumpkin" } }),
+			).resolves.toEqual({ updated: true });
+
+			const [row] = await service.listSessions(10);
+			expect(row?.metadata).toMatchObject({
+				totalCost: 0.5,
+				isFavorited: true,
+				customTitle: "Kill a pumpkin",
+				title: "first user message",
+			});
+			const manifest = JSON.parse(
+				readFileSync(artifacts.manifestPath, "utf8"),
+			) as { metadata?: Record<string, unknown> };
+			expect(manifest.metadata).toMatchObject({
+				totalCost: 0.5,
+				isFavorited: true,
+				customTitle: "Kill a pumpkin",
+			});
+		});
+
+		it("removes only the keys named in removeMetadataKeys", async () => {
+			const sessionsDir = mkdtempSync(join(tmpdir(), "merge-remove-sessions-"));
+			tempDirs.push(sessionsDir);
+			const service = new FileSessionService(sessionsDir);
+			const sessionId = "merge-remove-session";
+			const artifacts = await createSession(service, sessionId);
+
+			await service.updateSession({
+				sessionId,
+				metadata: { customTitle: "Kill a pumpkin", totalCost: 0.5 },
+			});
+			await expect(
+				service.updateSession({
+					sessionId,
+					metadata: {},
+					removeMetadataKeys: ["customTitle"],
+				}),
+			).resolves.toEqual({ updated: true });
+
+			const [row] = await service.listSessions(10);
+			expect(row?.metadata).not.toHaveProperty("customTitle");
+			expect(row?.metadata).toMatchObject({ totalCost: 0.5, title: "first user message" });
+			const manifest = JSON.parse(
+				readFileSync(artifacts.manifestPath, "utf8"),
+			) as { metadata?: Record<string, unknown> };
+			expect(manifest.metadata).not.toHaveProperty("customTitle");
+			expect(manifest.metadata).toMatchObject({ totalCost: 0.5 });
+		});
+
+		it("still clears everything when metadata is null", async () => {
+			const sessionsDir = mkdtempSync(join(tmpdir(), "merge-null-sessions-"));
+			tempDirs.push(sessionsDir);
+			const service = new FileSessionService(sessionsDir);
+			const sessionId = "merge-null-session";
+			await createSession(service, sessionId);
+
+			await service.updateSession({
+				sessionId,
+				metadata: { customTitle: "Kill a pumpkin", totalCost: 0.5 },
+			});
+			await expect(
+				service.updateSession({ sessionId, metadata: null }),
+			).resolves.toEqual({ updated: true });
+
+			const [row] = await service.listSessions(10);
+			expect(row?.metadata).not.toHaveProperty("customTitle");
+			expect(row?.metadata).not.toHaveProperty("totalCost");
+		});
+	});
+
 	it("derives a title from a prompt only when the session has no title yet", async () => {
 		const sessionsDir = mkdtempSync(join(tmpdir(), "empty-title-sessions-"));
 		tempDirs.push(sessionsDir);

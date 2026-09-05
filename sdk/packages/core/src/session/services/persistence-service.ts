@@ -41,6 +41,38 @@ export type { PersistedSessionUpdateInput, SessionPersistenceAdapter };
 
 const OCC_MAX_RETRIES = 4;
 
+/**
+ * LOCAL PATCH (2026-09-04): MERGE a session-metadata write onto what is stored, rather than
+ * replacing it.
+ *
+ * Two independent read-modify-write paths own this one object: the runtime host's
+ * `persistSessionMetadata`, which reads the MANIFEST and adds cost and usage during a turn, and
+ * the VS Code extension's history writers, which read the DATABASE ROW and add a chat's name,
+ * its token counts and its favourite flag. Replacing meant whichever party read first and wrote
+ * last silently erased everything the other had added in between — a lost update. It cost a
+ * chat its name, and with it every fork-written key on that record; a rename typed while a chat
+ * was still running was exposed to exactly the same loss.
+ *
+ * Merged, a write can only add or change the keys it names, so the outcome no longer depends on
+ * who read first. `next === null` still clears everything — that is an explicit instruction
+ * rather than an omission — and `remove` deletes named keys, which is what omission used to do
+ * by accident.
+ */
+export function mergeMetadata(
+	stored: Record<string, unknown> | undefined,
+	next: Record<string, unknown> | null | undefined,
+	remove?: string[],
+): Record<string, unknown> {
+	const base =
+		next === null
+			? {}
+			: { ...(sanitizeMetadata(stored) ?? {}), ...(next ?? {}) };
+	for (const key of remove ?? []) {
+		delete base[key];
+	}
+	return sanitizeMetadata(base) ?? {};
+}
+
 export class UnifiedSessionPersistenceService {
 	private readonly manifestStore: SessionManifestStore;
 	private readonly teamChildren: TeamChildSessionManager;
@@ -231,16 +263,20 @@ export class UnifiedSessionPersistenceService {
 		title?: string | null;
 		/** LOCAL PATCH (2026-09-02): see `preserveUpdatedAt` in types/session.ts. */
 		preserveUpdatedAt?: boolean;
+		/** LOCAL PATCH (2026-09-04): see `removeMetadataKeys` in types/session.ts. */
+		removeMetadataKeys?: string[];
 	}): Promise<{ updated: boolean }> {
 		for (let attempt = 0; attempt < OCC_MAX_RETRIES; attempt++) {
 			const row = await this.adapter.getSession(input.sessionId);
 			if (!row) return { updated: false };
 
 			const existingMeta = row.metadata ?? undefined;
-			const baseMeta =
-				input.metadata !== undefined
-					? (sanitizeMetadata(input.metadata) ?? {})
-					: (sanitizeMetadata(existingMeta) ?? {});
+			// LOCAL PATCH (2026-09-04): merge, never replace — see `mergeMetadata` above.
+			const baseMeta = mergeMetadata(
+				existingMeta,
+				input.metadata,
+				input.removeMetadataKeys,
+			);
 
 			const existingTitle = normalizeTitle(
 				typeof existingMeta?.title === "string"
@@ -283,10 +319,14 @@ export class UnifiedSessionPersistenceService {
 				if (input.prompt !== undefined) {
 					manifest.prompt = input.prompt ?? undefined;
 				}
-				const manifestMeta =
-					input.metadata !== undefined
-						? (sanitizeMetadata(input.metadata) ?? {})
-						: (sanitizeMetadata(manifest.metadata) ?? {});
+				// LOCAL PATCH (2026-09-04): the manifest is the copy the runtime host reads back
+				// during a turn, so it takes the SAME merge as the row — or the next turn-end write
+				// would restore the loss from the manifest's stale copy.
+				const manifestMeta = mergeMetadata(
+					manifest.metadata as Record<string, unknown> | undefined,
+					input.metadata,
+					input.removeMetadataKeys,
+				);
 				if (nextTitle) manifestMeta.title = nextTitle;
 				manifest.metadata =
 					Object.keys(manifestMeta).length > 0 ? manifestMeta : undefined;

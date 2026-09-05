@@ -120,6 +120,8 @@ export interface ExtensionState {
 	enableCheckpointsSetting?: boolean
 	/** Cline Cubed: gate the image-bridge debug log lines in the output channel. */
 	debugLoggingEnabled?: boolean
+	/** Cline Cubed: name a new chat from its first prompt. Default on; absent means on. */
+	autoNameChats?: boolean
 	/**
 	 * Cline Cubed: the retained image-bridge interception runs, oldest first — each run's lines and
 	 * when it started.

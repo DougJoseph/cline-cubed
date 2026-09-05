@@ -309,6 +309,13 @@ const USER_SETTINGS_FIELDS = {
 	// `Logger`, the SDK's too. Errors and warnings are never gated by it.
 	debugLoggingEnabled: { default: false as boolean },
 
+	// Cline Cubed: name a new chat from its first prompt, by asking the person's OWN configured
+	// provider for a short name and storing it as a rename. ON by default: it costs one small
+	// completion per chat, the value shows on the very first chat, and a setting nobody knows
+	// about is a setting nobody turns on. Turned off in Settings -> General by anyone paying per
+	// token who would rather not.
+	autoNameChats: { default: true as boolean },
+
 	// OpenTelemetry configuration
 	openTelemetryEnabled: { default: true as boolean },
 	openTelemetryMetricsExporter: { default: undefined as string | undefined },

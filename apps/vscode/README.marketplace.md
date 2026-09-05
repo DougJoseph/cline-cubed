@@ -34,6 +34,8 @@ receives raw image bytes.
 
 - **Multiple chats at once** — each keyed to its own conversation, running side by side,
   cancelling independently.
+- **Chats that name themselves** — on your first message the chat takes a short name from what
+  you asked for, using the provider and model you already use. A name you type always wins.
 - **A workspace that stays tidy** — chats gather as tabs in one locked group; files open
   in a group of their own and leave one preview tab, not a pile.
 - **Chats that come back** — after a window reload, and after a reinstall, each with its
@@ -146,7 +148,17 @@ as a sliver beside a wide one.
 
 ## Name your chats
 
-Every chat is displayed by its first prompt until you give it a name of its own. At the top of a
+**On its first message, a new chat names itself.** It asks your own provider — the model you
+already use, in whichever channel the chat is in — for a short name taken from what you asked
+for, and that name appears in the editor tab, the chats list and the header at the top of the
+chat. The request goes out alongside your first message and is never waited on, so your reply
+starts exactly as fast as before and the name arrives a moment later. Nothing new to set up and
+no second account. If no name comes back, nothing is reported and the chat keeps showing your
+first message. It is on to begin with, and Settings → General → **Name new chats automatically**
+turns it off for anyone who would rather not spend the one small request per chat.
+
+A name you type always wins. Every chat is displayed by its first prompt until it has a name of
+its own, and a chat you have named yourself is never renamed for you. At the top of a
 chat, hover the name and click it, or the pencil beside it, to edit in place; on a row in the chats
 list or history, the name opens the chat and the pencil beside it renames. Renaming a chat, or
 marking it a favorite, never moves it in the list. Enter or clicking away commits, Escape cancels,

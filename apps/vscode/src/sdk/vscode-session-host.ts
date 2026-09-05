@@ -303,6 +303,13 @@ export class VscodeSessionHost implements SdkSessionHost {
 			 * favouriting set it. See `preserveUpdatedAt` in the SDK's types/session.ts.
 			 */
 			preserveUpdatedAt?: boolean
+			/**
+			 * Cline Cubed: metadata keys to REMOVE. A session write merges the metadata it is
+			 * given onto what is stored, so leaving a key out no longer deletes it — see
+			 * `mergeMetadata` in the SDK's persistence-service.ts and `removeMetadataKeys` in its
+			 * types/session.ts.
+			 */
+			removeMetadataKeys?: string[]
 		},
 	): Promise<{ updated: boolean }> {
 		return this.inner.update(sessionId, updates)

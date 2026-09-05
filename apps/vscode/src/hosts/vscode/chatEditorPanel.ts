@@ -474,6 +474,23 @@ export async function adoptRevivedChatPanel(
 	const iconUri = vscode.Uri.joinPath(context.extensionUri, "assets", "icons", "icon.svg")
 	const iconDarkUri = vscode.Uri.joinPath(context.extensionUri, "assets", "icons", "icon-dark.svg")
 	panel.iconPath = { light: iconUri, dark: iconDarkUri }
+	// NOR do the webview options: VS Code builds a revived webview from the options it SERIALIZED
+	// last session (1.106's `deserializeWebviewPanel` constructs it from `r.webviewOptions`), and
+	// the extension is handed that panel with no say in the matter. So a revived panel is still
+	// restricted to the install directory of the version that was running when the window closed.
+	// After an UPDATE that directory is gone — the new build lives in its own — and the HTML
+	// written below points at assets outside the panel's allowed root. The webview refuses them
+	// silently: nothing throws, nothing is logged, and the tab comes back with its title and a
+	// black body. (Doug, 2026-09-04, installing 4.1.24 over 4.1.23 with a chat open at Home.)
+	// Re-rooting the panel in the extension that is ACTUALLY running is what makes a revive after
+	// an update render at all. Only the WEBVIEW options are settable here, and they are the ones
+	// that matter — `retainContextWhenHidden` and `enableFindWidget` are PANEL options, fixed at
+	// creation and restored from `r.panelOptions`, and neither names a directory. The root comes
+	// from the same source `createChatPanel` uses, so the two paths cannot drift apart.
+	panel.webview.options = {
+		enableScripts: true,
+		localResourceRoots: [vscode.Uri.file(HostProvider.get().extensionFsPath)],
+	}
 	wireChatPanel(context, provider, panel, sessionId)
 	if (sessionId) {
 		bindChatPanelToTask(panel, provider, sessionId)

@@ -5,6 +5,7 @@ import type { ClineMessage, TurnPhase } from "@shared/ExtensionMessage"
 import type { HistoryItem } from "@shared/HistoryItem"
 import type { Settings } from "@shared/storage/state-keys"
 import type { Mode } from "@shared/storage/types"
+import { autoNameChatInBackground } from "@/core/chat-naming/autoNameChat"
 import type { StateManager } from "@/core/storage/StateManager"
 import { Logger } from "@/shared/services/Logger"
 import { isDirectory } from "@/utils/fs"
@@ -71,6 +72,12 @@ export interface SdkTaskStartCoordinatorOptions {
 	 * registry — still keys the previous id, so the controller re-keys them here.
 	 */
 	onSessionIdChanged?: (previousSessionId: string, newSessionId: string, task: TaskProxy) => void
+	/**
+	 * Cline Cubed: store a name generated from a brand-new chat's first prompt — through the
+	 * rename feature's own path, and only when the chat has no name yet. Required, so a missing
+	 * wiring is a type error rather than a chat that silently never gets named.
+	 */
+	applyGeneratedChatName: (sessionId: string, name: string) => Promise<void>
 }
 
 export class SdkTaskStartCoordinator {
@@ -184,6 +191,14 @@ export class SdkTaskStartCoordinator {
 				this.options.sessions.fireAndForgetSend(sdkHost, taskSessionId, resolvedTask, images, files)
 			}
 
+			// Cline Cubed: ask the person's own provider for a short name for this chat, from what
+			// they just typed. Fired AFTER the turn is on its way and never awaited, so it cannot
+			// delay the first reply. A chat resumed from history (`historyItem`) is skipped — it
+			// is displayed by its name or its first prompt already.
+			if (!historyItem) {
+				this.maybeAutoNameChat(taskSessionId, prompt ?? "", mode)
+			}
+
 			Logger.log(`[SdkController] Task initialized: ${taskSessionId}`)
 			return taskSessionId
 		} catch (error) {
@@ -279,6 +294,30 @@ export class SdkTaskStartCoordinator {
 	private getCurrentMode(): Mode {
 		const m = this.options.stateManager.getGlobalSettingsKey("mode")
 		return m === "plan" ? m : "act"
+	}
+
+	/**
+	 * Cline Cubed: fire the chat-naming request for a brand-new chat, if the person wants it.
+	 *
+	 * Reads the switch at the moment of the send, and uses whichever channel the chat is actually
+	 * in — Plan or Act — so the name comes from the model they chose to work with. The switch
+	 * being off and an empty prompt are the normal reasons not to fire; neither is a failure.
+	 */
+	private maybeAutoNameChat(sessionId: string, prompt: string, mode: Mode): void {
+		if (!prompt.trim()) {
+			return
+		}
+		if (this.options.stateManager.getGlobalSettingsKey("autoNameChats") === false) {
+			Logger.debug(`Chat naming: off in settings; ${sessionId} keeps its first prompt`)
+			return
+		}
+		autoNameChatInBackground({
+			sessionId,
+			prompt,
+			mode,
+			apiConfiguration: this.options.stateManager.getApiConfiguration(),
+			applyName: this.options.applyGeneratedChatName,
+		})
 	}
 
 	private createAndSetTask(sessionId: string): TaskProxy {

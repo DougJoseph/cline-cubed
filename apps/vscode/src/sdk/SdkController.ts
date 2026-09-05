@@ -710,6 +710,7 @@ export class Controller {
 			setTurnPhase: (phase, anchorTs, sessionId) => this.setPhaseForSession(phase, anchorTs, sessionId),
 			onSessionIdChanged: (previousSessionId, newSessionId, task) =>
 				this.handleSessionIdChanged(previousSessionId, newSessionId, task),
+			applyGeneratedChatName: (sessionId, name) => this.applyGeneratedChatName(sessionId, name),
 		})
 		this.compaction = new SdkCompactionCoordinator({
 			stateManager: this.stateManager,
@@ -2435,13 +2436,42 @@ export class Controller {
 	}
 
 	/**
+	 * Cline Cubed: store a name generated from a chat's first prompt — AS A RENAME, through
+	 * `setTaskTitle`, so it reaches every surface a typed name reaches. The one difference from
+	 * a typed name: this refuses when the chat already has one, which is what lets a rename made
+	 * while the request was in flight win.
+	 *
+	 * The check reads the chat's record AS STORED, not the live session's in-memory copy: a
+	 * rename is written to the row, and the in-memory copy does not learn of it until the SDK's
+	 * own next metadata write, so reading that copy would miss exactly the rename this guard
+	 * exists to honour.
+	 */
+	async applyGeneratedChatName(taskId: string, name: string): Promise<void> {
+		const item = await this.taskHistory.findStoredHistoryItem(taskId)
+		if (!item) {
+			// UNGATED: a name arrived for a chat that has no record — nothing can store it.
+			Logger.warn(`Chat naming: no stored record for ${taskId}; "${name}" not stored`)
+			return
+		}
+		if (item.title?.trim()) {
+			Logger.debug(`Chat naming: ${taskId} already has a name; "${name}" dropped`)
+			return
+		}
+		await this.setTaskTitle(taskId, name)
+	}
+
+	/**
 	 * Cline Cubed: a chat's displayed name — its own name if it has been renamed, otherwise its
 	 * first prompt. `undefined` when the chat is not in history (a brand-new chat that has not
 	 * been saved yet), which callers render as their own default.
+	 *
+	 * Read from the record AS STORED (see `applyGeneratedChatName`): a name written while the
+	 * chat is running lands on the row, and the live session's in-memory copy lags it, so the
+	 * editor tab — which asks here — must read the row to show the name when it arrives.
 	 */
 	async getChatDisplayTitle(taskId: string): Promise<string | undefined> {
 		try {
-			const item = await this.taskHistory.findHistoryItem(taskId)
+			const item = await this.taskHistory.findStoredHistoryItem(taskId)
 			return item ? chatDisplayTitle(item) : undefined
 		} catch {
 			return undefined

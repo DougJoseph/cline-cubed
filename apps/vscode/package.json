@@ -2,7 +2,7 @@
 	"name": "cline-cubed",
 	"displayName": "Cline Cubed",
 	"description": "A Cline fork running multiple coding chats at once, each with its own conversation, plus image understanding for text-only models — with your permission every step of the way.",
-	"version": "4.1.23",
+	"version": "4.1.24",
 	"icon": "assets/icons/icon.png",
 	"engines": {
 		"vscode": "^1.106.0"
@@ -472,14 +472,15 @@
 	},
 	"scripts": {
 		"vscode:prepublish": "bun run package",
-		"compile": "bun run check-types && bun run lint && bun esbuild.mjs",
+		"compile": "bun run build:sdk:for-extension && bun run check-types && bun run lint && bun esbuild.mjs",
+		"build:sdk:for-extension": "cd ../.. && bun run build:sdk",
 		"compile-standalone": "bun run check-types && bun run lint && bun esbuild.mjs --standalone",
 		"postcompile-standalone": "node scripts/package-standalone.mjs",
 		"dev": "bun run protos && bun run watch",
 		"watch": "bun run --parallel watch:esbuild watch:tsc",
 		"watch:esbuild": "bun esbuild.mjs --watch",
 		"watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-		"package": "bun scripts/changelog-into-package.mjs && bun run check-types && bun run build:webview && bun run lint && bun esbuild.mjs --production",
+		"package": "bun run build:sdk:for-extension && bun scripts/changelog-into-package.mjs && bun run check-types && bun run build:webview && bun run lint && bun esbuild.mjs --production",
 		"protos": "node scripts/build-proto.mjs",
 		"protos-python": "node scripts/build-python-proto.mjs",
 		"download-ripgrep": "node scripts/download-ripgrep.mjs",

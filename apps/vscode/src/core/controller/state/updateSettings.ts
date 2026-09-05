@@ -201,6 +201,11 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 			Logger.setDebugEnabled(enabled)
 		}
 
+		// Cline Cubed: name a new chat from its first prompt.
+		if (request.autoNameChats !== undefined) {
+			controller.stateManager.setGlobalState("autoNameChats", !!request.autoNameChats)
+		}
+
 		if (request.compactionStrategy !== undefined) {
 			const strategy = request.compactionStrategy
 			if (strategy !== "basic" && strategy !== "agentic") {

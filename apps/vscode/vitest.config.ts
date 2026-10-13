@@ -14,6 +14,7 @@ export default defineConfig({
 			"src/hosts/vscode/editorGroups.test.ts",
 			"src/shared/conversation-snapshot.test.ts",
 			"src/core/bridge/bridgeDebug.test.ts",
+			"src/core/bridge/imageBridge.test.ts",
 			"src/core/bridge/interceptImages.test.ts",
 			"src/shared/services/Logger.test.ts",
 			"src/shared/storage/ClineFileStorage.test.ts",

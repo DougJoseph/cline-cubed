@@ -2180,6 +2180,15 @@ export function translateSessionEvent(event: CoreSessionEvent, state: MessageTra
 			break
 		}
 
+		case "session_snapshot": {
+			// Cline Cubed: the runtime host emits a full session snapshot on every status
+			// change and once a minute. Nothing at this layer consumes it — state reaches
+			// the UI through the SDK controller — so it is deliberately untranslated.
+			// Falling through to `default:` reported it as an unhandled event as an
+			// ungated warning, once a minute, that no switch could silence.
+			break
+		}
+
 		default: {
 			Logger.warn(`[MessageTranslator] Unhandled session event type: ${(event as CoreSessionEvent).type}`)
 			break

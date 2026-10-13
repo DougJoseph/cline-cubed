@@ -2754,6 +2754,71 @@ describe("AgentRuntime", () => {
 		}
 	});
 
+	it("does not log the per-token stream firehose as debug lines", async () => {
+		const logger = {
+			debug: vi.fn(),
+			log: vi.fn(),
+			error: vi.fn(),
+		};
+		const model = new ScriptedModel([
+			() => [
+				{ type: "reasoning-delta", text: "thinking" },
+				{ type: "text-delta", text: "calling tool" },
+				{
+					type: "tool-call-delta",
+					toolCallId: "stream_call",
+					toolName: "streamer",
+					inputText: "{}",
+				},
+				{ type: "finish", reason: "tool-calls" },
+			],
+			() => [
+				{ type: "text-delta", text: "done" },
+				{ type: "finish", reason: "stop" },
+			],
+		]);
+		const observed: string[] = [];
+		const runtime = new AgentRuntime({
+			model,
+			logger,
+			tools: [
+				{
+					name: "streamer",
+					description: "streams progress updates",
+					inputSchema: { type: "object" },
+					async execute(_input, context) {
+						context.emitUpdate?.({ progress: 1 });
+						context.emitUpdate?.({ progress: 2 });
+						return { done: true };
+					},
+				},
+			],
+		});
+		runtime.subscribe((event) => {
+			observed.push(event.type);
+		});
+
+		const result = await runtime.run("Stream");
+
+		expect(result.status).toBe("completed");
+		// The runtime event stream itself is untouched: listeners still see every delta.
+		expect(observed).toContain("assistant-reasoning-delta");
+		expect(observed).toContain("assistant-text-delta");
+		expect(observed).toContain("tool-updated");
+
+		const loggedEventTypes = logger.debug.mock.calls
+			.filter(([message]) => message === "Agent event")
+			.map(([, metadata]) => (metadata as { eventType?: string }).eventType);
+		// Per-token/per-chunk events must not become debug lines: one line per chunk
+		// flooded the host output channel with thousands of "Agent event" entries.
+		expect(loggedEventTypes).not.toContain("assistant-reasoning-delta");
+		expect(loggedEventTypes).not.toContain("assistant-text-delta");
+		expect(loggedEventTypes).not.toContain("assistant-media");
+		expect(loggedEventTypes).not.toContain("tool-updated");
+		// Everything else still logs, so the suppression is scoped to the firehose.
+		expect(loggedEventTypes.length).toBeGreaterThan(0);
+	});
+
 	it("propagates agent identity including role through snapshots and plugin setup", async () => {
 		const setup = vi.fn(() => undefined);
 		const plugin: AgentRuntimePlugin = {

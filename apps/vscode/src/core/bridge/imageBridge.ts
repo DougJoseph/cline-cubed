@@ -7,6 +7,8 @@
  * images (e.g. DeepSeek Reasoner). This module is the vision-leg client.
  */
 
+import { fetch } from "@/shared/net"
+
 export const IMAGE_BRIDGE_PROMPT = `You are the image bridge — the eyes for a text-only AI model that cannot see this image. That model's spatial and visual reasoning depends entirely on your description, so be exhaustive, precise, and structured.
 
 FIRST — the canvas:
@@ -153,28 +155,83 @@ export async function bridgeImage(params: ImageBridgeParams): Promise<string> {
 		`${provider} ${effectiveModelId} -> ${url} (image ${mediaType}, base64 ${base64.length} chars, ` +
 		`auth ${params.apiKey ? "yes" : "no"}, status ${response.status})`
 	params.recordDebug?.(debugLine, !response.ok)
+	// Read the body ONCE, as text, so a non-OK status AND a 2xx that carries no description can
+	// both report what the endpoint actually said. A 200 is not proof of a description: an
+	// OpenAI-compatible gateway can answer 200 with an error envelope, and a reasoning model can
+	// spend its whole token budget on reasoning and return empty content. Reading the body only
+	// on `!response.ok` discarded the one artifact that tells those apart, leaving "returned no
+	// content" indistinguishable from an auth or network failure.
+	const rawBody = await response.text().catch(() => "")
+
 	if (!response.ok) {
-		const detail = await response.text().catch(() => "")
 		// OpenRouter returns 404 with a guardrail/data-policy message when the
 		// account's privacy settings block the model endpoint — the request and
 		// auth worked, so the fix is account-side. Surface that clearly instead
 		// of a bare 404.
-		if (response.status === 404 && provider === "openrouter" && detail.includes("guardrail")) {
+		if (response.status === 404 && provider === "openrouter" && rawBody.includes("guardrail")) {
 			throw new Error(
 				`OpenRouter blocked this model under your account's privacy/guardrail settings — allow it at ` +
 					`https://openrouter.ai/settings/privacy (the model id may also need its provider prefix, ` +
-					`e.g. "deepseek/deepseek-v4-flash-vision-exp"). Raw response: ${detail.slice(0, 400)}`,
+					`e.g. "deepseek/deepseek-v4-flash-vision-exp"). Raw response: ${rawBody.slice(0, 400)}`,
 			)
 		}
-		throw new Error(`Image bridge request failed (${response.status}): ${detail.slice(0, 500)}`)
+		throw new Error(`Image bridge request failed (${response.status}): ${rawBody.slice(0, 500)}`)
 	}
 
-	const data = (await response.json()) as {
-		choices?: { message?: { content?: string } }[]
+	let data: ImageBridgeResponse
+	try {
+		data = JSON.parse(rawBody)
+	} catch {
+		throw new Error(
+			`Image bridge response was not JSON (${response.status}): ${rawBody.trim().slice(0, 500) || "<empty body>"}`,
+		)
 	}
+
 	const content = data.choices?.[0]?.message?.content
 	if (!content) {
-		throw new Error("Image bridge returned no content")
+		throw new Error(`Image bridge returned no content — ${describeEmptyBridgeResponse(data, rawBody)}`)
 	}
 	return content
+}
+
+/** The subset of an OpenAI-compatible chat-completions response the bridge reads. */
+interface ImageBridgeResponse {
+	choices?: {
+		message?: { content?: string; reasoning_content?: string }
+		finish_reason?: string
+	}[]
+	error?: { message?: string; type?: string; code?: string | number }
+}
+
+/**
+ * The one sentence that says WHY a 2xx carried no description, using the body it came with.
+ *
+ * A vision model that answers without text looks exactly like a network or auth failure from the
+ * outside, so it cannot be diagnosed without the body. Each branch names a cause the body can
+ * actually distinguish — a gateway error envelope, a response with no choices, a message that
+ * stopped on `finish_reason: "length"` (the token budget spent before any text), or a genuinely
+ * empty message — and always quotes the raw response so the next occurrence explains itself.
+ */
+function describeEmptyBridgeResponse(data: ImageBridgeResponse, rawBody: string): string {
+	const body = rawBody.trim().slice(0, 500)
+	const raw = body ? `Raw response: ${body}` : "The response body was empty."
+	if (data.error) {
+		const parts = [
+			data.error.message,
+			data.error.type ? `type ${data.error.type}` : "",
+			data.error.code !== undefined ? `code ${data.error.code}` : "",
+		].filter(Boolean)
+		return `the endpoint returned 200 with an error object (${parts.join(", ") || "no detail"}). ${raw}`
+	}
+	const choice = data.choices?.[0]
+	if (!choice) {
+		return `the response carried no choices. ${raw}`
+	}
+	const finish = choice.finish_reason ? ` (finish_reason "${choice.finish_reason}")` : ""
+	const reasoning = choice.message?.reasoning_content ? " It contained reasoning text but no answer." : ""
+	const budget =
+		choice.finish_reason === "length"
+			? " The token budget (max_tokens 4096) was exhausted before any description was written — raise it, or use a non-reasoning vision model."
+			: ""
+	return `choices[0].message.content was empty${finish}.${reasoning}${budget} ${raw}`
 }

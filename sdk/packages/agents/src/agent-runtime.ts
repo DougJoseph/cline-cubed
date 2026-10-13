@@ -2012,6 +2012,16 @@ export class AgentRuntime {
 					});
 				}
 				break;
+			// LOCAL PATCH (2026-10-13): the per-token/per-chunk stream events below are the
+			// firehose — the telemetry switch immediately after this one already excludes them
+			// as ~97% of event volume and never queried. Mirroring that exclusion here stops
+			// one debug line per streamed chunk, which otherwise filled the host's output
+			// channel with thousands of identical, payload-less "Agent event" lines every turn.
+			case "assistant-text-delta":
+			case "assistant-reasoning-delta":
+			case "assistant-media":
+			case "tool-updated":
+				break;
 			default:
 				this.config.logger?.debug?.("Agent event", metadata);
 				break;

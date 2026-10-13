@@ -2,7 +2,8 @@ import type { CoreSessionEvent } from "@cline/core"
 import type { Message as SdkMessage } from "@cline/llms"
 import type { AgentEvent, MessageWithMetadata } from "@cline/shared"
 import type { ClineAskUseMcpServer, ClineSayTool } from "@shared/ExtensionMessage"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { Logger } from "@/shared/services/Logger"
 import { getDesktopDir } from "@/utils/path"
 import {
 	buildToolApprovalAskMessage,
@@ -278,6 +279,34 @@ describe("translateSessionEvent — pending prompts", () => {
 				images: ["image.png"],
 			}),
 		])
+	})
+})
+
+// ---------------------------------------------------------------------------
+// translateSessionEvent — session snapshot
+// ---------------------------------------------------------------------------
+
+describe("translateSessionEvent — session snapshot", () => {
+	it("does not warn on the routine session snapshot", () => {
+		// The runtime host emits a full session snapshot on every status change and
+		// once a minute. Nothing at this layer consumes it, so it is deliberately
+		// untranslated — and it must not be reported as unhandled, which printed an
+		// ungated warning every minute that no switch could silence.
+		const warn = vi.spyOn(Logger, "warn").mockImplementation(() => {})
+		try {
+			const state = new MessageTranslatorState()
+			const event = {
+				type: "session_snapshot",
+				payload: { sessionId: "session-1", snapshot: {} },
+			} as unknown as CoreSessionEvent
+
+			const result = translateSessionEvent(event, state)
+
+			expect(result.messages).toEqual([])
+			expect(warn).not.toHaveBeenCalled()
+		} finally {
+			warn.mockRestore()
+		}
 	})
 })
 

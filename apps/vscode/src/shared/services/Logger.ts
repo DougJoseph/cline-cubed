@@ -2,8 +2,6 @@
  * Simple Logger utility for the extension's backend code.
  */
 export class Logger {
-	private static isVerbose = process.env.IS_DEV === "true"
-
 	/**
 	 * Cline Cubed: the ONE master debug-logging switch (General Settings → Debug logging),
 	 * off by default and flipped at runtime on a shipped build.
@@ -142,8 +140,22 @@ export class Logger {
 	static #output(level: string, message: string, error: Error | undefined, args: any[]) {
 		try {
 			let fullMessage = message
-			if (Logger.isVerbose && args.length > 0) {
-				fullMessage += ` ${args.map((arg) => JSON.stringify(arg)).join(" ")}`
+			if (args.length > 0) {
+				// Cline Cubed: the master switch decides whether a line is emitted, and it decides
+				// what that line carries. This rendering used to be gated on the build type
+				// (IS_DEV), so a shipped build with Debug logging ON printed every diagnostic line
+				// with its arguments stripped — the payload the switch was turned on to see. An
+				// argument that cannot be serialized is named rather than allowed to take the line
+				// down with it.
+				fullMessage += ` ${args
+					.map((arg) => {
+						try {
+							return JSON.stringify(arg)
+						} catch {
+							return "<unserializable argument>"
+						}
+					})
+					.join(" ")}`
 			}
 			const errorSuffix = error?.message ? ` ${error.message}` : ""
 			const ts = new Date().toISOString()

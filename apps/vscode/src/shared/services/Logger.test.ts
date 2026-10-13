@@ -50,6 +50,31 @@ describe("Logger", () => {
 		})
 	})
 
+	describe("argument rendering", () => {
+		beforeEach(() => Logger.setDebugEnabled(true))
+
+		it("renders the arguments of a line the switch emits", () => {
+			Logger.debug("Agent event", { type: "assistant-text-delta", n: 7 })
+			expect(seen.join("\n")).toContain('{"type":"assistant-text-delta","n":7}')
+		})
+
+		it("still emits the line when an argument cannot be serialized", () => {
+			const circular: Record<string, unknown> = {}
+			circular.self = circular
+			expect(() => Logger.debug("unserializable", circular)).not.toThrow()
+			const line = seen.join("\n")
+			expect(line).toContain("DEBUG unserializable")
+			expect(line).toContain("<unserializable argument>")
+		})
+
+		it("redacts a value that arrives as an argument", () => {
+			Logger.debug("providers.read", "clineRefreshTokenHash=6a770ac3")
+			const line = seen.join("\n")
+			expect(line).not.toContain("6a770ac3")
+			expect(line).toContain("clineRefreshTokenHash=<redacted>")
+		})
+	})
+
 	describe("redaction at the sink", () => {
 		beforeEach(() => Logger.setDebugEnabled(true))
 

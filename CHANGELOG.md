@@ -1,5 +1,40 @@
 # Changelog
 
+## [4.1.25]
+
+### Fixed
+
+- **When image reading fails, it now tells you why.** The image bridge asks your Image Mode model
+  to describe a pasted image; when that model came back without a description, all you got was
+  "returned no content" — with the model's actual reply thrown away, so there was nothing to go on.
+  The bridge now reads that reply in every case and names what it found: an error the endpoint
+  returned alongside a 200, a reply carrying no choices at all, a message that stopped because the
+  model spent its whole token budget before writing anything, or a genuinely empty message. It also
+  quotes the raw reply, so the next failure diagnoses itself instead of looking like a network
+  problem.
+
+- **The debug log now appears under "Cline Cubed", as everything says it does.** Settings → General
+  → **Debug logging**, both readmes, and the panel under a failed image-bridge block all send you to
+  `View → Output → Cline Cubed`, but the output channel was created under the name "Cline" — so
+  there was no channel by the name you were told to look for. It is now named "Cline Cubed",
+  matching the setting. Log lines that carry a source prefix read `[Cline Cubed]` as well, so
+  nothing in the channel still calls itself Cline.
+
+- **The image bridge now goes through your proxy.** The bridge's request to the Image Mode model
+  used the built-in network call rather than the extension's proxy-aware one, so on hosts that need
+  an explicit proxy agent — JetBrains and the CLI behind a corporate proxy — that request could fail
+  where the rest of the extension succeeded. It now uses the same network path as everything else.
+
+- **The debug log is quiet when you leave it off, and detailed when you turn it on.** Two kinds of
+  line were filling the channel with nothing: one printed for every streamed chunk of an answer
+  (thousands of them per message), and another warned that a routine session event was unhandled —
+  once a minute, and again on every status change — even with Debug logging off. Both are gone. On
+  the other side, a diagnostic line now carries the details it was called with — the model request
+  it describes, the event it reports — instead of printing a bare sentence with its arguments
+  dropped, which is what a shipped build did even with Debug logging on. Errors and warnings are
+  still never gated by the switch, and values that must not be printed are still redacted before
+  they reach the channel.
+
 ## [4.1.24]
 
 ### Added

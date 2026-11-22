@@ -1165,4 +1165,56 @@ describe("createProviderConfigStore", () => {
 		// the SDK's writeModelsFileSync enforces.
 		expect(() => StoredModelEntrySchema.parse(entry)).not.toThrow()
 	})
+
+	// A selection commit whose model id was lost on the way to the host (the
+	// settings panel resolves an empty id when nothing is committed for the mode
+	// yet) must not reach the durable records: the host writes the incoming id
+	// over the stored one, so a blank id erases the user's model.
+	it.each([
+		"openai-compatible",
+		"ollama",
+	] as const)("does not blank the stored %s model when a selection commit carries no model id", async (provider) => {
+		const { createProviderConfigStore } = await import("./store")
+		const store = createProviderConfigStore()
+		const providerId = parseProviderId(provider)
+		mocks.setApiConfiguration(provider === "ollama" ? { actModeApiProvider: "ollama" } : {})
+
+		store.commitSelection(providerId, "act", {
+			modelId: "endpoint-model",
+			overrides: { contextWindow: 262_144, maxTokens: 65_536 },
+			providerId,
+		})
+		store.commitSelection(providerId, "act", { modelId: "", overrides: { contextWindow: 131_072 }, providerId })
+
+		expect(store.readSelection(providerId, "act")?.modelId).toBe("endpoint-model")
+		expect(mocks.getSavedProviderSettings(provider)?.model).toBe("endpoint-model")
+	})
+
+	// A model an endpoint serves but no catalog lists is still the model the
+	// user chose, and it must survive a settings read in a fresh process.
+	it.each([
+		"openai-compatible",
+		"ollama",
+	] as const)("keeps a user-selected %s model that no catalog lists", async (provider) => {
+		const { createProviderConfigStore } = await import("./store")
+		const store = createProviderConfigStore()
+		const providerId = parseProviderId(provider)
+		mocks.setApiConfiguration(provider === "ollama" ? { actModeApiProvider: "ollama" } : {})
+
+		store.commitSelection(providerId, "act", {
+			modelId: "endpoint-only-model",
+			overrides: { contextWindow: 262_144, maxTokens: 65_536 },
+			providerId,
+		})
+
+		// Fresh process: the store's in-memory selection memory is gone, so
+		// the next read has only the durable records to work from.
+		vi.resetModules()
+		const { createProviderConfigStore: reopenStore } = await import("./store")
+		const selection = reopenStore().readSelection(providerId, "act")
+
+		expect(selection?.modelId).toBe("endpoint-only-model")
+		expect(selection?.overrides).toMatchObject({ contextWindow: 262_144, maxTokens: 65_536 })
+		expect(selection?.modelInfo).toMatchObject({ contextWindow: 262_144, maxTokens: 65_536 })
+	})
 })

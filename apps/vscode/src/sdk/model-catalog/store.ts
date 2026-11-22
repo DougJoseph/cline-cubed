@@ -950,16 +950,25 @@ export function createProviderConfigStore(): ProviderConfigStore {
 		},
 
 		commitSelection(providerId: ProviderId, mode: Mode, selection: ModelSelection, baseModelInfoHint?: ModelInfo): void {
-			writeSelectionToProviderSettings(providerId, selection)
-			if (selection.overrides !== undefined) {
-				writeModelOverrides(providerId, selection.modelId, selection.overrides)
+			const modelId = selection.modelId?.trim() ?? ""
+			if (!modelId) {
+				// A commit that names no model is not a commit: it has nothing to
+				// attach its overrides to, and writing it would blank the stored model
+				// in both durable homes - the mode's settings field and providers.json.
+				// Leave the stored selection untouched.
+				return
+			}
+			const normalizedSelection: ModelSelection = { ...selection, modelId }
+			writeSelectionToProviderSettings(providerId, normalizedSelection)
+			if (normalizedSelection.overrides !== undefined) {
+				writeModelOverrides(providerId, modelId, normalizedSelection.overrides)
 			}
 			// Prefer metadata resolved by the host catalog for this commit. Fall
 			// back to an existing state snapshot for legacy callers, then persist
 			// the genuine base so dynamic-list models survive future reads.
-			const stateModelInfoHint = readStateModelInfoHint(providerId, mode, selection.modelId)
+			const stateModelInfoHint = readStateModelInfoHint(providerId, mode, modelId)
 			const resolvedSelection = resolveSelection(
-				{ providerId, modelId: selection.modelId },
+				{ providerId, modelId },
 				baseModelInfoHint
 					? { modelInfo: baseModelInfoHint, source: "catalog" }
 					: stateModelInfoHint

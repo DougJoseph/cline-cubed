@@ -14,7 +14,7 @@ import { useDebounceEffect } from "@/utils/useDebounceEffect"
  *
  * @param initialValue - The initial value for the input
  * @param onChange - Callback function to save the value (e.g., to backend)
- * @param debounceMs - Debounce delay in milliseconds (default: 500ms)
+ * @param debounceMs - Debounce delay in milliseconds (default: 100ms)
  * @returns The current value, an editing setter, and an authoritative sync setter
  */
 export function useDebouncedInput<T>(

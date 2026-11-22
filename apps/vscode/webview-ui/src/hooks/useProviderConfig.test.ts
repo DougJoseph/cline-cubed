@@ -273,4 +273,16 @@ describe("useProviderConfig", () => {
 		})
 		expect(result.current.config?.baseUrl).toBe("https://new.example/v1")
 	})
+
+	it("refuses to commit a selection that carries no model id", async () => {
+		// This is the one call every provider's model edits pass through. An
+		// empty id written here overwrites the stored selection with nothing,
+		// silently dropping the model the user had chosen.
+		vi.mocked(ModelsServiceClient.readProviderConfig).mockResolvedValue(config("groq"))
+		const { result } = renderHook(() => useProviderConfig("groq"))
+		await waitFor(() => expect(result.current.config).toBeDefined())
+
+		await expect(result.current.commitSelection("act", { providerId: "groq", modelId: "  " })).rejects.toThrow(/model id/)
+		expect(ModelsServiceClient.commitModelSelection).not.toHaveBeenCalled()
+	})
 })

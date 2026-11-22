@@ -144,10 +144,34 @@ export async function waitForHeldTurns(n: number, timeoutMs = 20000): Promise<bo
 	return false
 }
 
+/** Wait out a previous run's teardown.
+ *
+ *  `shutdown` has been observed taking sixteen seconds, and while it is in flight the harness still
+ *  answers `status` with `running: true` and no stub url — which `requireStub` reads as "the app is up
+ *  with no stub" and aborts a run that never began. Settle first, then apply the fail-closed check. */
+async function waitForTeardown(timeoutMs = 90000): Promise<void> {
+	const first = await api("status").catch(() => ({ running: false }))
+	if (first.running) {
+		// An instance still up at the start of a run belongs to an earlier run — or to the server's own
+		// --auto-launch. Ask for it to go, then wait for it, rather than waiting out someone else's app.
+		await api("shutdown").catch(() => {})
+	}
+	const deadline = Date.now() + timeoutMs
+	while (Date.now() < deadline) {
+		const status = await api("status").catch(() => ({ running: false }))
+		if (!status.running) {
+			return
+		}
+		await sleep(1000)
+	}
+	console.log("warn: the previous instance was still shutting down; continuing anyway")
+}
+
 /** Relaunch VS Code and clear the overlays, leaving the app ready for `openChat()`.
  *  Chats left over from an earlier run no longer confuse addressing — every chat is named by its
  *  own id — but a known-empty app still makes a failure far easier to read. */
 export async function freshApp(state?: Record<string, unknown>, env?: Record<string, string>): Promise<void> {
+	await waitForTeardown()
 	await requireStub()
 	const status = await api("status")
 	if (status.running) {

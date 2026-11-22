@@ -1,5 +1,6 @@
 import { buildModelInfoNameMap, type ModelInfo, openAiModelInfoSafeDefaults, resolveClinePassModelInfo } from "@shared/api"
 import { StringRequest } from "@shared/proto/cline/common"
+import { CommitModelSelectionRequest } from "@shared/proto/cline/models"
 import type { OnboardingModel, OnboardingModelGroup, OpenRouterModelInfo } from "@shared/proto/index.cline"
 import { VSCodeLink } from "@vscode/webview-ui-toolkit/react"
 import { AlertCircleIcon, CircleCheckIcon, CircleIcon, ListIcon, LoaderCircleIcon, ZapIcon } from "lucide-react"
@@ -11,10 +12,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Item, ItemContent, ItemDescription, ItemHeader, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { useExtensionState } from "@/context/ExtensionStateContext"
+import { useDynamicProviderSelection } from "@/hooks/useDynamicProviderSelection"
 import { useProviderConfig } from "@/hooks/useProviderConfig"
 import { useProviderModels } from "@/hooks/useProviderModels"
 import { cn } from "@/lib/utils"
-import { AccountServiceClient, StateServiceClient, UiServiceClient } from "@/services/grpc-client"
+import { AccountServiceClient, ModelsServiceClient, StateServiceClient, UiServiceClient } from "@/services/grpc-client"
 import ApiConfigurationSection from "../settings/sections/ApiConfigurationSection"
 import { useApiConfigurationHandlers } from "../settings/utils/useApiConfigurationHandlers"
 import WelcomeView from "../welcome/WelcomeView"
@@ -365,7 +367,8 @@ const OnboardingStepContent = ({
 
 const OnboardingViewContent = ({ onboardingModels }: { onboardingModels: OnboardingModelGroup }) => {
 	const { handleFieldsChange } = useApiConfigurationHandlers()
-	const { openRouterModels, hideSettings, hideAccount, setShowWelcome, dismissOnboardingHere } = useExtensionState()
+	const { apiConfiguration, openRouterModels, hideSettings, hideAccount, setShowWelcome, dismissOnboardingHere } =
+		useExtensionState()
 	const { models: clineModels } = useProviderModels("cline")
 	const { commitSelection } = useProviderConfig("cline")
 	const loginAttemptIdRef = useRef(0)
@@ -375,6 +378,13 @@ const OnboardingViewContent = ({ onboardingModels }: { onboardingModels: Onboard
 	const [stepNumber, setStepNumber] = useState(0)
 	const [isActionLoading, setIsActionLoading] = useState(false)
 	const [userType, setUserType] = useState<NEW_USER_TYPE>(NEW_USER_TYPE.FREE)
+
+	// The model id each mode's embedded provider panel is holding: the committed
+	// selection first, the provider's own settings field as the fallback.
+	const panelModelIds: Record<"plan" | "act", string> = {
+		act: useDynamicProviderSelection(apiConfiguration?.actModeApiProvider ?? "", apiConfiguration, "act").selectedModelId,
+		plan: useDynamicProviderSelection(apiConfiguration?.planModeApiProvider ?? "", apiConfiguration, "plan").selectedModelId,
+	}
 
 	const [selectedModelId, setSelectedModelId] = useState("")
 	const [searchTerm, setSearchTerm] = useState("")
@@ -503,6 +513,26 @@ const OnboardingViewContent = ({ onboardingModels }: { onboardingModels: Onboard
 				}
 			}
 
+			// The BYOK step embeds the full provider panel, and the model chosen
+			// there belongs to that panel. Continue tears the panel down, so a
+			// selection that had not finished committing went with it and the flow
+			// ended with a provider set and no model. Write what the panel holds
+			// before the welcome view closes.
+			if (userType === NEW_USER_TYPE.BYOK && !modelSelected) {
+				for (const [mode, providerId] of [
+					["plan", apiConfiguration?.planModeApiProvider],
+					["act", apiConfiguration?.actModeApiProvider],
+				] as const) {
+					const modelId = panelModelIds[mode]?.trim()
+					if (!providerId || !modelId) {
+						continue
+					}
+					await ModelsServiceClient.commitModelSelection(
+						CommitModelSelectionRequest.create({ modelId, mode, providerId }),
+					).catch((error) => console.error(`Failed to persist the ${mode} model chosen during onboarding:`, error))
+				}
+			}
+
 			if (markCompleted) {
 				await StateServiceClient.setWelcomeViewCompleted({ value: true }).catch(() => {})
 				setShowWelcome(false)
@@ -527,6 +557,8 @@ const OnboardingViewContent = ({ onboardingModels }: { onboardingModels: Onboard
 			hideAccount,
 			hideSettings,
 			handleFieldsChange,
+			apiConfiguration,
+			panelModelIds,
 			selectedModelId,
 			openRouterModels,
 			openRouterModelsByName,

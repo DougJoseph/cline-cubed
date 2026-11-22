@@ -1525,8 +1525,9 @@ class DebugHarness {
 		name?: string
 		testId?: string
 		text?: string
+		selector?: string
 		frame?: string
-		action?: "click" | "fill" | "text" | "visible" | "count"
+		action?: "click" | "fill" | "text" | "value" | "visible" | "count"
 		value?: string
 	}): Promise<any> {
 		// Retry with frame re-discovery on failure for sidebar targets
@@ -1538,7 +1539,12 @@ class DebugHarness {
 				const forceRefresh = attempt > 0
 				const target = await this.getTarget(params.frame, forceRefresh)
 				let locator
-				if (params.testId) {
+				if (params.selector) {
+					// A CSS selector aimed at the frame, for targets that carry no test id and no
+					// accessible name — the toolkit's fields label their inputs inside a shadow root,
+					// which getByRole does not reach. Playwright's CSS lookup pierces shadow roots.
+					locator = target.locator(params.selector)
+				} else if (params.testId) {
 					locator = target.getByTestId(params.testId)
 				} else if (params.role) {
 					locator = target.getByRole(params.role as any, params.name ? { name: params.name } : undefined)
@@ -1557,6 +1563,10 @@ class DebugHarness {
 						return { done: true }
 					case "text":
 						return { text: await locator.textContent() }
+					case "value":
+						// An <input>'s content is its value, not its textContent: `text` on a text field
+						// is always empty, which reads as "the field lost its value" for every field.
+						return { value: await locator.inputValue() }
 					case "visible":
 						return { visible: await locator.isVisible() }
 					case "count":

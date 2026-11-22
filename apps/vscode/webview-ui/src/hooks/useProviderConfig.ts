@@ -115,11 +115,19 @@ export function useProviderConfig(providerId: ProviderId) {
 				throw new Error(`selection providerId ${selection.providerId} does not match hook providerId ${providerId}`)
 			}
 
+			// The host writes the incoming model id over the stored selection, so an
+			// empty one here erases the model the user chose. Reject it so the caller
+			// surfaces the failure instead of corrupting the selection.
+			const modelId = selection.modelId?.trim() ?? ""
+			if (!modelId) {
+				throw new Error(`commitSelection for provider ${providerId} requires a model id`)
+			}
+
 			await ModelsServiceClient.commitModelSelection(
 				CommitModelSelectionRequest.create({
 					providerId,
 					mode,
-					modelId: selection.modelId,
+					modelId,
 					overrides:
 						selection.overrides !== undefined ? toProtobufProviderModelOverrides(selection.overrides) : undefined,
 				}),

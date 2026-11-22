@@ -63,4 +63,31 @@ describe("useProviderModelSelection", () => {
 			},
 		})
 	})
+
+	it("applies an override to the model on screen when the caller supplies no model id", async () => {
+		// Every catalog-backed provider commits through here. A selection with no
+		// model id must not reach the host as one: the host writes the incoming
+		// id over the stored selection, so a blank id blanks the model.
+		const commitSelection = vi.fn(async () => undefined)
+		const { result } = renderHook(() =>
+			useProviderModelSelection("groq", "act", {
+				commitSelection,
+				defaultModelId: "llama-3.3-70b-versatile",
+				models: {
+					"llama-3.3-70b-versatile": { contextWindow: 128_000, maxTokens: 8_192, supportsPromptCache: false },
+					"mixtral-8x7b": { contextWindow: 32_768, maxTokens: 4_096, supportsPromptCache: false },
+				},
+			}),
+		)
+
+		await act(async () => {
+			await result.current.commitModelSelection({ modelId: "   ", overrides: { contextWindow: 262_144 } })
+		})
+
+		expect(commitSelection).toHaveBeenCalledWith("act", {
+			providerId: "groq",
+			modelId: "llama-3.3-70b-versatile",
+			overrides: { contextWindow: 262_144 },
+		})
+	})
 })

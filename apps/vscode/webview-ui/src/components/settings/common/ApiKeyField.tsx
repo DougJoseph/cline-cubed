@@ -31,6 +31,12 @@ export const ApiKeyField = ({
 	const isFocusedRef = useRef(false)
 	const hasPendingUserEditRef = useRef(false)
 	const prevInitialValueRef = useRef(initialValue)
+	// Kept current so the unmount flush below saves what the user last typed,
+	// not what the field mounted with.
+	const latestValueRef = useRef(localValue)
+	latestValueRef.current = localValue
+	const onChangeRef = useRef(onChange)
+	onChangeRef.current = onChange
 
 	useEffect(() => {
 		if (prevInitialValueRef.current === initialValue) {
@@ -59,6 +65,22 @@ export const ApiKeyField = ({
 		},
 		100,
 		[localValue],
+	)
+
+	// useDebounceEffect cancels a queued save when the field unmounts, so a key
+	// typed less than the debounce delay before the settings view or the
+	// onboarding provider step is torn down was never written. The field was
+	// still showing it, which is why the loss looked like a successful save.
+	useEffect(
+		() => () => {
+			if (!hasPendingUserEditRef.current) {
+				return
+			}
+
+			hasPendingUserEditRef.current = false
+			onChangeRef.current(latestValueRef.current)
+		},
+		[],
 	)
 
 	return (

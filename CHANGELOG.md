@@ -1,5 +1,27 @@
 # Changelog
 
+## [4.1.26]
+
+### Fixed
+
+- **A chosen model and its configuration stay put.** On a provider where you point Cline Cubed at a
+  server of your own — OpenAI Compatible and custom providers, Ollama, LM Studio, LiteLLM — the models
+  come from that server rather than from the stock Cline model catalog that still shows in this fork, and
+  a model your server serves has no entry in it. So you type the model id and set its context window
+  yourself, and that typed id plus its Model Configuration (Context Window Size, Max Output Tokens,
+  Supports Images) is what could disappear with no message, while the fields went on displaying the values
+  that had just been discarded. Stock Cline's model-selection commit accepted a selection naming no model
+  and wrote that empty id over the stored one, in both durable homes — the mode's stored selection and
+  `providers.json`. Cline Cubed now refuses a commit that names no model, for every provider, so a
+  configured model keeps its id and its overrides through a settings reopen, a settings refresh that
+  arrives with nothing selected yet, and a restart.
+
+- **An API key typed just before you close the panel is saved.** The key field debounces its save, and the
+  queued save was cancelled when the field was removed — so a key entered in the last tenth of a second
+  before the settings view or the onboarding provider step closed was never written, while the field was
+  still showing it and the loss looked like a successful save. The field now writes the pending edit as it
+  goes away, the way the other debounced settings fields already do.
+
 ## [4.1.25]
 
 ### Fixed

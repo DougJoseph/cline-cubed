@@ -679,4 +679,111 @@ describe("OpenAICompatibleProvider", () => {
 		expect(mocks.handleFieldChange).toHaveBeenCalledWith("azureApiVersion", "2026-01-01")
 		expect(mocks.handleFieldChange).toHaveBeenCalledWith("azureIdentity", true)
 	})
+
+	// A provider that has just been added has no committed selection for this
+	// mode: the picker shows no model id. Picking a model and then editing a
+	// model-configuration field is the case that LOOKS like the reported failure,
+	// and it holds today — the pick records the model id locally, so the edit has
+	// something to attach to. Kept as the guard for that behaviour.
+	it("commits a model override for a provider with no committed selection yet", async () => {
+		mocks.refreshOpenAiModels.mockResolvedValue({ values: ["qwen3-coder"] })
+		mocks.useDynamicProviderSelection.mockReturnValue({
+			selectedModelId: "",
+			selectedModelInfo: {
+				contextWindow: 128_000,
+				inputPrice: 0,
+				maxTokens: -1,
+				outputPrice: 0,
+				temperature: 0,
+			},
+		})
+		renderProvider()
+		await act(async () => {})
+
+		fireEvent.change(screen.getByLabelText("Model ID"), { target: { value: "qwen3-coder" } })
+		fireEvent.click(screen.getByText("Model Configuration"))
+		fireEvent.change(screen.getByLabelText("Context Window Size"), { target: { value: "262144" } })
+
+		expect(mocks.commitSelection).toHaveBeenLastCalledWith("act", {
+			providerId: "custom-openai",
+			modelId: "qwen3-coder",
+			overrides: { contextWindow: 262_144 },
+		})
+	})
+
+	it("keeps the picked model id when a later config read reports no selection", async () => {
+		// The read-back that follows a commit can arrive with no selection for
+		// this mode — a snapshot taken before the commit, or one that discarded a
+		// model id no catalog lists. The reseed effect refills this mode's pending
+		// slot from that empty snapshot, and every model-configuration edit that
+		// follows is committed against nothing.
+		mocks.refreshOpenAiModels.mockResolvedValue({ values: ["custom-model", "qwen3-coder"] })
+		setCommittedSelection({ contextWindow: 128_000 })
+		const view = renderProvider()
+		await act(async () => {})
+
+		fireEvent.change(screen.getByLabelText("Model ID"), { target: { value: "qwen3-coder" } })
+		await act(async () => {})
+
+		mocks.useProviderConfig.mockReturnValue({
+			config: {
+				apiKeyLength: 12,
+				baseUrl: "http://localhost:1234/v1",
+				headers: {},
+				providerId: "custom-openai",
+			},
+			commitSelection: mocks.commitSelection,
+			write: mocks.write,
+		})
+		mocks.useDynamicProviderSelection.mockReturnValue({
+			selectedModelId: "",
+			selectedModelInfo: {
+				contextWindow: 128_000,
+				inputPrice: 0,
+				maxTokens: -1,
+				outputPrice: 0,
+				temperature: 0,
+			},
+		})
+		view.rerender(<OpenAICompatibleProvider currentMode="act" providerId="custom-openai" showModelOptions={false} />)
+		await act(async () => {})
+
+		fireEvent.click(screen.getByText("Model Configuration"))
+		fireEvent.change(screen.getByLabelText("Max Output Tokens"), { target: { value: "65536" } })
+
+		expect(mocks.commitSelection).toHaveBeenLastCalledWith("act", {
+			providerId: "custom-openai",
+			modelId: "qwen3-coder",
+			overrides: { contextWindow: 128_000, maxTokens: 65_536 },
+		})
+	})
+
+	it("reports a model-configuration edit that has no model id to attach to", async () => {
+		// Nothing is committed for this mode and no model has been picked, so the
+		// edit has nothing to attach to. Discarding it silently is the reported
+		// symptom: the field keeps showing the number the user typed.
+		mocks.useDynamicProviderSelection.mockReturnValue({
+			selectedModelId: "",
+			selectedModelInfo: {
+				contextWindow: 128_000,
+				inputPrice: 0,
+				maxTokens: -1,
+				outputPrice: 0,
+				temperature: 0,
+			},
+		})
+		renderProvider()
+		await act(async () => {})
+		fireEvent.click(screen.getByText("Model Configuration"))
+
+		fireEvent.change(screen.getByLabelText("Context Window Size"), { target: { value: "262144" } })
+
+		expect(screen.getByRole("alert")).toHaveTextContent("Select a model before editing its model configuration.")
+		expect(mocks.commitSelection).not.toHaveBeenCalled()
+	})
+
+	// A retype that lands back on the value the field displays is covered in
+	// OpenAICompatibleRetypedOverride.test.tsx, which uses the real
+	// DebouncedTextField: this file mocks it, and a mocked controlled input
+	// never reports a change whose value equals the one already set.
 })

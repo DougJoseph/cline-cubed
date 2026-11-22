@@ -49,6 +49,10 @@ export const OpenAICompatibleProvider = ({
 	const [isRefreshingOpenAiModels, setIsRefreshingOpenAiModels] = useState(false)
 	const [openAiModelsError, setOpenAiModelsError] = useState<string | undefined>(undefined)
 	const [modelFieldErrors, setModelFieldErrors] = useState<Partial<Record<NumericModelOverrideKey, string>>>({})
+	// Set when a model-configuration edit has no model id to attach to. Without
+	// it the edit is dropped in silence and the field keeps showing the value
+	// that was just discarded.
+	const [modelOverrideError, setModelOverrideError] = useState<string | undefined>(undefined)
 	// Only the built-in "openai" provider stores its API key in the legacy
 	// ApiConfiguration field; custom providers keep it in their per-provider
 	// config (available only as a masked length), so there is no plaintext key
@@ -116,6 +120,15 @@ export const OpenAICompatibleProvider = ({
 		if (pendingCommitsRef.current[currentMode] > 0) {
 			return
 		}
+		// A snapshot that reports no model id for this mode has nothing to reseed
+		// with: it arrives when a read predating the user's pick lands late, or
+		// when the host resolved no selection for a model no catalog lists.
+		// Overwriting the slot with it would drop the model id this component
+		// already holds, and every model-configuration edit after it would be
+		// committed against nothing.
+		if (!selectedModelId) {
+			return
+		}
 		selectedModelOverridesRef.current[currentMode] = { modelId: selectedModelId, overrides: selectedModelOverrides }
 	}, [committedSelection?.overrides, selectedModelId, currentMode])
 
@@ -147,10 +160,17 @@ export const OpenAICompatibleProvider = ({
 			// and an edit would be committed against the model just switched
 			// away from.
 			const pending = selectedModelOverridesRef.current[currentMode]
-			const modelId = (pending.modelId ?? selectedModelId)?.trim()
+			// `??` is nullish, not falsy: a slot that was seeded with an empty model
+			// id must not shadow the resolved one, so the fallback is on the trimmed
+			// value. The pending id still wins while its commit is round-tripping,
+			// because `selectedModelId` reads back the model just switched away from.
+			const modelId = pending.modelId?.trim() || selectedModelId?.trim() || ""
 			if (!modelId) {
+				setModelOverrideError("Select a model before editing its model configuration.")
+				console.error(`Skipped a ${String(key)} model override: no model is selected for ${currentMode} mode.`)
 				return
 			}
+			setModelOverrideError(undefined)
 
 			const currentOverrides = pending.modelId === modelId ? pending.overrides : {}
 			const nextOverrides = { ...currentOverrides }
@@ -177,24 +197,16 @@ export const OpenAICompatibleProvider = ({
 				delete next[key]
 				return next
 			})
-			// Debounced fields fire with their initial value on mount and on
-			// model/mode switches; committing that echo would persist resolved
-			// catalog values as user overrides. Only commit actual edits.
-			// Compare against the pending override when one is in flight so a
-			// quick revert during a commit round-trip is not mistaken for an
-			// echo of the (stale) displayed value.
-			const pending = selectedModelOverridesRef.current[currentMode]
-			const pendingOverrides = pending.modelId === selectedModelId?.trim() ? pending.overrides : undefined
-			const effectiveValue =
-				pendingOverrides && Object.hasOwn(pendingOverrides, key)
-					? displayedModelNumber(pendingOverrides[key] as number | undefined)
-					: displayedModelNumber(openAiModelInfo?.[key])
-			if (parsed.value === effectiveValue) {
-				return
-			}
+			// Only an actual edit reaches here. The debounced fields save a value
+			// only when it came through their setter (see useDebouncedInput), so a
+			// mount or an initialValue resync never produces a commit that would
+			// persist resolved catalog values as user overrides. Comparing the
+			// incoming value against the displayed one here dropped genuine edits
+			// whose value happened to equal what the field showed - a user pinning
+			// the context window their endpoint really serves, saved as nothing.
 			updateModelOverride(key, parsed.value)
 		},
-		[updateModelOverride, currentMode, openAiModelInfo, selectedModelId],
+		[updateModelOverride, currentMode],
 	)
 
 	// Debounced function to refresh OpenAI models (prevents excessive API calls while typing)
@@ -552,6 +564,8 @@ export const OpenAICompatibleProvider = ({
 					Model Configuration
 				</span>
 			</div>
+
+			{modelOverrideError && <div role="alert">{modelOverrideError}</div>}
 
 			{modelConfigurationSelected && (
 				<>

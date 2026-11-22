@@ -53,13 +53,20 @@ export function useProviderModelSelection(
 
 	const commitModelSelection = useCallback(
 		(selection: ProviderModelSelectionInput) => {
+			// A selection that names no model must not reach the host: the host writes
+			// the incoming id over the stored selection, so a blank id erases the
+			// model the user chose. Attribute the edit to the model on screen.
+			const modelId = selection.modelId?.trim() || selectedModelId
+			if (!modelId) {
+				return Promise.reject(new Error(`commitSelection for ${providerId} requires a model id`))
+			}
 			return commitSelection(currentMode, {
 				providerId,
-				modelId: selection.modelId,
+				modelId,
 				...(selection.overrides !== undefined ? { overrides: selection.overrides } : {}),
 			})
 		},
-		[commitSelection, currentMode, providerId],
+		[commitSelection, currentMode, providerId, selectedModelId],
 	)
 
 	return {

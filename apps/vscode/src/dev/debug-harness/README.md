@@ -35,6 +35,12 @@ Options:
   --auto-launch       Automatically launch VSCode on startup
   --workspace PATH    Workspace directory to open (default: /tmp/cline-debug-workspace)
   --port PORT         Server port (default: 19229)
+  --inspect-port PORT Extension-host inspector port handed to VS Code (default: 9230). Set a
+                      distinct value per concurrent harness run: two servers sharing one inspector
+                      port launch VS Code instances that compete for the same debugger. A scenario
+                      must then be pointed at its own server via HARNESS_API, which defaults to
+                      http://localhost:19229/api — e.g. HARNESS_API=http://localhost:19230/api —
+                      or it drives whichever server holds that default port.
   --cline-dir PATH    Override the debugee's CLINE_DIR (default: ~/.cline2)
   --no-stub           Do NOT run the scripted stub provider (see "The stub provider" below);
                       the debugee keeps whatever provider its profile holds, and every

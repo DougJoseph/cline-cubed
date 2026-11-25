@@ -61,7 +61,7 @@ function getArg(name: string): string | undefined {
 }
 
 const PORT = Number.parseInt(getArg("--port") || "19229", 10)
-const EXT_INSPECT_PORT = 9230
+const EXT_INSPECT_PORT = Number.parseInt(getArg("--inspect-port") || "9230", 10)
 // Playwright's _electron.launch() resolves once it controls the Electron main
 // process. A cold launch (first-run profile init, slow CI/VM) can exceed the old
 // 60s default, so allow more headroom and let it be overridden.

@@ -123,6 +123,7 @@ export class MessageBuilder {
 	private readonly maxFileContentChars: number;
 	private readonly maxTotalTextBytes: number;
 	private readonly mediaBudget: MediaBudgetOptions;
+	private lastOmittedImageCount = 0;
 	private readonly maxAssistantTextChars: number;
 	private readonly maxAssistantToolMarkupChars: number;
 	private readonly minOutdatedRewriteBytes: number;
@@ -1336,14 +1337,19 @@ export class MessageBuilder {
 			budget.maxImageDecodedBytes === Number.POSITIVE_INFINITY &&
 			budget.maxTotalMediaBytes === Number.POSITIVE_INFINITY
 		) {
+			this.lastOmittedImageCount = 0;
 			return messages;
 		}
 
+		// The newest message spends the budget first, so an image the user just
+		// sent is never displaced by older images in the conversation.
 		const state = createMediaBudgetState();
 		let changed = false;
-		const next = messages.map((message) => {
+		const next = [...messages];
+		for (let index = messages.length - 1; index >= 0; index--) {
+			const message = messages[index];
 			if (!Array.isArray(message.content)) {
-				return message;
+				continue;
 			}
 			let contentChanged = false;
 			const content = message.content.map((block) => {
@@ -1353,14 +1359,23 @@ export class MessageBuilder {
 				}
 				return out;
 			});
-			if (!contentChanged) {
-				return message;
+			if (contentChanged) {
+				changed = true;
+				next[index] = { ...message, content };
 			}
-			changed = true;
-			return { ...message, content };
-		});
+		}
+		this.lastOmittedImageCount = state.omittedImages;
 
 		return changed ? next : messages;
+	}
+
+	/** How many images the most recent build left out of the request. */
+	getLastOmittedImageCount(): number {
+		return this.lastOmittedImageCount;
+	}
+
+	getMaxTotalMediaBytes(): number {
+		return this.resolveMediaBudget().maxTotalMediaBytes;
 	}
 
 	private resolveMediaBudget(): ResolvedMediaBudget {
@@ -1452,6 +1467,7 @@ export class MessageBuilder {
 		state: MediaBudgetState,
 	): ImageContent | TextContent {
 		if (!isImageContentWithData(image)) {
+			state.omittedImages += 1;
 			return { type: "text", text: IMAGE_OMITTED_PLACEHOLDER };
 		}
 
@@ -1475,6 +1491,21 @@ export class MessageBuilder {
 			mediaType: validation.mediaType,
 		};
 	}
+}
+
+/** The chat notice for omitted images, or undefined when nothing new needs saying. */
+export function omittedImageNotice(
+	previousCount: number,
+	count: number,
+	maxTotalMediaBytes: number,
+): string | undefined {
+	if (count === 0 || count === previousCount) {
+		return undefined;
+	}
+	const limitMegabytes = Math.round(maxTotalMediaBytes / (1024 * 1024));
+	const subject = count === 1 ? "1 image" : `${count} images`;
+	const pronoun = count === 1 ? "it was" : "they were";
+	return `${subject} did not reach the model because ${pronoun} invalid or over this request's ${limitMegabytes} MB image limit. Newest images are sent first.`;
 }
 
 const DSML_BAR = String.raw`[\|\uFF5C]`;

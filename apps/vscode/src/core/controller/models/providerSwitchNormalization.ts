@@ -1,12 +1,22 @@
-import { getGeneratedModelsForProvider, MODEL_COLLECTIONS_BY_PROVIDER_ID } from "@cline/llms"
+import { MODEL_COLLECTIONS_BY_PROVIDER_ID } from "@cline/llms"
 import type { Mode, ProviderConfigStore, ProviderId } from "@/sdk/model-catalog/contracts"
 import { parseProviderId } from "@/sdk/model-catalog/provider-id"
 import { toSdkProviderId } from "@/sdk/model-catalog/sdk-provider-id"
+import { providerCatalogListsModel } from "@/sdk/model-catalog/stored-mode-model"
 import type { ApiConfiguration, ApiProvider } from "@/shared/api"
 import { getProviderModelIdKey } from "@/shared/storage/provider-keys"
 
 type ProviderSwitchConfig = Partial<
-	Pick<ApiConfiguration, "planModeApiProvider" | "actModeApiProvider" | "planModeApiModelId" | "actModeApiModelId">
+	Pick<
+		ApiConfiguration,
+		| "planModeApiProvider"
+		| "actModeApiProvider"
+		| "imageModeApiProvider"
+		| "planModeApiModelId"
+		| "actModeApiModelId"
+		| "imageModeApiModelId"
+		| "imageModeApiModelInfo"
+	>
 >
 
 const modeFields = {
@@ -18,11 +28,13 @@ const modeFields = {
 		provider: "actModeApiProvider",
 		modelId: "actModeApiModelId",
 	},
+	image: {
+		provider: "imageModeApiProvider",
+		modelId: "imageModeApiModelId",
+	},
 } as const
 
-// Image mode is an independent channel — the plan/act provider-switch
-// normalization must never touch its fields. Only plan/act iterate here.
-const planActModes = ["plan", "act"] as const
+const switchableModes = ["plan", "act", "image"] as const
 
 function toProviderId(provider: ApiProvider | string | undefined): ProviderId | undefined {
 	const trimmed = provider?.trim()
@@ -34,33 +46,22 @@ function resolveProviderSwitchModelId(
 	providerId: ProviderId,
 	mode: Mode,
 	currentModelId: string | undefined,
-): string {
-	const sdkProviderId = toSdkProviderId(providerId)
-	const generatedModels = getGeneratedModelsForProvider(sdkProviderId)
-	const collection = MODEL_COLLECTIONS_BY_PROVIDER_ID[sdkProviderId]
-	const collectionModels = collection?.models ?? {}
-	if (currentModelId && (generatedModels[currentModelId] || collectionModels[currentModelId])) {
-		return currentModelId
+): string | undefined {
+	// providers.json holds one model per provider, so it can only speak for
+	// Plan and Act. Image Mode never inherits it.
+	if (mode !== "image") {
+		const ownModelId = store.readSelection(providerId, mode)?.modelId
+		if (ownModelId) {
+			return ownModelId
+		}
 	}
-
-	const selection = store.readSelection(providerId, mode)
-	if (selection?.modelId) {
-		return selection.modelId
-	}
-
-	const sdkDefaultModelId = collection?.provider.defaultModelId?.trim()
-	if (sdkDefaultModelId && (generatedModels[sdkDefaultModelId] || collectionModels[sdkDefaultModelId])) {
-		return sdkDefaultModelId
-	}
-
-	return Object.keys(generatedModels)[0] || Object.keys(collectionModels)[0] || ""
+	return currentModelId && providerCatalogListsModel(providerId, currentModelId) ? currentModelId : undefined
 }
 
 /**
- * Keep generic legacy model-id slots coherent when switching to an SDK-catalog
- * provider. DeepSeek currently stores its model id in `*ModeApiModelId`; without
- * this normalization, switching Anthropic/Cline/etc. → DeepSeek can leave the
- * generic slot pointing at a previous provider's model.
+ * Keep shared model-id slots truthful when a mode changes provider: the slot
+ * takes the new provider's own last model, or is cleared. It never receives a
+ * catalog default, and never keeps a model that belongs to the previous provider.
  */
 export function normalizeProviderSwitchModel<T extends ProviderSwitchConfig>(
 	store: ProviderConfigStore,
@@ -69,7 +70,7 @@ export function normalizeProviderSwitchModel<T extends ProviderSwitchConfig>(
 ): T {
 	const normalized: ProviderSwitchConfig = { ...next }
 
-	for (const mode of planActModes) {
+	for (const mode of switchableModes) {
 		const fields = modeFields[mode]
 		const previousProvider = previous[fields.provider]
 		const nextProvider = (normalized[fields.provider] ?? previousProvider) as ApiProvider | undefined
@@ -82,27 +83,27 @@ export function normalizeProviderSwitchModel<T extends ProviderSwitchConfig>(
 			continue
 		}
 
-		// Only normalize providers that share the common `apiModelId` slot.
-		// Providers that maintain their own model-id field
-		// (planModeOpenRouterModelId, planModeOllamaModelId, …) are skipped
-		// here because their writers already produce coherent state and
-		// snapping the generic slot would clobber an unrelated value.
-		const genericModelKey = getProviderModelIdKey(nextProvider, mode)
-		if (genericModelKey !== fields.modelId) {
+		// Providers with their own model-id field keep it; only the shared slot
+		// can carry a value left by a different provider.
+		if (getProviderModelIdKey(nextProvider, mode) !== fields.modelId) {
 			continue
 		}
 
-		// Only normalize providers the SDK actually knows about. For
-		// custom/unregistered providers there is no catalog to resolve
-		// against and no useful default to write here.
+		// A custom provider has no catalog to judge the value against.
 		if (!MODEL_COLLECTIONS_BY_PROVIDER_ID[toSdkProviderId(providerId)]) {
 			continue
 		}
 
-		const currentModelId = (normalized[fields.modelId] ?? previous[fields.modelId]) as string | undefined
+		const incomingModelId = normalized[fields.modelId]
+		if (incomingModelId && incomingModelId !== previous[fields.modelId]) {
+			continue
+		}
+
+		const currentModelId = (incomingModelId ?? previous[fields.modelId]) as string | undefined
 		const resolvedModelId = resolveProviderSwitchModelId(store, providerId, mode, currentModelId)
-		if (resolvedModelId) {
-			normalized[fields.modelId] = resolvedModelId
+		normalized[fields.modelId] = resolvedModelId
+		if (mode === "image" && resolvedModelId !== previous.imageModeApiModelId) {
+			normalized.imageModeApiModelInfo = undefined
 		}
 	}
 

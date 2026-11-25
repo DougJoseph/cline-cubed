@@ -1,5 +1,8 @@
 import type { AgentExtension, AgentTool } from "@cline/shared";
-import { loadRulesForSystemPromptFromWatcher } from "../../runtime/safety/rules";
+import {
+	type InstructionEnabledCheck,
+	loadRulesForSystemPromptFromWatcher,
+} from "../../runtime/safety/rules";
 import {
 	createSkillsTool,
 	type SkillsExecutor,
@@ -30,6 +33,8 @@ export interface CreateUserInstructionPluginOptions {
 	includeWorkflows?: boolean;
 	registerSkillsTool?: boolean;
 	allowedSkillNames?: ReadonlyArray<string>;
+	/** Cline Cubed: rules and skills switched off outside their own files are left out. */
+	isInstructionEnabled?: InstructionEnabledCheck;
 }
 
 function normalizeSkillToken(token: string): string {
@@ -75,12 +80,18 @@ function isSkillAllowed(
 export function getConfiguredSkillsFromWatcher(
 	watcher: UserInstructionConfigWatcher,
 	allowedSkillNames?: ReadonlyArray<string>,
+	isInstructionEnabled?: InstructionEnabledCheck,
 ): ConfiguredSkill[] {
 	const allowedSkills = toAllowedSkillSet(allowedSkillNames);
 	const snapshot = watcher.getSnapshot("skill");
 	return [...snapshot.entries()]
 		.map(([id, record]) => {
-			const skill = record.item as SkillConfig;
+			const item = record.item as SkillConfig;
+			// A skill switched off outside its own file counts as disabled everywhere below.
+			const switchedOff =
+				isInstructionEnabled !== undefined &&
+				!isInstructionEnabled("skill", record.filePath);
+			const skill = switchedOff ? { ...item, disabled: true } : item;
 			return {
 				id,
 				name: skill.name.trim(),
@@ -95,8 +106,13 @@ export function getConfiguredSkillsFromWatcher(
 function listAvailableSkillNames(
 	watcher: UserInstructionConfigWatcher,
 	allowedSkillNames?: ReadonlyArray<string>,
+	isInstructionEnabled?: InstructionEnabledCheck,
 ): string[] {
-	return getConfiguredSkillsFromWatcher(watcher, allowedSkillNames)
+	return getConfiguredSkillsFromWatcher(
+		watcher,
+		allowedSkillNames,
+		isInstructionEnabled,
+	)
 		.filter((skill) => !skill.disabled)
 		.map((skill) => skill.name.trim())
 		.filter((name) => name.length > 0)
@@ -107,6 +123,7 @@ function resolveSkillRecord(
 	watcher: UserInstructionConfigWatcher,
 	requestedSkill: string,
 	allowedSkillNames?: ReadonlyArray<string>,
+	isInstructionEnabled?: InstructionEnabledCheck,
 ): { id: string; skill: SkillConfig } | { error: string } {
 	const normalized = normalizeSkillToken(requestedSkill);
 	if (!normalized) {
@@ -116,6 +133,7 @@ function resolveSkillRecord(
 	const configuredSkills = getConfiguredSkillsFromWatcher(
 		watcher,
 		allowedSkillNames,
+		isInstructionEnabled,
 	);
 	const exact = configuredSkills.find((entry) => entry.id === normalized);
 	if (exact) {
@@ -162,7 +180,11 @@ function resolveSkillRecord(
 		};
 	}
 
-	const available = listAvailableSkillNames(watcher, allowedSkillNames);
+	const available = listAvailableSkillNames(
+		watcher,
+		allowedSkillNames,
+		isInstructionEnabled,
+	);
 	return {
 		error:
 			available.length > 0
@@ -175,11 +197,17 @@ export function createUserInstructionSkillsExecutor(
 	watcher: UserInstructionConfigWatcher,
 	watcherReady: Promise<void> = Promise.resolve(),
 	allowedSkillNames?: ReadonlyArray<string>,
+	isInstructionEnabled?: InstructionEnabledCheck,
 ): SkillsExecutorWithMetadata {
 	const runningSkills = new Set<string>();
 	const executor: SkillsExecutorWithMetadata = (async (skillName, args) => {
 		await watcherReady;
-		const resolved = resolveSkillRecord(watcher, skillName, allowedSkillNames);
+		const resolved = resolveSkillRecord(
+			watcher,
+			skillName,
+			allowedSkillNames,
+			isInstructionEnabled,
+		);
 		if ("error" in resolved) {
 			return resolved.error;
 		}
@@ -207,9 +235,11 @@ export function createUserInstructionSkillsExecutor(
 
 	Object.defineProperty(executor, "configuredSkills", {
 		get: () =>
-			getConfiguredSkillsFromWatcher(watcher, allowedSkillNames).map(
-				({ skill: _skill, ...metadata }) => metadata,
-			),
+			getConfiguredSkillsFromWatcher(
+				watcher,
+				allowedSkillNames,
+				isInstructionEnabled,
+			).map(({ skill: _skill, ...metadata }) => metadata),
 		enumerable: true,
 		configurable: false,
 	});
@@ -238,7 +268,11 @@ export function createUserInstructionPlugin(
 				api.registerRule({
 					id: "cline-user-instructions:rules",
 					source: "user-instruction-watcher",
-					content: () => loadRulesForSystemPromptFromWatcher(options.watcher),
+					content: () =>
+						loadRulesForSystemPromptFromWatcher(
+							options.watcher,
+							options.isInstructionEnabled,
+						),
 				});
 			}
 
@@ -249,6 +283,7 @@ export function createUserInstructionPlugin(
 							options.watcher,
 							watcherReady,
 							options.allowedSkillNames,
+							options.isInstructionEnabled,
 						),
 					) as AgentTool,
 				);

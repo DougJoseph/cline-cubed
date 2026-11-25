@@ -65,6 +65,11 @@ function mockModels(models: Record<string, object>, defaultModelId: string) {
 		refresh: vi.fn(),
 		fingerprint: "fingerprint",
 	})
+	vi.mocked(useProviderConfig).mockReturnValue({
+		config: { actSelection: { modelId: defaultModelId } },
+		write: vi.fn(async () => undefined),
+		commitSelection: vi.fn(async () => undefined),
+	} as never)
 }
 
 const REASONING_MODELS = {

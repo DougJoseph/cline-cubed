@@ -308,6 +308,16 @@ export type AgentModelEvent =
 			usage: Partial<AgentUsage>;
 	  }
 	| {
+			/**
+			 * Cline Cubed: something the user should be told about this request,
+			 * such as images the provider's own checks left out. Shown in the chat
+			 * as a status notice; it does not change the turn.
+			 */
+			type: "notice";
+			message: string;
+			metadata?: Record<string, unknown>;
+	  }
+	| {
 			type: "finish";
 			reason: AgentModelFinishReason;
 			error?: string;

@@ -1,7 +1,7 @@
 import VertexData from "@shared/providers/vertex.json"
 import type { Mode } from "@shared/storage/types"
 import { isClaudeOpusAdaptiveThinkingModel, resolveClaudeOpusAdaptiveThinking } from "@shared/utils/reasoning-support"
-import { VSCodeCheckbox, VSCodeDropdown, VSCodeLink, VSCodeOption } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeDropdown, VSCodeLink, VSCodeOption } from "@vscode/webview-ui-toolkit/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { fromProtobufProviderModelOverrides, type ProviderModelOverrides, useProviderConfig } from "@/hooks/useProviderConfig"
@@ -12,6 +12,7 @@ import { DROPDOWN_Z_INDEX, DropdownContainer } from "../ApiOptions"
 import { DebouncedTextField } from "../common/DebouncedTextField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { LockIcon, RemotelyConfiguredInputWrapper } from "../common/RemotelyConfiguredInputWrapper"
+import { SettingsCheckbox } from "../common/SettingsCheckbox"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
 import { getModeSpecificFields } from "../utils/providerUtils"
 import { type ModelPickerSelection, ModelPickerWithManualEntry } from "./ModelPickerWithManualEntry"
@@ -54,7 +55,6 @@ export const VertexProvider = ({ showModelOptions, isPopup, currentMode }: Verte
 	const { config, write, commitSelection } = useProviderConfig("vertex")
 	const { selectedModel, selectedModelId, selectedModelInfo } = useProviderModelSelection("vertex", currentMode, {
 		models: allVertexModels,
-		defaultModelId,
 		config,
 		commitSelection,
 	})
@@ -301,14 +301,14 @@ export const VertexProvider = ({ showModelOptions, isPopup, currentMode }: Verte
 									{fieldErrors.maxTokens && <div role="alert">{fieldErrors.maxTokens}</div>}
 								</div>
 							</div>
-							<VSCodeCheckbox
+							<SettingsCheckbox
 								checked={customOverrides.supportsVision !== false}
 								onChange={(event) =>
 									updateCustomOverrides({ supportsVision: (event.target as HTMLInputElement).checked === true })
 								}>
 								Supports Images
-							</VSCodeCheckbox>
-							<VSCodeCheckbox
+							</SettingsCheckbox>
+							<SettingsCheckbox
 								checked={customOverrides.supportsReasoning !== false}
 								onChange={(event) =>
 									updateCustomOverrides({
@@ -316,7 +316,7 @@ export const VertexProvider = ({ showModelOptions, isPopup, currentMode }: Verte
 									})
 								}>
 								Supports Reasoning
-							</VSCodeCheckbox>
+							</SettingsCheckbox>
 						</div>
 					)}
 

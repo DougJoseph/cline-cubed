@@ -1,4 +1,3 @@
-import { MODEL_COLLECTIONS_BY_PROVIDER_ID } from "@cline/llms"
 import { describe, expect, it, vi } from "vitest"
 import type { EffectiveProviderConfig, ProviderConfigStore } from "@/sdk/model-catalog/contracts"
 import { parseProviderId } from "@/sdk/model-catalog/provider-id"
@@ -15,9 +14,8 @@ function makeStore(config: EffectiveProviderConfig): ProviderConfigStore {
 }
 
 describe("normalizeProviderSwitchModel", () => {
-	it("uses the SDK default when switching to DeepSeek with a stale Anthropic model id", () => {
+	it("clears the slot when switching to DeepSeek with a stale Anthropic model id", () => {
 		const providerId = parseProviderId("deepseek")
-		const defaultModelId = MODEL_COLLECTIONS_BY_PROVIDER_ID.deepseek.provider.defaultModelId
 		const store = makeStore({ providerId })
 
 		const normalized = normalizeProviderSwitchModel(
@@ -27,12 +25,11 @@ describe("normalizeProviderSwitchModel", () => {
 		)
 
 		expect(normalized.actModeApiProvider).toBe("deepseek")
-		expect(normalized.actModeApiModelId).toBe(defaultModelId)
+		expect(normalized.actModeApiModelId).toBeUndefined()
 	})
 
-	it("uses the SDK default when switching to Gemini with a stale DeepSeek model id", () => {
+	it("clears the slot when switching to Gemini with a stale DeepSeek model id", () => {
 		const providerId = parseProviderId("gemini")
-		const defaultModelId = MODEL_COLLECTIONS_BY_PROVIDER_ID.gemini.provider.defaultModelId
 		const store = makeStore({ providerId })
 
 		const normalized = normalizeProviderSwitchModel(
@@ -42,10 +39,10 @@ describe("normalizeProviderSwitchModel", () => {
 		)
 
 		expect(normalized.actModeApiProvider).toBe("gemini")
-		expect(normalized.actModeApiModelId).toBe(defaultModelId)
+		expect(normalized.actModeApiModelId).toBeUndefined()
 	})
 
-	it("restores a previously committed DeepSeek selection before falling back to SDK default", () => {
+	it("restores a previously committed DeepSeek selection", () => {
 		const providerId = parseProviderId("deepseek")
 		const store = makeStore({ providerId })
 		vi.mocked(store.readSelection).mockReturnValue({
@@ -74,7 +71,6 @@ describe("normalizeProviderSwitchModel", () => {
 		)
 
 		expect(normalized.actModeApiModelId).toBe("deepseek-v4-flash")
-		expect(store.readSelection).not.toHaveBeenCalled()
 	})
 
 	it("does not change model id when switching to a provider the SDK does not know", () => {
@@ -95,7 +91,6 @@ describe("normalizeProviderSwitchModel", () => {
 
 	it("normalizes plan mode independently", () => {
 		const providerId = parseProviderId("deepseek")
-		const defaultModelId = MODEL_COLLECTIONS_BY_PROVIDER_ID.deepseek.provider.defaultModelId
 		const store = makeStore({ providerId })
 
 		const normalized = normalizeProviderSwitchModel(
@@ -105,6 +100,6 @@ describe("normalizeProviderSwitchModel", () => {
 		)
 
 		expect(normalized.planModeApiProvider).toBe("deepseek")
-		expect(normalized.planModeApiModelId).toBe(defaultModelId)
+		expect(normalized.planModeApiModelId).toBeUndefined()
 	})
 })

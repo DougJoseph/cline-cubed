@@ -57,7 +57,7 @@ export const ModelSelector = ({ models, selectedModelId, onChange, zIndex, label
 				<span className="font-medium">{label}</span>
 			</label>
 			<VSCodeDropdown className="w-full" id="model-id" key={dropdownKey} onChange={onChange} value={selectedModelId}>
-				<VSCodeOption value="">Select a model...</VSCodeOption>
+				{!selectedModelId && <VSCodeOption value="">No model selected</VSCodeOption>}
 				{modelIds.map((modelId) => (
 					<VSCodeOption className="break-words whitespace-normal max-w-full" key={modelId} value={modelId}>
 						{modelId}

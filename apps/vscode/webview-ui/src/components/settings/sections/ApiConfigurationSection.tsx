@@ -1,11 +1,12 @@
 import { UpdateSettingsRequest } from "@shared/proto/cline/state"
 import { Mode } from "@shared/storage/types"
-import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
 import { useState } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { StateServiceClient } from "@/services/grpc-client"
 import { TabButton } from "../../mcp/configuration/McpConfigurationView"
 import ApiOptions from "../ApiOptions"
+import { ImageModeMaxOutputField } from "../common/ImageModeMaxOutputField"
+import { SettingsCheckbox } from "../common/SettingsCheckbox"
 import Section from "../Section"
 import { syncModeConfigurations } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
@@ -70,6 +71,7 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 							{currentTab === "image" ? (
 								<>
 									<ApiOptions currentMode="image" initialModelTab={initialModelTab} showModelOptions={true} />
+									<ImageModeMaxOutputField />
 									{/* Cline Cubed: this tab used to carry its own "Image bridge debug
 									    logging" checkbox. It is gone — one master switch covers the whole
 									    extension now. A signpost stays in its place, because a control
@@ -94,7 +96,7 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 				)}
 
 				<div className="mb-[5px]">
-					<VSCodeCheckbox
+					<SettingsCheckbox
 						checked={planActSeparateModelsSetting}
 						className="mb-[5px]"
 						onChange={async (e: any) => {
@@ -118,7 +120,7 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 							}
 						}}>
 						Use different models for Plan and Act modes
-					</VSCodeCheckbox>
+					</SettingsCheckbox>
 					<p className="text-xs mt-[5px] text-(--vscode-descriptionForeground)">
 						Switching between Plan and Act mode will persist the API and model used in the previous mode. This may be
 						helpful e.g. when using a strong reasoning model to architect a plan for a cheaper coding model to act on.

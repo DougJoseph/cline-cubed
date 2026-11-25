@@ -394,6 +394,40 @@ describe("AgentRuntime", () => {
 		expect(addedMessages.map((message) => message.role)).toEqual(["user"]);
 	});
 
+	it("shows a provider's notice as a status notice", async () => {
+		const model = new ScriptedModel([
+			() => [
+				{
+					type: "notice",
+					message:
+						"1 image did not reach the model: 1 is not a valid image of a supported type.",
+					metadata: { reason: "media_omitted" },
+				},
+				{ type: "text-delta", text: "done" },
+				{ type: "finish", reason: "stop" },
+			],
+		]);
+		const statusNotices: Array<{ message: string; metadata?: unknown }> = [];
+		const runtime = new AgentRuntime({ model });
+		runtime.subscribe((event) => {
+			if (event.type === "status-notice") {
+				statusNotices.push({
+					message: event.message,
+					metadata: event.metadata,
+				});
+			}
+		});
+
+		const result = await runtime.run("look");
+
+		expect(result.status).toBe("completed");
+		expect(statusNotices).toContainEqual({
+			message:
+				"1 image did not reach the model: 1 is not a valid image of a supported type.",
+			metadata: { reason: "media_omitted" },
+		});
+	});
+
 	it("recovers from a context-window overflow with a forced compaction and one retry", async () => {
 		const longPrompt = `Please review this: ${"lots of context ".repeat(50)}`;
 		const overflowEvent: AgentModelEvent = {

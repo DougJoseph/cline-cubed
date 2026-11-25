@@ -3,7 +3,7 @@ import { azureOpenAiDefaultApiVersion, type OpenAiCompatibleModelInfo, openAiMod
 import { OpenAiModelsRequest } from "@shared/proto/cline/models"
 import { fromProtobufModelInfo } from "@shared/proto-conversions/models/typeConversion"
 import type { Mode } from "@shared/storage/types"
-import { VSCodeButton, VSCodeCheckbox, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeButton, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Tooltip } from "@/components/ui/tooltip"
 import { useExtensionState } from "@/context/ExtensionStateContext"
@@ -16,6 +16,7 @@ import { BaseUrlField } from "../common/BaseUrlField"
 import { DebouncedTextField } from "../common/DebouncedTextField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { DropdownContainer } from "../common/ModelSelector"
+import { SettingsCheckbox } from "../common/SettingsCheckbox"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 import { useProviderApiKeyField } from "../utils/useProviderApiKeyField"
@@ -93,7 +94,10 @@ export const OpenAICompatibleProvider = ({
 	// The Model Configuration section reads/writes the resolved model info.
 	// OpenAiCompatibleModelInfo only adds optional fields over ModelInfo, so a
 	// resolved ModelInfo satisfies it structurally.
-	const openAiModelInfo: OpenAiCompatibleModelInfo = selectedModelInfo ?? openAiModelInfoSafeDefaults
+	// With no model selected, the fields stay blank rather than showing defaults.
+	const openAiModelInfo: OpenAiCompatibleModelInfo | undefined = selectedModelId
+		? (selectedModelInfo ?? openAiModelInfoSafeDefaults)
+		: undefined
 	const selectedModelOverrides = fromProtobufProviderModelOverrides(committedSelection?.overrides) ?? {}
 	// Plan and Act have independent selections, so each mode gets its own
 	// pending accumulator: a pending commit in one mode must never become
@@ -383,6 +387,7 @@ export const OpenAICompatibleProvider = ({
 								handleOpenAiModelSelection(modelId)
 							}}
 							value={selectedModelId && availableOpenAiModels.includes(selectedModelId) ? selectedModelId : ""}>
+							{!selectedModelId && <VSCodeOption value="">No model selected</VSCodeOption>}
 							{selectedModelId && !availableOpenAiModels.includes(selectedModelId) && (
 								<VSCodeOption value="">{selectedModelId} (not in current list)</VSCodeOption>
 							)}
@@ -532,14 +537,17 @@ export const OpenAICompatibleProvider = ({
 				/>
 			)}
 
-			<VSCodeCheckbox
+			<SettingsCheckbox
 				checked={apiConfiguration?.azureIdentity || false}
 				onChange={(e: any) => {
 					const isChecked = e.target.checked === true
 					return handleFieldChange("azureIdentity", isChecked)
 				}}>
 				Use Azure Identity Authentication
-			</VSCodeCheckbox>
+			</SettingsCheckbox>
+			<p className="mt-1 text-xs text-muted-foreground">
+				Stock Cline's current engine doesn't support Microsoft sign-in. Use an API key.
+			</p>
 
 			<div
 				onClick={() => setModelConfigurationSelected((val) => !val)}
@@ -569,11 +577,11 @@ export const OpenAICompatibleProvider = ({
 
 			{modelConfigurationSelected && (
 				<>
-					<VSCodeCheckbox
+					<SettingsCheckbox
 						checked={!!openAiModelInfo?.supportsImages}
 						onChange={(e: any) => updateModelOverride("supportsVision", e.target.checked === true)}>
 						Supports Images
-					</VSCodeCheckbox>
+					</SettingsCheckbox>
 
 					<div style={{ display: "flex", gap: 10, marginTop: "5px" }}>
 						<div style={{ flex: 1 }}>
@@ -619,11 +627,18 @@ export const OpenAICompatibleProvider = ({
 					<div style={{ display: "flex", gap: 10, marginTop: "5px" }}>
 						<div>
 							<DebouncedTextField
-								initialValue={formatOptionalModelNumber(openAiModelInfo?.temperature)}
+								// Only a stored temperature is sent, so only a stored one is shown.
+								initialValue={formatOptionalModelNumber(
+									selectedModelId ? selectedModelOverrides.temperature : undefined,
+								)}
 								onChange={(value) => updateNumericModelOverride("temperature", "Temperature", value)}
 								placeholder="not set">
 								<span style={{ fontWeight: 500 }}>Temperature</span>
 							</DebouncedTextField>
+							<p className="mt-1 text-xs text-muted-foreground">
+								How predictable replies are. 0 is focused and repeatable; higher is more varied. Most providers
+								accept 0 to 2. Blank sends none, and your server's default applies.
+							</p>
 							{modelFieldErrors.temperature && <div role="alert">{modelFieldErrors.temperature}</div>}
 						</div>
 					</div>
@@ -656,7 +671,13 @@ export const OpenAICompatibleProvider = ({
 							}).catch((err) => console.error("Failed to update OpenAI Compatible reasoning effort:", err))
 						}}
 					/>
-					<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={selectedModelId} />
+					{selectedModelId ? (
+						<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={selectedModelId} />
+					) : (
+						<p className="text-xs text-muted-foreground">
+							Select a model for {currentMode === "plan" ? "Plan" : currentMode === "image" ? "Image" : "Act"} Mode.
+						</p>
+					)}
 				</>
 			)}
 		</div>

@@ -75,6 +75,12 @@ describe("buildModelOptions", () => {
 		const config = makeAgentConfig({ thinking: true });
 		expect(buildModelOptions(config)).toEqual({ thinking: true });
 	});
+
+	it("carries the media budget to every model request", () => {
+		const mediaBudget = { maxTotalMediaBytes: 64 * 1024 * 1024 };
+		const config = makeAgentConfig({ mediaBudget });
+		expect(buildModelOptions(config)).toEqual({ mediaBudget });
+	});
 });
 
 // ---------------------------------------------------------------------------

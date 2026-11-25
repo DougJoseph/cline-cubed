@@ -3,6 +3,7 @@ import { ApiFormat, ModelOverrides, ProviderConfigResponse } from "@shared/proto
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ModelsServiceClient } from "@/services/grpc-client"
+import { getSettingsHealth, resetSettingsHealth } from "@/utils/settingsHealth"
 import { fromProtobufProviderModelOverrides, toProtobufProviderModelOverrides, useProviderConfig } from "./useProviderConfig"
 
 vi.mock("@/services/grpc-client", () => ({
@@ -36,6 +37,54 @@ describe("useProviderConfig", () => {
 
 		await waitFor(() => expect(result.current.config?.providerId).toBe("deepseek"))
 		expect(ModelsServiceClient.readProviderConfig).toHaveBeenCalledWith(StringRequest.create({ value: "deepseek" }))
+	})
+
+	it("reports a failed load instead of leaving blank fields unexplained", async () => {
+		resetSettingsHealth()
+		vi.mocked(ModelsServiceClient.readProviderConfig).mockRejectedValue(new Error("backend gone"))
+
+		renderHook(() => useProviderConfig("deepseek"))
+
+		await waitFor(() => expect(getSettingsHealth().loadFailed).toBe(true))
+		resetSettingsHealth()
+	})
+
+	it("fails a settings load with no answer at 3 seconds and ends the load", async () => {
+		resetSettingsHealth()
+		vi.useFakeTimers()
+		try {
+			vi.mocked(ModelsServiceClient.readProviderConfig).mockReturnValue(new Promise(() => undefined))
+			renderHook(() => useProviderConfig("deepseek"))
+			expect(getSettingsHealth().loadsInProgress).toBe(1)
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(2_999)
+			})
+			expect(getSettingsHealth().loadFailed).toBe(false)
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(1)
+			})
+
+			expect(getSettingsHealth()).toMatchObject({ loadFailed: true, loadsInProgress: 0 })
+		} finally {
+			vi.useRealTimers()
+			resetSettingsHealth()
+		}
+	})
+
+	it("names the field when a save fails", async () => {
+		resetSettingsHealth()
+		vi.mocked(ModelsServiceClient.readProviderConfig).mockResolvedValue(config())
+		vi.mocked(ModelsServiceClient.writeProviderConfig).mockRejectedValue(new Error("backend gone"))
+		const { result } = renderHook(() => useProviderConfig("deepseek"))
+		await waitFor(() => expect(result.current.config).toBeDefined())
+
+		await act(async () => {
+			await result.current.write({ apiKey: "SECRET_SENTINEL" }).catch(() => undefined)
+		})
+
+		expect(getSettingsHealth().saveFailures).toEqual(["API key"])
+		resetSettingsHealth()
 	})
 
 	it("write sends a provider config patch and stores returned config", async () => {

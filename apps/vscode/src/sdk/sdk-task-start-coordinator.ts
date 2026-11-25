@@ -9,6 +9,7 @@ import { autoNameChatInBackground } from "@/core/chat-naming/autoNameChat"
 import type { StateManager } from "@/core/storage/StateManager"
 import { Logger } from "@/shared/services/Logger"
 import { isDirectory } from "@/utils/fs"
+import { NO_MODEL_SELECTED_ID } from "./model-catalog/stored-mode-model"
 import { PROVIDER_FAILURE_ERROR_TYPE, PROVIDER_FAILURE_PHASE, type ProviderFailureTelemetry } from "./provider-failure-telemetry"
 import type { SdkMessageCoordinator } from "./sdk-message-coordinator"
 import type { SdkSessionConfigBuilder } from "./sdk-session-config-builder"
@@ -195,7 +196,7 @@ export class SdkTaskStartCoordinator {
 			// they just typed. Fired AFTER the turn is on its way and never awaited, so it cannot
 			// delay the first reply. A chat resumed from history (`historyItem`) is skipped — it
 			// is displayed by its name or its first prompt already.
-			if (!historyItem) {
+			if (!historyItem && config.modelId !== NO_MODEL_SELECTED_ID) {
 				this.maybeAutoNameChat(taskSessionId, prompt ?? "", mode)
 			}
 

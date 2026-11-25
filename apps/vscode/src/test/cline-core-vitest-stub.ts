@@ -85,6 +85,35 @@ export function setCompactionStrategyGlobally(compactionStrategy: GlobalCompacti
 	}
 }
 
+export function readAlwaysRememberedFilesGlobally(): string[] {
+	try {
+		const settings = JSON.parse(readFileSync(process.env.CLINE_GLOBAL_SETTINGS_PATH ?? "", "utf8"))
+		return Array.isArray(settings.alwaysRememberedFiles) ? settings.alwaysRememberedFiles : []
+	} catch {
+		return []
+	}
+}
+
+export function setAlwaysRememberedFilesGlobally(alwaysRememberedFiles: readonly string[]): void {
+	const filePath = process.env.CLINE_GLOBAL_SETTINGS_PATH
+	if (filePath) {
+		let settings = {}
+		try {
+			settings = JSON.parse(readFileSync(filePath, "utf8"))
+		} catch {}
+		writeFileSync(filePath, JSON.stringify({ ...settings, alwaysRememberedFiles }))
+	}
+}
+
+export function resolveCompactionTriggerTokens(input: { contextWindow?: number; maxInputTokens?: number }): number | undefined {
+	const maxInputTokens = input.maxInputTokens ?? (input.contextWindow === undefined ? undefined : input.contextWindow * 0.9)
+	return maxInputTokens === undefined ? undefined : maxInputTokens * 0.9
+}
+
+export function resolveRulesConfigSearchPaths(_workspacePath?: string): string[] {
+	return []
+}
+
 export type ModelToolName = "web_search"
 
 export function isModelToolEnabledGlobally(name: ModelToolName): boolean {

@@ -272,6 +272,44 @@ describe("createAgentModelFromConfig", () => {
 		);
 	});
 
+	it("forwards a configured Claude Code executable path to the gateway provider", async () => {
+		const { createAgentModelFromConfig } = await import("./handler-factory");
+
+		createAgentModelFromConfig(
+			{
+				providerId: "claude-code",
+				modelId: "sonnet",
+				systemPrompt: "",
+				tools: [],
+				providerConfig: {
+					providerId: "claude-code",
+					modelId: "sonnet",
+					claudeCode: {
+						defaultSettings: {
+							pathToClaudeCodeExecutable: "/opt/tools/claude",
+						},
+					},
+				},
+			},
+			undefined,
+		);
+
+		expect(gatewayMock.createGateway).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				providerConfigs: [
+					expect.objectContaining({
+						providerId: "claude-code",
+						options: expect.objectContaining({
+							defaultSettings: {
+								pathToClaudeCodeExecutable: "/opt/tools/claude",
+							},
+						}),
+					}),
+				],
+			}),
+		);
+	});
+
 	it("forwards the workspace cwd as a Claude Code gateway provider option", async () => {
 		const { createAgentModelFromConfig } = await import("./handler-factory");
 

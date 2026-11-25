@@ -2,12 +2,13 @@ import type { OcaModelInfo } from "@shared/api"
 import type { OcaAuthState, OcaUserInfo } from "@shared/proto/index.cline"
 import { EmptyRequest, StringRequest } from "@shared/proto/index.cline"
 import { Mode } from "@shared/storage/types"
-import { VSCodeButton, VSCodeCheckbox, VSCodeLink, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeButton, VSCodeLink, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react"
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { ModelsServiceClient, OcaAccountServiceClient } from "@/services/grpc-client"
 import { VSC_BUTTON_BACKGROUND, VSC_BUTTON_FOREGROUND, VSC_DESCRIPTION_FOREGROUND } from "@/utils/vscStyles"
 import { BaseUrlField } from "../common/BaseUrlField"
+import { SettingsCheckbox } from "../common/SettingsCheckbox"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 import OcaModelPicker from "./OcaModelPicker"
 
@@ -263,14 +264,14 @@ export const OcaProvider = ({ isPopup, currentMode }: OcaProviderProps) => {
 							marginTop: 12,
 							marginBottom: 4,
 						}}>
-						<VSCodeCheckbox
+						<SettingsCheckbox
 							checked={ocaMode !== "external"}
 							onChange={(e: any) => {
 								const checked = (e?.target as HTMLInputElement)?.checked
 								handleToggleMode(checked ? "internal" : "external")
 							}}>
 							I’m an Oracle Employee
-						</VSCodeCheckbox>
+						</SettingsCheckbox>
 					</div>
 					<VSCodeButton
 						onClick={async () => {

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Item, ItemContent, ItemDescription, ItemHeader, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useDynamicProviderSelection } from "@/hooks/useDynamicProviderSelection"
+import { useNormalizedApiConfiguration } from "@/hooks/useNormalizedApiConfiguration"
 import { useProviderConfig } from "@/hooks/useProviderConfig"
 import { useProviderModels } from "@/hooks/useProviderModels"
 import { cn } from "@/lib/utils"
@@ -367,8 +368,11 @@ const OnboardingStepContent = ({
 
 const OnboardingViewContent = ({ onboardingModels }: { onboardingModels: OnboardingModelGroup }) => {
 	const { handleFieldsChange } = useApiConfigurationHandlers()
-	const { apiConfiguration, openRouterModels, hideSettings, hideAccount, setShowWelcome, dismissOnboardingHere } =
+	const { apiConfiguration, mode, openRouterModels, hideSettings, hideAccount, setShowWelcome, dismissOnboardingHere } =
 		useExtensionState()
+	// What the host says the embedded provider panel's mode will run.
+	const { selectedProvider: byokProvider, selectedModelId: byokModelId } = useNormalizedApiConfiguration(mode ?? "act")
+	const byokNeedsModel = !byokModelId && byokProvider !== "dify"
 	const { models: clineModels } = useProviderModels("cline")
 	const { commitSelection } = useProviderConfig("cline")
 	const loginAttemptIdRef = useRef(0)
@@ -699,7 +703,8 @@ const OnboardingViewContent = ({ onboardingModels }: { onboardingModels: Onboard
 						const showSpinner = isActionLoading && isLoginAction
 						const disabled =
 							isActionLoading ||
-							(btn.action === "signup" && userType === NEW_USER_TYPE.CLINE_PASS && !selectedModelId)
+							(btn.action === "signup" && userType === NEW_USER_TYPE.CLINE_PASS && !selectedModelId) ||
+							(btn.action === "done" && userType === NEW_USER_TYPE.BYOK && byokNeedsModel)
 						return (
 							<Button
 								className={`w-full rounded-xs ${isActionLoading ? "animate-pulse" : ""}`}
@@ -712,6 +717,12 @@ const OnboardingViewContent = ({ onboardingModels }: { onboardingModels: Onboard
 							</Button>
 						)
 					})}
+
+					{userType === NEW_USER_TYPE.BYOK && stepNumber === 1 && byokNeedsModel && (
+						<div className="text-center text-sm text-foreground/70" role="status">
+							Select a model to continue.
+						</div>
+					)}
 
 					{isActionLoading && stepNumber !== 2 && (
 						<div className="items-center justify-center flex text-sm text-foreground/70 text-pretty text-center">

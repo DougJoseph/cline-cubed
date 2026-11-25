@@ -9,6 +9,7 @@ import { PLATFORM_CONFIG, PlatformType } from "@/config/platform.config"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useNormalizedApiConfiguration } from "@/hooks/useNormalizedApiConfiguration"
 import { useProviderListings } from "@/hooks/useProviderListings"
+import { SettingsLoadGuard } from "./common/SettingsLoadGuard"
 import { OPENROUTER_MODEL_PICKER_Z_INDEX } from "./OpenRouterModelPicker"
 import { AIhubmixProvider } from "./providers/AihubmixProvider"
 import { AnthropicProvider } from "./providers/AnthropicProvider"
@@ -82,7 +83,7 @@ declare module "vscode" {
 	}
 }
 
-const ApiOptions = ({
+const ApiOptionsPanel = ({
 	showModelOptions,
 	apiErrorMessage,
 	modelIdErrorMessage,
@@ -525,6 +526,12 @@ const ApiOptions = ({
 		</div>
 	)
 }
+
+const ApiOptions = (props: ApiOptionsProps) => (
+	<SettingsLoadGuard>
+		<ApiOptionsPanel {...props} />
+	</SettingsLoadGuard>
+)
 
 export default ApiOptions
 

@@ -8,12 +8,83 @@ import {
 	splitToolImagesMiddleware,
 } from "./split-tool-images";
 
-const PLACEHOLDER = "(see following user message for image)";
+const PLACEHOLDER = "(the image is in the next message, marked as tool output)";
+// Cline Cubed: the message carrying a tool's images says it is tool output, so a model does
+// not read it as the user writing again.
+const TOOL_OUTPUT_ONE_IMAGE =
+	"[Tool output, not a message from the user: the image returned by read_files above.]";
+const TOOL_OUTPUT_ONE_FILE =
+	"[Tool output, not a message from the user: the file returned by read_files above.]";
+const TOOL_OUTPUT_TWO_IMAGES =
+	"[Tool output, not a message from the user: the 2 images returned by read_files, in the order of the calls above.]";
 const OMITTED_PLACEHOLDER = "[media omitted: invalid or exceeds size limit]";
 const imageData = (byteLength: number, fill = 1) =>
 	Buffer.alloc(byteLength, fill).toString("base64");
 
+// Cline Cubed: two tool images that together pass the stock 8 MiB total.
+function twoLargeToolImages(): {
+	prompt: LanguageModelV4Message[];
+	first: string;
+	second: string;
+} {
+	const first = imageData(3_600_000, 1);
+	const second = imageData(3_600_000, 2);
+	const prompt: LanguageModelV4Message[] = [
+		{
+			role: "tool",
+			content: [first, second].map((data, index) => ({
+				type: "tool-result" as const,
+				toolCallId: `call_${index}`,
+				toolName: "read_files",
+				output: {
+					type: "content" as const,
+					value: [
+						{
+							type: "file" as const,
+							data: { type: "data" as const, data },
+							mediaType: "image/png",
+						},
+					],
+				},
+			})),
+		},
+	];
+	return { prompt, first, second };
+}
+
 describe("rewritePromptToolImages", () => {
+	it("drops nothing from tool images that exactly fill the request budget", () => {
+		const fourMegabytesEncoded = 3 * 1024 * 1024;
+		const first = imageData(fourMegabytesEncoded, 1);
+		const second = imageData(fourMegabytesEncoded, 2);
+		const prompt: LanguageModelV4Message[] = [
+			{
+				role: "tool",
+				content: [first, second].map((data, index) => ({
+					type: "tool-result" as const,
+					toolCallId: `call_${index}`,
+					toolName: "read_files",
+					output: {
+						type: "content" as const,
+						value: [
+							{
+								type: "file" as const,
+								data: { type: "data" as const, data },
+								mediaType: "image/png",
+							},
+						],
+					},
+				})),
+			},
+		];
+
+		const serialized = JSON.stringify(rewritePromptToolImages(prompt).prompt);
+
+		expect(serialized).toContain(first);
+		expect(serialized).toContain(second);
+		expect(serialized).not.toContain(OMITTED_PLACEHOLDER);
+	});
+
 	it("leaves prompts without tool messages unchanged", () => {
 		const prompt: LanguageModelV4Message[] = [
 			{ role: "system", content: "you are a helpful assistant" },
@@ -116,6 +187,7 @@ describe("rewritePromptToolImages", () => {
 		expect(syntheticUser).toEqual({
 			role: "user",
 			content: [
+				{ type: "text", text: TOOL_OUTPUT_ONE_IMAGE },
 				{
 					type: "file",
 					data: { type: "data", data: "QkFTRTY0SU1BR0VCWVRFUw==" },
@@ -159,6 +231,7 @@ describe("rewritePromptToolImages", () => {
 		expect(out.prompt[1]).toEqual({
 			role: "user",
 			content: [
+				{ type: "text", text: TOOL_OUTPUT_ONE_FILE },
 				{
 					type: "file",
 					data: { type: "data", data: "QkFTRTY0UERGQllURVM=" },
@@ -205,6 +278,7 @@ describe("rewritePromptToolImages", () => {
 		expect(out.prompt[1]).toEqual({
 			role: "user",
 			content: [
+				{ type: "text", text: TOOL_OUTPUT_ONE_IMAGE },
 				{
 					type: "file",
 					data: {
@@ -259,6 +333,7 @@ describe("rewritePromptToolImages", () => {
 		expect(out.prompt[1]).toEqual({
 			role: "user",
 			content: [
+				{ type: "text", text: TOOL_OUTPUT_ONE_IMAGE },
 				{
 					type: "file",
 					data: {
@@ -387,6 +462,7 @@ describe("rewritePromptToolImages", () => {
 		expect(out.prompt[1]).toEqual({
 			role: "user",
 			content: [
+				{ type: "text", text: TOOL_OUTPUT_ONE_FILE },
 				{
 					type: "file",
 					data: {
@@ -623,6 +699,7 @@ describe("rewritePromptToolImages", () => {
 		expect(out.prompt[1]).toEqual({
 			role: "user",
 			content: [
+				{ type: "text", text: TOOL_OUTPUT_TWO_IMAGES },
 				{
 					type: "file",
 					data: { type: "data", data: "QUFB" },
@@ -635,6 +712,50 @@ describe("rewritePromptToolImages", () => {
 				},
 			],
 		});
+	});
+
+	it("labels the message carrying images from several tools as tool output, naming each tool", () => {
+		const result = (toolCallId: string, toolName: string, data: string) => ({
+			type: "tool-result" as const,
+			toolCallId,
+			toolName,
+			output: {
+				type: "content" as const,
+				value: [
+					{
+						type: "file" as const,
+						data: { type: "data" as const, data },
+						mediaType: "image/png",
+					},
+				],
+			},
+		});
+		const prompt: LanguageModelV4Message[] = [
+			{
+				role: "tool",
+				content: [
+					result("call_1", "view_earlier_image", "QUFB"),
+					result("call_2", "view_earlier_image", "QkJC"),
+					result("call_3", "browser_action", "Q0ND"),
+				],
+			},
+		];
+
+		const out = rewritePromptToolImages(prompt);
+
+		const user = out.prompt[1];
+		if (user.role !== "user") {
+			throw new Error("expected user message");
+		}
+		expect(user.content[0]).toEqual({
+			type: "text",
+			text: "[Tool output, not a message from the user: the 3 images returned by view_earlier_image and browser_action, in the order of the calls above.]",
+		});
+		expect(user.content.slice(1).map((part) => part.type)).toEqual([
+			"file",
+			"file",
+			"file",
+		]);
 	});
 
 	it("omits images that exceed the aggregate media budget in the split backstop", () => {
@@ -687,6 +808,7 @@ describe("rewritePromptToolImages", () => {
 		expect(out.prompt[1]).toEqual({
 			role: "user",
 			content: [
+				{ type: "text", text: TOOL_OUTPUT_ONE_IMAGE },
 				{
 					type: "file",
 					data: { type: "data", data: firstImage },
@@ -700,6 +822,20 @@ describe("rewritePromptToolImages", () => {
 		}
 		expect(JSON.stringify(toolMessage)).toContain(OMITTED_PLACEHOLDER);
 		expect(JSON.stringify(toolMessage)).not.toContain(secondImage);
+	});
+
+	it("keeps tool images over the stock 8 MiB total when a larger budget is given", () => {
+		const { prompt, first, second } = twoLargeToolImages();
+
+		const serialized = JSON.stringify(
+			rewritePromptToolImages(prompt, {
+				maxTotalMediaBytes: 64 * 1024 * 1024,
+			}).prompt,
+		);
+
+		expect(serialized).toContain(first);
+		expect(serialized).toContain(second);
+		expect(serialized).not.toContain(OMITTED_PLACEHOLDER);
 	});
 
 	it("handles multiple separate tool messages in the same prompt", () => {
@@ -878,6 +1014,28 @@ describe("splitToolImagesMiddleware", () => {
 		expect(out).not.toBe(params);
 		expect(out?.prompt).toHaveLength(2);
 		expect(out?.prompt[1].role).toBe("user");
+	});
+
+	it("uses the media budget carried in the call's provider options, and does not pass it on", async () => {
+		const { prompt, first, second } = twoLargeToolImages();
+		const params: LanguageModelV4CallOptions = {
+			prompt,
+			providerOptions: {
+				clineMediaBudget: { maxTotalMediaBytes: 64 * 1024 * 1024 },
+			},
+		};
+
+		const out = await splitToolImagesMiddleware.transformParams?.({
+			type: "stream",
+			params,
+			model: undefined as never,
+		});
+
+		const serialized = JSON.stringify(out?.prompt);
+		expect(serialized).toContain(first);
+		expect(serialized).toContain(second);
+		expect(serialized).not.toContain(OMITTED_PLACEHOLDER);
+		expect(out?.providerOptions?.clineMediaBudget).toBeUndefined();
 	});
 
 	it("preserves call-options siblings (temperature, tools, etc.)", async () => {

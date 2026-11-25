@@ -161,6 +161,35 @@ describe("ClineModelPicker", () => {
 		expect(screen.getByRole("combobox")).toHaveValue("cline-next")
 	})
 
+	// Cline Cubed: an empty slot shows no model, not the catalog default.
+	it.each(["plan", "act"] as const)("shows an empty %s slot as empty, not the catalog default", (mode) => {
+		vi.mocked(useExtensionState).mockReturnValue({
+			apiConfiguration: {},
+			favoritedModelIds: [],
+			planActSeparateModelsSetting: true,
+		} as ReturnType<typeof useExtensionState>)
+		vi.mocked(useDynamicProviderSelection).mockReturnValue({
+			selectedModelId: "",
+			selectedModelInfo: { supportsPromptCache: false },
+			hideUsageCost: false,
+		})
+
+		render(<ClineModelPicker currentMode={mode} />)
+
+		expect(screen.getByRole("combobox")).toHaveValue("")
+		expect(screen.queryByText(/Context:/)).not.toBeInTheDocument()
+	})
+
+	it.each(["plan", "act"] as const)("writes a model chosen on the %s tab to that tab's own slot", async (mode) => {
+		render(<ClineModelPicker currentMode={mode} />)
+
+		fireEvent.click(await screen.findByText("Cline Next"))
+
+		await waitFor(() =>
+			expect(mocks.commitSelection).toHaveBeenCalledWith(mode, { providerId: "cline", modelId: "cline-next" }),
+		)
+	})
+
 	it("uses live catalog reasoning support when the saved Cline model snapshot is stale", () => {
 		vi.mocked(useExtensionState).mockReturnValue({
 			apiConfiguration: {

@@ -28,7 +28,7 @@ const GroqModelPicker: React.FC<GroqModelPickerProps> = ({ isPopup, currentMode 
 	// `dynamicGroqModels` slice (populated by `refreshGroqModels` on
 	// the host) is merged on top so live API additions are visible too.
 	const { models: groqModels, defaultModelId: groqDefaultModelId } = useProviderModels("groq")
-	const [searchTerm, setSearchTerm] = useState(modeFields.groqModelId || groqDefaultModelId)
+	const [searchTerm, setSearchTerm] = useState(modeFields.groqModelId || "")
 	const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm)
 	const [isDropdownVisible, setIsDropdownVisible] = useState(false)
 	const [selectedIndex, setSelectedIndex] = useState(-1)
@@ -78,7 +78,7 @@ const GroqModelPicker: React.FC<GroqModelPickerProps> = ({ isPopup, currentMode 
 
 	// Sync external changes when the modelId changes
 	useEffect(() => {
-		const currentModelId = modeFields.groqModelId || groqDefaultModelId
+		const currentModelId = modeFields.groqModelId || ""
 		setSearchTerm(currentModelId)
 	}, [modeFields.groqModelId])
 

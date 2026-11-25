@@ -63,6 +63,51 @@ function peekResult(providerId: string, entries: Array<[string, ModelInfo]>, def
 }
 
 describe("resolveModelInfo", () => {
+	it("does not answer an empty OpenAI Compatible Plan slot with Act's model or a catalog default", async () => {
+		const { resolveModelInfo } = await import("../resolveModelInfo")
+		const providerId = parseProviderId("openai")
+		const store = makeStore({ providerId })
+		vi.mocked(store.readSelection).mockImplementation((_, mode) =>
+			mode === "act"
+				? {
+						providerId,
+						modelId: "local-model",
+						modelInfo: { name: "Local", supportsPromptCache: false, contextWindow: 1_048_576 },
+					}
+				: undefined,
+		)
+		const catalog = makeCatalog()
+
+		const response = await resolveModelInfo(makeController(store, catalog), {
+			providerId: "openai",
+			mode: "plan",
+		})
+
+		expect(response.source).toBe("unknown")
+		expect(response.modelId).toBe("")
+		expect(response.modelInfo).toBeUndefined()
+		expect(catalog.peekModels).not.toHaveBeenCalled()
+	})
+
+	it("answers a requested mode from that mode's own selection", async () => {
+		const { resolveModelInfo } = await import("../resolveModelInfo")
+		const providerId = parseProviderId("openai")
+		const store = makeStore({ providerId })
+		vi.mocked(store.readSelection).mockImplementation((_, mode) => ({
+			providerId,
+			modelId: `${mode}-model`,
+			modelInfo: { name: "Local", supportsPromptCache: false, contextWindow: 1_048_576 },
+		}))
+
+		const response = await resolveModelInfo(makeController(store, makeCatalog()), {
+			providerId: "openai",
+			mode: "plan",
+		})
+
+		expect(response.modelId).toBe("plan-model")
+		expect(response.source).toBe("committed-selection")
+	})
+
 	it("returns committed-selection source when a matching selection exists", async () => {
 		const { resolveModelInfo } = await import("../resolveModelInfo")
 		const providerId = parseProviderId("deepseek")

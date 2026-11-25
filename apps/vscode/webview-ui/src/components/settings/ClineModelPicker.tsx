@@ -97,19 +97,14 @@ const FREE_MODELS_FALLBACK: FeaturedModelCardEntry[] = CLINE_RECOMMENDED_MODELS_
 const ClineModelPicker: React.FC<ClineModelPickerProps> = ({ isPopup, currentMode, showProviderRouting, initialTab }) => {
 	const { handleModeFieldsChange, handleFieldChange } = useApiConfigurationHandlers()
 	const { apiConfiguration, favoritedModelIds } = useExtensionState()
-	const { models: catalogClineModels, defaultModelId: clineDefaultModelId } = useProviderModels("cline")
+	const { models: catalogClineModels } = useProviderModels("cline")
 	const { config, write: writeProviderConfig, commitSelection } = useProviderConfig("cline")
 	const modeFields = getModeSpecificFields(apiConfiguration, currentMode)
 	const effectiveClineModels = catalogClineModels
 	const committedSelection =
 		currentMode === "plan" ? config?.planSelection : currentMode === "image" ? config?.imageSelection : config?.actSelection
 	const committedModelInfo = committedSelection?.modelInfo ? fromProtobufModelInfo(committedSelection.modelInfo) : undefined
-	const currentClineModelId =
-		committedSelection?.modelId ||
-		modeFields.clineModelId ||
-		clineDefaultModelId ||
-		Object.keys(effectiveClineModels ?? {})[0] ||
-		""
+	const currentClineModelId = committedSelection?.modelId || modeFields.clineModelId || ""
 	const [searchTerm, setSearchTerm] = useState(currentClineModelId)
 	const searchTermEditedByUserRef = useRef(false)
 	const [isDropdownVisible, setIsDropdownVisible] = useState(false)

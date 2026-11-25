@@ -51,7 +51,12 @@ export function ModelPickerWithManualEntry({
 		setCustomModelId(selectedModelInList ? "" : selectedModel.modelId)
 	}, [selectedModel.modelId, selectedModelInList])
 	const showManualEntry =
-		allowsCustomIds && (isManualEntryVisible || !hasModels || isLoading || Boolean(error) || !selectedModelInList)
+		allowsCustomIds &&
+		(isManualEntryVisible ||
+			!hasModels ||
+			isLoading ||
+			Boolean(error) ||
+			(Boolean(selectedModel.modelId) && !selectedModelInList))
 
 	// Force VSCodeDropdown to re-initialize after async catalog/selection
 	// hydration, otherwise it ignores the value prop for dynamically rendered
@@ -101,6 +106,7 @@ export function ModelPickerWithManualEntry({
 							}
 						}}
 						value={selectedModelInList ? selectedModel.modelId : ""}>
+						{!selectedModel.modelId && <VSCodeOption value="">No model selected</VSCodeOption>}
 						{!selectedModelInList && allowsCustomIds && selectedModel.modelId && (
 							<VSCodeOption value="">{selectedModel.modelId} (not in current list)</VSCodeOption>
 						)}

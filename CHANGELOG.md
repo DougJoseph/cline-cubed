@@ -1,5 +1,135 @@
 # Changelog
 
+## [4.1.27]
+
+### Added
+
+- **Always Remembered Files.** Settings → Features now holds a list of files whose full contents go
+  with every request, so compaction can never remove them: a work contract, project rules, anything
+  your agent must not forget. Add a file with the picker or by typing or pasting its path, remove it
+  with one click (the file itself is never touched), and reorder with the arrows. Changes apply from
+  your next message. Each install keeps its own list.
+
+  Settings shows what each file costs and its share of the active model's context window. A listed
+  file that goes missing is reported in Settings and in the chat, and the agent is told it could not
+  be loaded. Secrets files such as `.env` are refused. If the active model is not on your own machine
+  or local network, you are warned that the files are being sent to that remote endpoint on every
+  request.
+
+  **You don't need to list files Cline already loads as rules.** Compaction doesn't remove those
+  either: `AGENTS.md`, `.clinerules`, and `.cline/rules/` in your workspace, plus `~/.agents/AGENTS.md`,
+  `~/.cline/rules/`, and `~/Documents/Cline/Rules/`. In those folders, only `.md`, `.markdown`, and
+  `.txt` files directly inside the folder load. Settings shows these locations. Use the list for
+  everything else, such as a `CLAUDE.md` or a work contract kept in another folder. Files from other
+  tools are not loaded automatically.
+
+- **Image limits in Settings.** Settings → Features → Images sent to the model sets whether earlier
+  images go as pictures or as descriptions, the size limits for the pictures in one request (8 MB in
+  all, 5 MB per image, 6 MB decoded, as before), and which model describes images first. The limits
+  apply to every check an image passes before it is sent, and if an image is left out, the chat says
+  how many and why.
+
+### Fixed
+
+- **Global rules created in the Rules panel now reach the agent.** The panel saved them to a folder the
+  agent did not read, so a rule could look active and have no effect. Everything now uses
+  `~/Documents/Cline/`, and existing rules, workflows, hooks, and agents are copied there automatically.
+  The originals are left in place.
+
+- **Chats keep far more of their context.** Stock Cline decided when to compact from a rough estimate of
+  the conversation's size, and that estimate ran well above the real number, so a chat could lose most
+  of its context with much of its window still unused. Compaction now goes by the token count your
+  model's server actually reports, and falls back to the estimate only when no count is available.
+
+- **Pasting an image no longer forces a compaction.** Stock Cline counted image data as if it were text, so a
+  few screenshots could read as more than a million tokens and trigger a compaction on a nearly empty
+  window. Images, including ones a model generates, are no longer counted that way; their real cost
+  arrives in the token count your server reports.
+
+- **Images past the limit are sent as short descriptions, and the newest stay pictures.** Stock
+  Cline sent every image in a chat again with every message, and once a chat's images filled the 8
+  MB image limit, new images were replaced with a placeholder and nothing told you. Images still go
+  with every message, but when they don't fit the limits, the newest are kept as pictures and the
+  oldest are sent as short saved descriptions, written once by your Image Mode model or your main
+  model. Every image stays saved with the chat on your computer, so the model can ask to see any of
+  them as a picture again, and both the chat and the model are told why an image is a description. A
+  new setting, Earlier images, can instead send an image as a picture only with the message it came
+  with and as its description after that, which uses less context.
+
+- **An image no model can read is no longer sent silently.** When the selected model can't see images
+  and no Image Mode model is set, the chat says the image can't be read.
+
+- **A reopened chat shows its images again.** In stock Cline, a chat reopened after a window reload
+  showed your messages without their images, and a message holding only images didn't show at all.
+  The images were still saved; now they're shown.
+
+- **Images a tool returns are no longer mistaken for your message.** On OpenAI-compatible and Mistral
+  servers, stock Cline moved a tool's images into a separate message with nothing saying where it came
+  from, so a model could read it as you writing again. That message now says it is tool output.
+
+- **Send no longer stays locked after a reply that finishes at once.** In stock Cline, a turn that
+  ended before its progress was shown could leave Send disabled after the reply appeared.
+
+- **The Rules panel's on/off switches now work.** In stock Cline, turning off a rule, an AGENTS.md
+  file, or a skill in the Rules panel had no effect. Now the agent follows only the rules and skills
+  you leave on, starting with the next message, including in chats already open.
+
+- **Settings now shows the model each mode really uses, on every provider.** In stock Cline, the Plan
+  and Act tabs could display a default, a model saved for another mode, or a model left behind by
+  another provider, and a chat could then send a model you never chose. The Image tab did the same. A mode with no model now shows "No
+  model selected" with blank model details, and its chat asks you to select one instead of sending a
+  request. Switching provider restores that provider's last model, or leaves the mode empty. Dify is
+  the exception, because your Dify application chooses its model.
+
+  **If you were relying on a default model, select a model once after updating.**
+
+- **Settings checkboxes keep what you click.** Unchecking a box such as Supports Images could turn it
+  straight back on, because the redraw after your click saved the old value over it.
+
+- **Reasoning effort is sent per mode, as Settings shows it.** In stock Cline, Plan and Act each display
+  their own reasoning effort, but every chat sent one provider-wide value, so a mode could show one effort and
+  send another. Each mode now sends the effort on its own tab, on every provider. A mode with none set
+  shows "Model default" and sends none.
+
+- **Temperature shows only what you set.** With OpenAI Compatible, stock Cline's Temperature box showed
+  `0` when nothing was stored, while no temperature was sent and the server used its own default. The
+  box is now blank until you set one, and the value you type is stored and sent. Settings also explains
+  under the box what Temperature means and the range most providers accept.
+
+- **The Azure API version you set is used.** In stock Cline, the Azure API version was carried over once,
+  when older settings were converted, so a version set or changed afterward never reached requests.
+
+- **Azure identity sign-in is labeled as unavailable.** Stock Cline's current engine doesn't support
+  Microsoft sign-in, so the checkbox had no effect. Settings now says so. Use an API key.
+
+- **The Claude Code CLI path you set is used.** In stock Cline, the path entered in Settings was saved
+  but never reached the engine, which looked for the program on its own.
+
+- **The Qwen Code OAuth path is labeled as unused.** Stock Cline's current engine doesn't read it, and
+  Settings now says so.
+
+- **Settings tells you when it can't load.** A failed load could show your API key, Base URL, and
+  provider list as empty, even though they were safely stored, and "Loading models..." could spin
+  forever. Settings now says it couldn't load, offers **Retry**, and hides the fields so nothing can be
+  saved over your real values. A save that fails now says so too.
+
+- **More image types can be attached, and a refused image is named.** Paste, drag-and-drop, and the
+  file picker now identify an image from its contents and convert BMP, GIF, ICO, SVG, and similar
+  formats to PNG. On macOS, HEIC, TIFF, PSD, and other formats are converted too. An animated GIF sends
+  its first frame. An image that can't be attached is named in the chat, instead of being silently
+  dropped with only its filename left behind.
+
+- **Image Mode no longer runs out of room before describing an image.** The image bridge had a fixed
+  limit of 4,096 output tokens, which a reasoning model could spend before writing anything. The Image
+  tab now has a **Max Output Tokens** field, and the bridge sends the value it shows.
+
+- **Compaction keeps more of the recent conversation on large context windows.** Stock Cline kept a
+  flat 20,000 tokens word for word whatever the window size. It now scales to a quarter of the usable
+  window, and smaller windows keep what they kept before.
+
+- **A long conversation no longer squeezes the room for a reply.** Stock Cline set the output limit
+  for each request from the same inflated estimate. It now uses the reported token count too.
+
 ## [4.1.26]
 
 ### Fixed

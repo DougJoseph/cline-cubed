@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { ModelsServiceClient } from "@/services/grpc-client"
+import { getSettingsHealth, MODEL_LIST_SLOW_NOTICE_MS, resetSettingsHealth } from "@/utils/settingsHealth"
 import { useProviderModels } from "./useProviderModels"
 
 vi.mock("@/context/ExtensionStateContext", () => ({
@@ -119,5 +120,39 @@ describe("useProviderModels", () => {
 		}
 		await waitFor(() => expect(context.applyProviderModelsResponse).toHaveBeenCalledTimes(deferredByRequestId.size))
 		expect(context.applied.map((item) => item.requestId)).toEqual([latestRequestId])
+	})
+
+	it("says the model list is slow at 5 seconds and accepts a late answer", async () => {
+		resetSettingsHealth()
+		vi.useFakeTimers()
+		try {
+			const context = installFakeProviderModelsContext()
+			const pending = deferred<ProviderModelsResponse>()
+			vi.mocked(ModelsServiceClient.resolveProviderModels).mockReturnValue(pending.promise)
+
+			const { unmount } = renderHook(() => useProviderModels("deepseek"))
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(MODEL_LIST_SLOW_NOTICE_MS - 1)
+			})
+			expect(getSettingsHealth().slowModelLists).toHaveLength(0)
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(1)
+			})
+			expect(getSettingsHealth().slowModelLists).toHaveLength(1)
+			expect(context.applied).toHaveLength(0)
+
+			const requestId = context.startProviderModelsRequest.mock.calls[0][1]
+			await act(async () => {
+				pending.resolve(response(requestId))
+				await vi.advanceTimersByTimeAsync(0)
+			})
+
+			expect(context.applied).toHaveLength(1)
+			expect(getSettingsHealth().slowModelLists).toHaveLength(0)
+			unmount()
+		} finally {
+			vi.useRealTimers()
+			resetSettingsHealth()
+		}
 	})
 })

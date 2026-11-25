@@ -511,6 +511,7 @@ class DebugHarness {
 					"--disable-gpu-compositing",
 					"--disable-software-rasterizer",
 					"--disable-dev-shm-usage",
+					"--use-mock-keychain",
 					`--user-data-dir=${userDataDir}`,
 					workspace,
 				],
@@ -1147,10 +1148,10 @@ class DebugHarness {
 		await this.getWebCdp().send("Debugger.removeBreakpoint", { breakpointId: params.breakpointId })
 	}
 
-	async webEvaluate(params: { expression: string; callFrameId?: string }): Promise<any> {
+	async webEvaluate(params: { expression: string; callFrameId?: string; frame?: string }): Promise<any> {
 		// For simple evaluation without breakpoints, use Playwright frame.evaluate
 		if (!params.callFrameId) {
-			const sidebar = await this.findSidebar()
+			const sidebar = params.frame ? await this.getTarget(params.frame) : await this.findSidebar()
 			if (sidebar) {
 				try {
 					const result = await sidebar.evaluate((expr: string) => {

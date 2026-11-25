@@ -35,6 +35,7 @@ import { hasWhatsNewNotes } from "./core/controller/state/getStateToPostToWebvie
 import { sendAddToInputEvent } from "./core/controller/ui/subscribeToAddToInput"
 import { sendShowWebviewEvent } from "./core/controller/ui/subscribeToShowWebview"
 import { HookDiscoveryCache } from "./core/hooks/HookDiscoveryCache"
+import { getDocumentsPath } from "./core/storage/documents-path"
 import {
 	cleanupMcpMarketplaceCatalogFromGlobalState,
 	cleanupOldApiKey,
@@ -70,6 +71,7 @@ import { VscodeWebviewProvider } from "./hosts/vscode/VscodeWebviewProvider"
 import { exportVSCodeStorageToSharedFiles } from "./hosts/vscode/vscode-to-file-migration"
 import { ExtensionRegistryInfo } from "./registry"
 import { AuthService, LogoutReason } from "./sdk/auth-service"
+import { runLegacyGlobalFolderCarryOver } from "./sdk/legacy-global-folder-carryover"
 import { telemetryService } from "./services/telemetry"
 import type { RolloutBundleActivation } from "./services/telemetry/rollout-metadata"
 import { LG_TASK_URI_PATH, SharedUriHandler, TASK_URI_PATH } from "./services/uri/SharedUriHandler"
@@ -984,6 +986,13 @@ if (IS_DEV) {
 
 // VSCode-specific storage migrations
 async function cleanupLegacyVSCodeStorage(context: ExtensionContext): Promise<void> {
+	try {
+		await runLegacyGlobalFolderCarryOver(context.globalState, await getDocumentsPath(), (message) => {
+			HostProvider.window.showMessage({ type: ShowMessageType.WARNING, message })
+		})
+	} catch (error) {
+		Logger.error("[VS Code Storage Migrations] Global folder carry-over failed:", error)
+	}
 	try {
 		await cleanupOldApiKey(context)
 		// Migrate is not done if the new storage does not have the lastShownAnnouncementId flag

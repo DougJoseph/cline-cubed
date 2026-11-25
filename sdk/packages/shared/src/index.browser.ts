@@ -238,6 +238,9 @@ export {
 	CHARS_PER_TOKEN,
 	estimateRequestInputTokens,
 	estimateTokens,
+	type MeasuredTokenRequest,
+	resolveMeasuredRequestInputTokens,
+	serializeForTokenEstimate,
 	type TokenEstimatedRequest,
 } from "./llms/tokens";
 export type {

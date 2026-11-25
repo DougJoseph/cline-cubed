@@ -32,11 +32,25 @@ export function mergeRulesForSystemPrompt(
 	return primary || additional || undefined;
 }
 
+/**
+ * Cline Cubed: reports whether an instruction file is switched on outside its own frontmatter,
+ * such as in the VS Code Rules panel. Absent: every file counts as on.
+ */
+export type InstructionEnabledCheck = (
+	kind: "rule" | "skill",
+	filePath: string,
+) => boolean;
+
 export function listEnabledRulesFromWatcher(
 	watcher: UserInstructionConfigWatcher,
+	isInstructionEnabled?: InstructionEnabledCheck,
 ): RuleConfig[] {
 	const snapshot = watcher.getSnapshot("rule");
 	return [...snapshot.values()]
+		.filter(
+			(record) =>
+				!isInstructionEnabled || isInstructionEnabled("rule", record.filePath),
+		)
 		.map((record) => record.item as RuleConfig)
 		.filter(isRuleEnabled)
 		.sort((a, b) => a.name.localeCompare(b.name));
@@ -44,6 +58,9 @@ export function listEnabledRulesFromWatcher(
 
 export function loadRulesForSystemPromptFromWatcher(
 	watcher: UserInstructionConfigWatcher,
+	isInstructionEnabled?: InstructionEnabledCheck,
 ): string {
-	return formatRulesForSystemPrompt(listEnabledRulesFromWatcher(watcher));
+	return formatRulesForSystemPrompt(
+		listEnabledRulesFromWatcher(watcher, isInstructionEnabled),
+	);
 }

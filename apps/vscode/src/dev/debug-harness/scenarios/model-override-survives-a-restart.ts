@@ -12,6 +12,10 @@
  * The values are a real configuration, not invented ones: an OpenAI-compatible endpoint serving a
  * model no catalog lists, that model's id typed in, and that model's numbers.
  *
+ * The provider under test is not the one the profile starts on. The profile is seeded to another
+ * provider and the scenario switches to this one by clicking the API Provider picker's own row, so the
+ * run carries a real change of provider — and an empty model id has a provider to lose.
+ *
  * WHAT THIS DOES NOT DO: it runs no inference and needs no credential. The defect is a settings
  * persistence defect, so every gesture here is a settings gesture, and the assertions read what the
  * settings panel displays and what the two durable files hold. Nothing is sent to any model and no
@@ -32,7 +36,19 @@
 import { readFileSync } from "node:fs"
 import path from "node:path"
 
-import { api, assert, frameOf, freshApp, openChat, reloadWindow, report, run, sleep } from "./harness"
+import {
+	api,
+	assert,
+	frameOf,
+	freshApp,
+	openChat,
+	PROVIDER_PICKER_INPUT,
+	pickProvider,
+	reloadWindow,
+	report,
+	run,
+	sleep,
+} from "./harness"
 
 // ── The configuration under test ─────────────────────────────────────────────────────────────────
 // A host under a reserved TLD that can never resolve: the model-configuration fields under test are
@@ -46,8 +62,22 @@ const MAX_OUTPUT = "32768"
 // ── Selectors, each one from the component that renders it ──────────────────────────────────────
 const SETTINGS_BUTTON = '[data-testid="settings-button"]' // ChatTextArea
 const API_CONFIG_TAB = '[data-testid="tab-api-config"]' // SettingsView's TabTrigger
-const PROVIDER_INPUT = '[data-testid="provider-selector-input"] input' // ApiOptions' search field
-const PROVIDER_OPTION_ID = "provider-option-openai-compatible" // its listbox item
+// The picker's row for the OpenAI Compatible provider is `provider-option-openai`. ApiOptions builds
+// that test id from the value the provider list carries — `provider-option-${item.value}` — and the
+// value carried for the label "OpenAI Compatible" is `openai`, the same id ApiOptions matches to render
+// the OpenAI-compatible screen (`selectedProvider === "openai" || isCustomProvider`). The durable
+// settings key for the same provider is `openai-compatible`; the picker row and the stored key are
+// different names for one provider, so a scenario that wants the row needs the row's id.
+const PROVIDER_PICKER_ROW_ID = "openai"
+const PROVIDER_PICKER_LABEL = "OpenAI Compatible"
+
+// The provider the profile starts on, deliberately NOT the one the scenario picks: a click that lands
+// on the provider already in place is a re-selection, and it proves the gesture without proving a
+// change of provider. The label is what the picker's own field holds for it — ApiOptions syncs that
+// field to the current provider's catalog name whenever the list is closed.
+const SEEDED_PROVIDER_ID = "anthropic"
+const SEEDED_PROVIDER_LABEL = "Anthropic"
+const PICKED_PROVIDER_KEY = "openai-compatible" // the durable settings key for the provider picked
 const BASE_URL_INPUT = 'input[placeholder="Enter base URL..."]' // OpenAICompatible's DebouncedTextField
 const MODEL_ID_INPUT = 'input[placeholder="Enter Model ID..."]' // the custom-model-id field
 const MODEL_CONFIG_TOGGLE = 'span:text-is("Model Configuration")'
@@ -81,9 +111,10 @@ function readDurable(clineDir: string): { providers: any; models: any } {
 	return { providers: load("providers.json"), models: load("models.json") }
 }
 
+/** The durable section for the provider the scenario switches TO. */
 function providerSection(file: any): any {
 	if (!file) return undefined
-	return file.providers?.["openai-compatible"] ?? file["openai-compatible"]
+	return file.providers?.[PICKED_PROVIDER_KEY] ?? file[PICKED_PROVIDER_KEY]
 }
 
 function storedModelId(clineDir: string): string | undefined {
@@ -124,31 +155,6 @@ async function typeIn(frame: string, selector: string, text: string, why: string
 			throw new Error(`Harness could not ${why} (${selector}): ${e.message}`)
 		}
 	}
-}
-
-/**
- * Put the panel on the OpenAI Compatible provider by clicking it.
- *
- * The picker is a search field that opens a listbox on focus, so the option is not in the DOM until
- * the field is focused — and it is filtered by what is typed. Both are attempted; the panel is then
- * believed by what it renders rather than by the click that was meant to produce it: the base URL
- * field exists only on the OpenAI-compatible family of providers.
- */
-async function chooseOpenAiCompatibleProvider(frame: string): Promise<boolean> {
-	await api("ui.click", { selector: PROVIDER_INPUT, frame, timeout: 8000 }).catch(() => {})
-	await sleep(900)
-	let found = await api("ui.locator", { frame, testId: PROVIDER_OPTION_ID, action: "count" }).catch(() => ({ count: 0 }))
-	if (!found?.count) {
-		await api("ui.fill", { selector: PROVIDER_INPUT, text: "OpenAI Compatible", frame }).catch(() => {})
-		await sleep(900)
-		found = await api("ui.locator", { frame, testId: PROVIDER_OPTION_ID, action: "count" }).catch(() => ({ count: 0 }))
-	}
-	if (!found?.count) {
-		return false
-	}
-	await api("ui.locator", { frame, testId: PROVIDER_OPTION_ID, action: "click" }).catch(() => {})
-	await sleep(1500)
-	return true
 }
 
 /**
@@ -232,12 +238,29 @@ function contextMatches(shown: string | null): boolean {
 	return digits === "262144" || digits === "262"
 }
 
+/** What the provider picker's own field holds right now — the label of the provider in force. */
+async function pickerLabel(frame: string): Promise<string | null> {
+	try {
+		const res = await api("ui.locator", { frame, selector: PROVIDER_PICKER_INPUT, action: "value" })
+		return typeof res?.value === "string" ? res.value : null
+	} catch {
+		return null
+	}
+}
+
+/** How many elements `selector` matches in this frame right now (0 when the lookup itself fails). */
+async function countInFrame(frame: string, selector: string): Promise<number> {
+	const res = await api("ui.locator", { frame, selector, action: "count" }).catch(() => ({ count: 0 }))
+	return Number(res?.count ?? 0)
+}
+
 async function main(): Promise<void> {
 	console.log(`\nCline Cubed — a model id and its model configuration survive a restart\nmodel: ${MODEL_ID}\n`)
 
-	// The provider is seeded to OpenAI Compatible so the panel opens on the screen under test. The
-	// model id and every override are then entered through the UI — the path that was losing them.
-	await freshApp({ actModeApiProvider: "openai-compatible", planModeApiProvider: "openai-compatible" })
+	// The profile is seeded to a DIFFERENT provider so the picker click below is a real switch, not a
+	// re-selection of the screen already on show. The model id and every override are then entered
+	// through the UI — the path that was losing them.
+	await freshApp({ actModeApiProvider: SEEDED_PROVIDER_ID, planModeApiProvider: SEEDED_PROVIDER_ID })
 	const status = await api("status")
 	const clineDir = String(status.clineDir ?? "")
 	if (!clineDir) throw new Error("Harness status reported no clineDir")
@@ -253,10 +276,34 @@ async function main(): Promise<void> {
 	await clickIn(frame, API_CONFIG_TAB, "open the API Configuration tab")
 	await sleep(1200)
 
-	// The provider is clicked even though it was seeded: switching providers is part of the path, and
-	// the switch is one of the moments a stored selection gets re-resolved.
-	const picked = await chooseOpenAiCompatibleProvider(frame)
-	console.log(`provider picked by click: ${picked}`)
+	// Where the switch starts is part of what is being proven. If the profile already sat on OpenAI
+	// Compatible, the click below would only re-select it — the gesture proven, the provider change not.
+	// So the seeded provider is named by the picker's own field, and the field that ONLY the
+	// OpenAI-compatible screen draws is confirmed absent before anything is clicked.
+	const seededLabel = await pickerLabel(frame)
+	const baseUrlBefore = await countInFrame(frame, BASE_URL_INPUT)
+	assert(
+		"the panel opens on the seeded provider, not on the one about to be picked",
+		(seededLabel ?? "").trim().toLowerCase() === SEEDED_PROVIDER_LABEL.toLowerCase() && baseUrlBefore === 0,
+		`the picker reads ${JSON.stringify(seededLabel)}; base URL fields on screen: ${baseUrlBefore}`,
+	)
+
+	// The provider is picked through the picker even though it was seeded: the selection commit is one
+	// of the moments a stored selection gets re-resolved. The pick is believed by what the panel does
+	// afterwards — the base URL field only that provider's screen renders, and the label the picker
+	// reads back — never by the click that was meant to produce it. A pick the harness cannot perform
+	// aborts the run (exit 2) rather than being recorded as a product failure.
+	const picked = await pickProvider({
+		frame,
+		providerId: PROVIDER_PICKER_ROW_ID,
+		label: PROVIDER_PICKER_LABEL,
+		confirmSelector: BASE_URL_INPUT,
+		confirmLabel: PROVIDER_PICKER_LABEL,
+	})
+	if (!picked.picked) {
+		throw new Error(`Harness could not pick the OpenAI Compatible provider from the picker: ${picked.detail}`)
+	}
+	console.log(`provider picked by click: ${picked.detail}`)
 
 	// ── 2. Base URL, then the model id typed in by hand ─────────────────────────────────────────
 	await typeIn(frame, BASE_URL_INPUT, BASE_URL, "type the base URL")
@@ -352,6 +399,11 @@ async function main(): Promise<void> {
 	)
 
 	// ── 5. The durable records, where a lost selection actually shows up ─────────────────────────
+	assert(
+		"providers.json names the provider that was picked from the picker",
+		providerSection(readDurable(clineDir).providers)?.settings?.provider === PICKED_PROVIDER_KEY,
+		`settings.provider = ${JSON.stringify(providerSection(readDurable(clineDir).providers)?.settings?.provider)}`,
+	)
 	assert(
 		"providers.json holds the chosen model id, and not an empty one",
 		storedModelId(clineDir) === MODEL_ID,

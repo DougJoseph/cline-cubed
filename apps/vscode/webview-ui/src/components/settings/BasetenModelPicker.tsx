@@ -23,7 +23,7 @@ const BasetenModelPicker: React.FC<BasetenModelPickerProps> = ({ isPopup, curren
 	// `dynamicBasetenModels` slice (populated by `refreshBasetenModels`)
 	// is merged on top so live API additions are visible.
 	const { models: basetenModels, defaultModelId: basetenDefaultModelId } = useProviderModels("baseten")
-	const [searchTerm, setSearchTerm] = useState(modeFields.basetenModelId || basetenDefaultModelId)
+	const [searchTerm, setSearchTerm] = useState(modeFields.basetenModelId || "")
 	const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm)
 	const [isDropdownVisible, setIsDropdownVisible] = useState(false)
 	const [selectedIndex, setSelectedIndex] = useState(-1)
@@ -55,7 +55,7 @@ const BasetenModelPicker: React.FC<BasetenModelPickerProps> = ({ isPopup, curren
 	// NOTE: Model list is refreshed automatically on mount or when the API key is set,
 	// no need to refresh here in this component again on mount.
 	useEffect(() => {
-		const currentModelId = modeFields.basetenModelId || basetenDefaultModelId
+		const currentModelId = modeFields.basetenModelId || ""
 		setSearchTerm(currentModelId)
 	}, [modeFields.basetenModelId])
 

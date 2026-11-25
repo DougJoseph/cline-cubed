@@ -3,6 +3,7 @@ import {
 	CHARS_PER_TOKEN,
 	estimateTokens,
 	type MessageWithMetadata,
+	serializeForTokenEstimate,
 } from "@cline/shared";
 
 export { CHARS_PER_TOKEN, estimateTokens };
@@ -17,6 +18,8 @@ export const CONTEXT_WINDOW_INPUT_RATIO = 0.9;
 export const COMPACTION_TRIGGER_RATIO = 0.9;
 export const DEFAULT_TARGET_RATIO = 0.7;
 export const DEFAULT_PRESERVE_RECENT_TOKENS = 20_000;
+/** Share of the usable input budget kept verbatim on large context windows. */
+export const PRESERVE_RECENT_WINDOW_RATIO = 0.25;
 export const DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS = 4_096;
 export const TOOL_RESULT_CHAR_LIMIT = 2_000;
 export const FILE_CONTENT_CHAR_LIMIT = 2_000;
@@ -67,6 +70,26 @@ export function resolveEffectiveMaxInputTokens(
 	return contextWindow === undefined
 		? undefined
 		: contextWindow * CONTEXT_WINDOW_INPUT_RATIO;
+}
+
+/** The request size at which automatic compaction fires for a model. */
+export function resolveCompactionTriggerTokens(
+	input: Pick<ModelInfo, "maxInputTokens" | "contextWindow">,
+): number | undefined {
+	const maxInputTokens = resolveEffectiveMaxInputTokens(input);
+	return maxInputTokens === undefined
+		? undefined
+		: maxInputTokens * COMPACTION_TRIGGER_RATIO;
+}
+
+/** Recent conversation to keep verbatim when no explicit value is configured. */
+export function resolveDefaultPreserveRecentTokens(
+	maxInputTokens: number,
+): number {
+	return Math.max(
+		DEFAULT_PRESERVE_RECENT_TOKENS,
+		Math.ceil(maxInputTokens * PRESERVE_RECENT_WINDOW_RATIO),
+	);
 }
 
 export function truncateText(text: string, limit: number): string {
@@ -191,7 +214,7 @@ export function createTokenEstimator(): EstimateMessageTokens {
 		}
 		let serialized: string;
 		try {
-			serialized = JSON.stringify(message);
+			serialized = serializeForTokenEstimate(message);
 		} catch {
 			serialized = serializeMessage(message);
 		}

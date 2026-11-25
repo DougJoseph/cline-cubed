@@ -5,11 +5,13 @@ type StartInput = Parameters<SdkSessionLifecycle["startNewSession"]>[0]
 type SendHost = Parameters<SdkSessionLifecycle["fireAndForgetSend"]>[0]
 
 const mockCreateSessionHost = vi.hoisted(() => vi.fn())
+const stateMocks = vi.hoisted(() => ({ apiConfiguration: {} as Record<string, unknown> }))
 
 vi.mock("@/core/storage/StateManager", () => ({
 	StateManager: {
 		get: () => ({
 			getGlobalSettingsKey: () => undefined,
+			getApiConfiguration: () => stateMocks.apiConfiguration,
 		}),
 	},
 }))
@@ -181,6 +183,39 @@ describe("SdkSessionLifecycle", () => {
 		await vi.waitFor(() => expect(onSendComplete).toHaveBeenCalledWith("session-123"))
 
 		expect(lifecycle.getActiveSession()?.isRunning).toBe(false)
+	})
+
+	it("stops a send from a session with no model, before any request, and reports it to that chat", async () => {
+		const onSendError = vi.fn()
+		const send = vi.fn().mockResolvedValue(undefined)
+		const sdkHost = makeSdkHost({ send })
+		mockCreateSessionHost.mockResolvedValueOnce(sdkHost)
+		const lifecycle = makeLifecycle({ onSendError })
+		await lifecycle.startNewSession({ config: { providerId: "gemini", modelId: "no-model-selected" } } as StartInput)
+
+		lifecycle.fireAndForgetSend(sdkHost as unknown as SendHost, "session-123", "hello")
+		await vi.waitFor(() => expect(onSendError).toHaveBeenCalledOnce())
+
+		expect(send).not.toHaveBeenCalled()
+		expect(onSendError.mock.calls[0][0].message).toContain("No model is selected")
+		expect(onSendError.mock.calls[0][1]).toBe("session-123")
+		expect(lifecycle.getActiveSession()?.isRunning).toBe(false)
+	})
+
+	it("adopts a model chosen after the chat started, then sends", async () => {
+		const send = vi.fn().mockResolvedValue(undefined)
+		const updateSessionModel = vi.fn().mockResolvedValue(undefined)
+		const sdkHost = { ...makeSdkHost({ send }), updateSessionModel }
+		mockCreateSessionHost.mockResolvedValueOnce(sdkHost)
+		const lifecycle = makeLifecycle()
+		await lifecycle.startNewSession({ config: { providerId: "gemini", modelId: "no-model-selected" } } as StartInput)
+		stateMocks.apiConfiguration = { actModeApiProvider: "gemini", actModeApiModelId: "chosen-later" }
+
+		lifecycle.fireAndForgetSend(sdkHost as unknown as SendHost, "session-123", "hello")
+
+		await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
+		expect(updateSessionModel).toHaveBeenCalledWith("session-123", "chosen-later")
+		stateMocks.apiConfiguration = {}
 	})
 
 	it("notifies idle listeners only on a running-to-idle transition", async () => {

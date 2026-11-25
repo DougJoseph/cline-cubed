@@ -73,6 +73,8 @@ export interface ImageBridgeParams {
 	apiUri?: string
 	/** The Image Mode API format. "openai" (OpenAI-compatible) is supported. */
 	apiFormat?: string
+	/** The Image Mode model's output limit, as displayed on the Image tab. */
+	maxTokens?: number
 	/** Reasoning effort for reasoning-capable image models (forwarded as `reasoning_effort`). */
 	reasoningEffort?: string
 	/**
@@ -86,6 +88,8 @@ export interface ImageBridgeParams {
 	 * maximal-detail bridge pass — the reasoner's "second look".
 	 */
 	focusRegion?: string
+	/** Cline Cubed: a prompt to send instead of the Image Mode prompt (used for short carried descriptions). */
+	prompt?: string
 }
 
 /**
@@ -124,7 +128,7 @@ export async function bridgeImage(params: ImageBridgeParams): Promise<string> {
 			{
 				role: "user",
 				content: [
-					{ type: "text", text: buildImageBridgePrompt(params.focusRegion) },
+					{ type: "text", text: params.prompt ?? buildImageBridgePrompt(params.focusRegion) },
 					{
 						type: "image_url",
 						image_url: { url: `data:${mediaType};base64,${base64}` },
@@ -132,7 +136,10 @@ export async function bridgeImage(params: ImageBridgeParams): Promise<string> {
 				],
 			},
 		],
-		max_tokens: 4096,
+	}
+	// The value the Image tab shows. With none known, the provider applies its own limit.
+	if (params.maxTokens) {
+		body.max_tokens = params.maxTokens
 	}
 	// Only forward reasoning effort when the caller knows the model supports it
 	// (resolved from catalog metadata); unknown/unset effort stays omitted so
@@ -189,7 +196,7 @@ export async function bridgeImage(params: ImageBridgeParams): Promise<string> {
 
 	const content = data.choices?.[0]?.message?.content
 	if (!content) {
-		throw new Error(`Image bridge returned no content — ${describeEmptyBridgeResponse(data, rawBody)}`)
+		throw new Error(`Image bridge returned no content — ${describeEmptyBridgeResponse(data, rawBody, params.maxTokens)}`)
 	}
 	return content
 }
@@ -212,7 +219,7 @@ interface ImageBridgeResponse {
  * stopped on `finish_reason: "length"` (the token budget spent before any text), or a genuinely
  * empty message — and always quotes the raw response so the next occurrence explains itself.
  */
-function describeEmptyBridgeResponse(data: ImageBridgeResponse, rawBody: string): string {
+function describeEmptyBridgeResponse(data: ImageBridgeResponse, rawBody: string, maxTokens?: number): string {
 	const body = rawBody.trim().slice(0, 500)
 	const raw = body ? `Raw response: ${body}` : "The response body was empty."
 	if (data.error) {
@@ -231,7 +238,7 @@ function describeEmptyBridgeResponse(data: ImageBridgeResponse, rawBody: string)
 	const reasoning = choice.message?.reasoning_content ? " It contained reasoning text but no answer." : ""
 	const budget =
 		choice.finish_reason === "length"
-			? " The token budget (max_tokens 4096) was exhausted before any description was written — raise it, or use a non-reasoning vision model."
+			? ` The token budget (${maxTokens ? `max_tokens ${maxTokens}` : "the provider's default"}) was exhausted before any description was written — raise Max Output Tokens on the Image tab, or use a non-reasoning vision model.`
 			: ""
 	return `choices[0].message.content was empty${finish}.${reasoning}${budget} ${raw}`
 }

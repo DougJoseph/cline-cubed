@@ -297,6 +297,11 @@ message Settings {
   optional string new_chat_location = 195;
   optional bool debug_logging_enabled = 196;
   optional bool auto_name_chats = 197;
+  optional int32 images_total_limit_mb = 198;
+  optional int32 images_per_image_limit_mb = 199;
+  optional int32 images_per_image_decoded_limit_mb = 200;
+  optional string image_describer = 201;
+  optional string earlier_images = 202;
 }
 
 message State {
@@ -443,6 +448,14 @@ message UpdateSettingsRequest {
   optional string new_chat_location = 47;
   optional bool debug_logging_enabled = 48;
   optional bool auto_name_chats = 49;
+  // Cline Cubed: limits on images sent to the model as pictures, in megabytes as sent, which model
+  // writes the descriptions that stand in for images, and whether earlier images go as pictures
+  // ("pictures") or as their descriptions ("descriptions").
+  optional double images_total_limit_mb = 50;
+  optional double images_per_image_limit_mb = 51;
+  optional double images_per_image_decoded_limit_mb = 52;
+  optional string image_describer = 53;
+  optional string earlier_images = 54;
 }
 
 message UpdateTerminalConnectionTimeoutRequest {

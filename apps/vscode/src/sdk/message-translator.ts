@@ -2552,7 +2552,18 @@ export function sdkMessagesToClineMessages(
 		}
 
 		const userText = textContentBlocksToText(message.content)
-		if (userText) {
+		// Cline Cubed: a reopened chat's user rows carry the message's own images, as the live
+		// path does (`pending_prompt_submitted`), so the header and user rows keep their
+		// thumbnails and an image-only message keeps its row. Images inside a tool result are
+		// not user input and stay out.
+		const userImages = message.content.some((block) => block.type === "tool_result")
+			? []
+			: message.content.flatMap((block) =>
+					block.type === "image" && block.data && block.mediaType?.startsWith("image/")
+						? [`data:${block.mediaType};base64,${block.data}`]
+						: [],
+				)
+		if (userText || userImages.length > 0) {
 			state.clearTurnOutcome()
 			currentMode = sourceMessage.uiMode ?? currentMode
 			if (!isSyntheticSdkUserMessage(message)) {
@@ -2560,7 +2571,8 @@ export function sdkMessagesToClineMessages(
 					ts: state.nextTs(),
 					type: "say",
 					say: clineMessages.length === 0 ? "task" : "user_feedback",
-					text: userText,
+					text: userText && !isSyntheticUserPrompt(userText) ? userText : "",
+					...(userImages.length > 0 ? { images: userImages } : {}),
 					partial: false,
 				})
 			}

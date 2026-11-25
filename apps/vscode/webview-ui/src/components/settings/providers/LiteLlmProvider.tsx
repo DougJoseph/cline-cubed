@@ -40,7 +40,6 @@ export const LiteLlmProvider = ({ showModelOptions, isPopup, currentMode }: Lite
 		currentMode,
 		{
 			models,
-			defaultModelId,
 			config,
 			commitSelection,
 			customModelInfo,

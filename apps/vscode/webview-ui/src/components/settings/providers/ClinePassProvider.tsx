@@ -90,7 +90,6 @@ export const ClinePassProvider = ({ showModelOptions, isPopup, currentMode }: Cl
 	const { config, write, commitSelection } = useProviderConfig(CLINE_PASS_PROVIDER_ID)
 	const { selectedModel, commitModelSelection } = useProviderModelSelection(CLINE_PASS_PROVIDER_ID, currentMode, {
 		models,
-		defaultModelId,
 		config,
 		commitSelection,
 		customModelInfo: clinePassFallbackModelInfo,

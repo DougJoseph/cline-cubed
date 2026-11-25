@@ -6,6 +6,7 @@ import type {
 import type { BasicLogger } from "../logging/logger";
 import type { ProviderCapability, ProviderConfigField } from "../rpc/runtime";
 import type { ITelemetryService } from "../services/telemetry";
+import type { MediaBudgetOptions } from "./media";
 import type {
 	ModelModalities,
 	ModelModality,
@@ -250,6 +251,11 @@ export interface GatewayStreamRequest {
 		budgetTokens?: number;
 	};
 	signal?: AbortSignal;
+	/**
+	 * Cline Cubed: the image limits for this request, from the session's
+	 * settings. Providers use them in place of the built-in limits.
+	 */
+	mediaBudget?: MediaBudgetOptions;
 }
 
 export interface GatewayProvider {

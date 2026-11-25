@@ -125,6 +125,12 @@ export interface ResolvedMediaBudget {
 }
 
 export interface MediaBudgetState {
+	/**
+	 * Cline Cubed: the caller's limits for this request. Each field set here
+	 * replaces the limit a call site passes, so the user's settings govern
+	 * every check that shares this state.
+	 */
+	budget?: MediaBudgetOptions;
 	totalEncodedBytes: number;
 	keptImages: number;
 	omittedImages: number;
@@ -182,13 +188,67 @@ export function resolveMediaBudget(
 	};
 }
 
-export function createMediaBudgetState(): MediaBudgetState {
+export function createMediaBudgetState(
+	budget?: MediaBudgetOptions,
+): MediaBudgetState {
 	return {
+		...(budget ? { budget } : {}),
 		totalEncodedBytes: 0,
 		keptImages: 0,
 		omittedImages: 0,
 		omittedReasons: {},
 	};
+}
+
+function formatLimitMegabytes(bytes: number): string {
+	const megabytes = bytes / (1024 * 1024);
+	return Number.isInteger(megabytes) ? String(megabytes) : megabytes.toFixed(1);
+}
+
+/**
+ * Cline Cubed: the chat notice for the images a budget state left out, with
+ * each reason, or undefined when none was left out.
+ */
+export function mediaOmittedNotice(
+	state: MediaBudgetState,
+): string | undefined {
+	if (state.omittedImages === 0) {
+		return undefined;
+	}
+	const limits = resolveMediaBudget(state.budget);
+	const reasons = state.omittedReasons;
+	const invalid =
+		(reasons.unsupported_media_type ?? 0) +
+		(reasons.media_type_mismatch ?? 0) +
+		(reasons.invalid_base64 ?? 0);
+	const groups: Array<[number, string]> = [
+		[
+			reasons.total_limit ?? 0,
+			`over the ${formatLimitMegabytes(limits.maxTotalMediaBytes)} MB limit for all images in this request`,
+		],
+		[
+			reasons.encoded_limit ?? 0,
+			`over the ${formatLimitMegabytes(limits.maxImageEncodedBytes)} MB per-image limit`,
+		],
+		[
+			reasons.decoded_limit ?? 0,
+			`over the ${formatLimitMegabytes(limits.maxImageDecodedBytes)} MB decoded per-image limit`,
+		],
+		[invalid, "not a valid image of a supported type"],
+	];
+	const counted = groups.reduce((sum, [count]) => sum + count, 0);
+	if (state.omittedImages > counted) {
+		groups.push([
+			state.omittedImages - counted,
+			"left out for a reason that was not recorded",
+		]);
+	}
+	const parts = groups
+		.filter(([count]) => count > 0)
+		.map(([count, why]) => `${count} ${count === 1 ? "is" : "are"} ${why}`);
+	const subject =
+		state.omittedImages === 1 ? "1 image" : `${state.omittedImages} images`;
+	return `${subject} did not reach the model: ${parts.join("; ")}.`;
 }
 
 function recordOmittedImage(
@@ -199,13 +259,31 @@ function recordOmittedImage(
 	state.omittedReasons[reason] = (state.omittedReasons[reason] ?? 0) + 1;
 }
 
+/** The limits a check uses: the state's own budget wherever it sets one, else the call site's. */
+function effectiveMediaBudget(
+	budget: MediaBudgetOptions,
+	state: MediaBudgetState,
+): MediaBudgetOptions {
+	const own = state.budget;
+	if (!own) {
+		return budget;
+	}
+	return {
+		maxImageEncodedBytes:
+			own.maxImageEncodedBytes ?? budget.maxImageEncodedBytes,
+		maxImageDecodedBytes:
+			own.maxImageDecodedBytes ?? budget.maxImageDecodedBytes,
+		maxTotalMediaBytes: own.maxTotalMediaBytes ?? budget.maxTotalMediaBytes,
+	};
+}
+
 export function reserveImageMediaBytes(
 	encodedBytes: number,
 	decodedBytes: number,
 	budget: MediaBudgetOptions,
 	state: MediaBudgetState,
 ): ImageMediaValidationFailure | null {
-	const resolved = resolveMediaBudget(budget);
+	const resolved = resolveMediaBudget(effectiveMediaBudget(budget, state));
 	if (encodedBytes > resolved.maxImageEncodedBytes) {
 		const failure: ImageMediaValidationFailure = {
 			ok: false,
@@ -483,9 +561,10 @@ export function validateAndReserveImageMedia(
 	budget: MediaBudgetOptions,
 	state: MediaBudgetState,
 ): ImageMediaValidationResult {
+	const effective = effectiveMediaBudget(budget, state);
 	const validation = validateImageMedia(mediaType, data, {
-		maxEncodedBytes: budget.maxImageEncodedBytes,
-		maxDecodedBytes: budget.maxImageDecodedBytes,
+		maxEncodedBytes: effective.maxImageEncodedBytes,
+		maxDecodedBytes: effective.maxImageDecodedBytes,
 	});
 	if (!validation.ok) {
 		recordOmittedImage(state, validation.reason);

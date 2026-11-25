@@ -10,11 +10,13 @@ import type {
 	GatewayProviderRegistration,
 	GatewayStreamRequest,
 	ITelemetryService,
+	MediaBudgetOptions,
 	ReasoningEffort,
 } from "@cline/shared";
 import {
 	estimateRequestInputTokens,
 	ReasoningEffortSchema,
+	resolveMeasuredRequestInputTokens,
 } from "@cline/shared";
 import { toAsyncIterable } from "./async";
 import { BUILTIN_PROVIDER_REGISTRATIONS } from "./builtins-runtime";
@@ -174,6 +176,12 @@ class GatewayModelAdapter implements AgentModel {
 				requestedReasoning,
 			),
 			signal: request.signal ?? this.defaults?.signal,
+			// Cline Cubed: the session's image limits, so every step uses the user's settings.
+			...(request.options?.mediaBudget
+				? {
+						mediaBudget: request.options.mediaBudget as MediaBudgetOptions,
+					}
+				: {}),
 		});
 	}
 }
@@ -341,7 +349,11 @@ export class DefaultGateway implements Gateway {
 		const maxTokens = resolveGatewayRequestMaxTokens({
 			requestedMaxTokens: request.maxTokens,
 			model: resolved.model,
-			estimatedInputTokens: estimateRequestInputTokens(request),
+			estimatedInputTokens:
+				resolveMeasuredRequestInputTokens({
+					messages: request.messages,
+					modelId: resolved.model.id,
+				}) ?? estimateRequestInputTokens(request),
 			reasoningBudgetTokens: request.reasoning?.budgetTokens,
 			onContextOverflow: (details) => {
 				this.logger?.log(

@@ -62,6 +62,7 @@ import {
 import {
 	getMessageBuilderOptionsFromEnv,
 	MessageBuilder,
+	omittedImageNotice,
 } from "../../session/services/message-builder";
 import { ConversationStore } from "../../session/stores/conversation-store";
 import {
@@ -324,6 +325,7 @@ export class SessionRuntime {
 	// before the model call so every loop iteration sees extension
 	// message builders and API-safe normalization.
 	readonly messageBuilder: MessageBuilder;
+	private reportedOmittedImages = 0;
 	/**
 	 * Contribution registry that hosts extension-provided tools,
 	 * commands, message builders, and providers. Lazily initialized
@@ -401,7 +403,10 @@ export class SessionRuntime {
 			deps.createAgentRuntimeImpl ?? createAgentRuntime;
 
 		this.conversation = new ConversationStore(config.initialMessages);
-		this.messageBuilder = new MessageBuilder(getMessageBuilderOptionsFromEnv());
+		this.messageBuilder = new MessageBuilder({
+			...getMessageBuilderOptionsFromEnv(),
+			...(config.mediaBudget ? { mediaBudget: config.mediaBudget } : {}),
+		});
 		this.contributionRegistry = createContributionRegistry<
 			AgentExtension,
 			AgentTool,
@@ -1087,7 +1092,31 @@ export class SessionRuntime {
 		const providerMessages = await this.prepareProviderMessagesForApi(
 			agentMessagesToMessages(messages),
 		);
+		this.reportOmittedImages();
 		return messagesToAgentMessages(providerMessages);
+	}
+
+	private reportOmittedImages(): void {
+		const count = this.messageBuilder.getLastOmittedImageCount();
+		const notice = omittedImageNotice(
+			this.reportedOmittedImages,
+			count,
+			this.messageBuilder.getMaxTotalMediaBytes(),
+		);
+		this.reportedOmittedImages = count;
+		if (!notice) {
+			return;
+		}
+		this.logger?.error?.(notice, { agentId: this.agentId });
+		this.emitLegacyEvent({
+			type: "notice",
+			noticeType: "status",
+			displayRole: "status",
+			message: notice,
+			agentId: this.agentId,
+			conversationId: this.conversation.getConversationId(),
+			parentAgentId: this.parentAgentId ?? null,
+		});
 	}
 
 	private async prepareProviderMessagesForApi(

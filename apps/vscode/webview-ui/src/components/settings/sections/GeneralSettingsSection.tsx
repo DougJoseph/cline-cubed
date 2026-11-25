@@ -1,6 +1,7 @@
-import { VSCodeCheckbox, VSCodeLink } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeLink } from "@vscode/webview-ui-toolkit/react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useExtensionState } from "@/context/ExtensionStateContext"
+import { SettingsCheckbox } from "../common/SettingsCheckbox"
 import NewChatLocationSetting from "../NewChatLocationSetting"
 import PreferredLanguageSetting from "../PreferredLanguageSetting"
 import Section from "../Section"
@@ -24,13 +25,13 @@ const GeneralSettingsSection = ({ renderSectionHeader }: GeneralSettingsSectionP
 				{/* Cline Cubed: name a new chat from its first prompt. On by default. */}
 				<div className="mb-[5px]">
 					<div className="flex items-center gap-2 mb-[5px]">
-						<VSCodeCheckbox
+						<SettingsCheckbox
 							checked={autoNameChats !== false}
 							onChange={(e: any) => {
 								updateSetting("autoNameChats", e.target.checked === true)
 							}}>
 							Name new chats automatically
-						</VSCodeCheckbox>
+						</SettingsCheckbox>
 					</div>
 					<p className="text-sm mt-[5px] text-description">
 						On your first message, the chat gives itself a short name taken from what you asked for, using the
@@ -43,13 +44,13 @@ const GeneralSettingsSection = ({ renderSectionHeader }: GeneralSettingsSectionP
 				    everything the extension logs, not one feature. */}
 				<div className="mb-[5px]">
 					<div className="flex items-center gap-2 mb-[5px]">
-						<VSCodeCheckbox
+						<SettingsCheckbox
 							checked={debugLoggingEnabled === true}
 							onChange={(e: any) => {
 								updateSetting("debugLoggingEnabled", e.target.checked === true)
 							}}>
 							Debug logging
-						</VSCodeCheckbox>
+						</SettingsCheckbox>
 					</div>
 					<p className="text-sm mt-[5px] text-description">
 						Write detailed diagnostic output to View → Output → Cline Cubed. Off by default, and worth turning on only
@@ -65,7 +66,7 @@ const GeneralSettingsSection = ({ renderSectionHeader }: GeneralSettingsSectionP
 						</TooltipContent>
 						<TooltipTrigger asChild>
 							<div className="flex items-center gap-2 mb-[5px]">
-								<VSCodeCheckbox
+								<SettingsCheckbox
 									checked={telemetrySetting !== "disabled"}
 									disabled={remoteConfigSettings?.telemetrySetting === "disabled"}
 									onChange={(e: any) => {
@@ -73,7 +74,7 @@ const GeneralSettingsSection = ({ renderSectionHeader }: GeneralSettingsSectionP
 										updateSetting("telemetrySetting", checked ? "enabled" : "disabled")
 									}}>
 									Allow error and usage reporting
-								</VSCodeCheckbox>
+								</SettingsCheckbox>
 								{!!remoteConfigSettings?.telemetrySetting && (
 									<i className="codicon codicon-lock text-description text-sm" />
 								)}

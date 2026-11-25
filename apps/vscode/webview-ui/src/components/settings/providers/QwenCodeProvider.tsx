@@ -42,6 +42,9 @@ export const QwenCodeProvider = ({ showModelOptions, isPopup, currentMode }: Qwe
 			<div style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)", marginTop: "4px" }}>
 				Path to your Qwen OAuth credentials file. Use ~/.qwen/oauth_creds.json or provide a custom path.
 			</div>
+			<div style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)", marginTop: "4px" }}>
+				Stock Cline's current engine doesn't use this path.
+			</div>
 
 			<div style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)", marginTop: "12px" }}>
 				Qwen Code is an OAuth-based API that requires authentication through the official Qwen client. You'll need to set

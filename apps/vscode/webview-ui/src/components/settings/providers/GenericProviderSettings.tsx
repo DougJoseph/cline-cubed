@@ -46,7 +46,6 @@ export const GenericProviderSettings = ({
 	const { config, write, commitSelection } = useProviderConfig(providerId)
 	const { selectedModel, commitModelSelection } = useProviderModelSelection(providerId, currentMode, {
 		models,
-		defaultModelId,
 		config,
 		commitSelection,
 	})

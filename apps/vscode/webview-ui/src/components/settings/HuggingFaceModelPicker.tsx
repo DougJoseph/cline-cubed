@@ -27,7 +27,7 @@ const HuggingFaceModelPicker: React.FC<HuggingFaceModelPickerProps> = ({ isPopup
 	// `dynamicModels` slice (populated by `refreshHuggingFaceModels`)
 	// is merged on top so live API additions remain visible.
 	const { models: huggingFaceModels, defaultModelId: huggingFaceDefaultModelId } = useProviderModels("huggingface")
-	const [searchTerm, setSearchTerm] = useState(modeFields.huggingFaceModelId || huggingFaceDefaultModelId)
+	const [searchTerm, setSearchTerm] = useState(modeFields.huggingFaceModelId || "")
 	const [isDropdownVisible, setIsDropdownVisible] = useState(false)
 	const [selectedIndex, setSelectedIndex] = useState(-1)
 	const dropdownRef = useRef<HTMLDivElement>(null)
@@ -76,7 +76,7 @@ const HuggingFaceModelPicker: React.FC<HuggingFaceModelPickerProps> = ({ isPopup
 
 	// Sync external changes when the modelId changes
 	useEffect(() => {
-		const currentModelId = modeFields.huggingFaceModelId || huggingFaceDefaultModelId
+		const currentModelId = modeFields.huggingFaceModelId || ""
 		setSearchTerm(currentModelId)
 	}, [modeFields.huggingFaceModelId])
 

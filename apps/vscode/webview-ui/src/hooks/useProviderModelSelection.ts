@@ -16,7 +16,6 @@ interface DisplayProviderModelSelection extends ProviderModelSelection {
 
 interface UseProviderModelSelectionOptions {
 	models: Record<string, ModelInfo>
-	defaultModelId?: string
 	config?: ProviderConfigResponse
 	commitSelection: (mode: Mode, selection: ProviderModelSelection) => Promise<unknown>
 	fallbackModelInfo?: ModelInfo
@@ -28,7 +27,6 @@ export function useProviderModelSelection(
 	currentMode: Mode,
 	{
 		models,
-		defaultModelId,
 		config,
 		commitSelection,
 		fallbackModelInfo = openAiModelInfoSafeDefaults,
@@ -37,13 +35,14 @@ export function useProviderModelSelection(
 ) {
 	const committedSelection =
 		currentMode === "plan" ? config?.planSelection : currentMode === "image" ? config?.imageSelection : config?.actSelection
-	const fallbackModelId = defaultModelId || Object.keys(models)[0] || ""
-	const selectedModelId = committedSelection?.modelId ?? fallbackModelId
-	const selectedModelInfo = committedSelection?.modelInfo
-		? fromProtobufModelInfo(committedSelection.modelInfo)
-		: (models[selectedModelId] ??
-			(selectedModelId && customModelInfo ? customModelInfo(selectedModelId) : undefined) ??
-			fallbackModelInfo)
+	// The host reports what this mode actually runs. With no committed model the
+	// picker is empty: a catalog default here would display a model nobody chose.
+	const selectedModelId = committedSelection?.modelId ?? ""
+	const selectedModelInfo: ModelInfo = !selectedModelId
+		? { supportsPromptCache: false }
+		: committedSelection?.modelInfo
+			? fromProtobufModelInfo(committedSelection.modelInfo)
+			: (models[selectedModelId] ?? customModelInfo?.(selectedModelId) ?? fallbackModelInfo)
 
 	const selectedModel: DisplayProviderModelSelection = {
 		providerId,
@@ -71,7 +70,6 @@ export function useProviderModelSelection(
 
 	return {
 		committedSelection,
-		fallbackModelId,
 		selectedModel,
 		selectedModelId,
 		selectedModelInfo,

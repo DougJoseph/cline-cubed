@@ -1,9 +1,7 @@
 import { Mode } from "@shared/storage/types"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { useDynamicProviderSelection } from "@/hooks/useDynamicProviderSelection"
 import { ApiKeyField } from "../common/ApiKeyField"
 import { DebouncedTextField } from "../common/DebouncedTextField"
-import { ModelInfoView } from "../common/ModelInfoView"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 import { useDebouncedInput } from "../utils/useDebouncedInput"
 
@@ -13,7 +11,7 @@ interface DifyProviderProps {
 	currentMode: Mode
 }
 
-export const DifyProvider = ({ showModelOptions, isPopup, currentMode }: DifyProviderProps) => {
+export const DifyProvider = ({ showModelOptions }: DifyProviderProps) => {
 	const { apiConfiguration } = useExtensionState()
 	const { handleFieldChange } = useApiConfigurationHandlers()
 
@@ -25,9 +23,6 @@ export const DifyProvider = ({ showModelOptions, isPopup, currentMode }: DifyPro
 	const [apiKeyValue, setApiKeyValue] = useDebouncedInput(apiConfiguration?.difyApiKey || "", (value) =>
 		handleFieldChange("difyApiKey", value),
 	)
-
-	// Get the normalized configuration
-	const { selectedModelId, selectedModelInfo } = useDynamicProviderSelection("dify", apiConfiguration, currentMode)
 
 	return (
 		<div>
@@ -62,9 +57,7 @@ export const DifyProvider = ({ showModelOptions, isPopup, currentMode }: DifyPro
 				</div>
 			</div>
 
-			{showModelOptions && (
-				<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={selectedModelId} />
-			)}
+			{showModelOptions && <p className="mt-2 text-xs text-muted-foreground">Model: Set by your Dify application.</p>}
 		</div>
 	)
 }

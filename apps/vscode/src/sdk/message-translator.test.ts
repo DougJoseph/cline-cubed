@@ -4218,3 +4218,56 @@ describe("tool display paths are relativized to the cwd", () => {
 		)
 	})
 })
+
+describe("a reopened chat shows its images", () => {
+	it("puts a user message's images on its task and user_feedback rows, including an image-only message", () => {
+		const messages: SdkMessage[] = [
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "Look at these." },
+					{ type: "image", data: "AAAA", mediaType: "image/png" },
+					{ type: "image", data: "BBBB", mediaType: "image/jpeg" },
+				],
+			} as SdkMessage,
+			{ role: "assistant", content: [{ type: "text", text: "Seen." }] } as SdkMessage,
+			{ role: "user", content: [{ type: "image", data: "CCCC", mediaType: "image/png" }] } as SdkMessage,
+			{ role: "assistant", content: [{ type: "text", text: "Seen again." }] } as SdkMessage,
+		]
+
+		const rows = sdkMessagesToClineMessages(messages).filter((m) => m.say === "task" || m.say === "user_feedback")
+
+		expect(rows.map((m) => ({ say: m.say, text: m.text, images: m.images }))).toEqual([
+			{ say: "task", text: "Look at these.", images: ["data:image/png;base64,AAAA", "data:image/jpeg;base64,BBBB"] },
+			{ say: "user_feedback", text: "", images: ["data:image/png;base64,CCCC"] },
+		])
+	})
+
+	it("does not turn an image a tool returned into a user row", () => {
+		const messages: SdkMessage[] = [
+			{ role: "user", content: [{ type: "text", text: "Show me image 1." }] } as SdkMessage,
+			{
+				role: "assistant",
+				content: [{ type: "tool_use", id: "v1", name: "view_earlier_image", input: { image_id: 1 } }],
+			} as SdkMessage,
+			{
+				role: "user",
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: "v1",
+						content: [
+							{ type: "text", text: "Image 1, as it was sent:" },
+							{ type: "image", data: "DDDD", mediaType: "image/png" },
+						],
+					},
+				],
+			} as SdkMessage,
+		]
+
+		const rows = sdkMessagesToClineMessages(messages).filter((m) => m.say === "task" || m.say === "user_feedback")
+
+		expect(rows).toHaveLength(1)
+		expect(rows[0].images).toBeUndefined()
+	})
+})

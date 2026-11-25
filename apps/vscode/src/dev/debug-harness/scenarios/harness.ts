@@ -573,7 +573,234 @@ export async function clickDialogButton(label: string, timeoutMs = 10000): Promi
 	}
 }
 
+// ── The API Provider picker ──────────────────────────────────────────────────────────────────
+
+/**
+ * The search field inside the API Provider picker (ApiOptions.tsx).
+ *
+ * The toolkit renders the real <input> inside the custom element's shadow root, so the selector
+ * pierces to it rather than nesting through the host. Playwright's CSS lookup pierces open shadow
+ * roots, which is what makes this target reachable at all.
+ */
+export const PROVIDER_PICKER_INPUT = '[data-testid="provider-selector-input"] input'
+
+/** How many elements a `ui.locator` query matches right now (0 when the query itself fails). */
+async function countIn(frame: string, query: Record<string, string>): Promise<number> {
+	const res = await api("ui.locator", { frame, ...query, action: "count" }).catch(() => ({ count: 0 }))
+	return Number(res?.count ?? 0)
+}
+
+/** Poll a `ui.locator` count until it satisfies `until`, and report the last reading.
+ *  Polling rather than sleeping is what lets a gesture that worked be told apart from one that
+ *  had simply not rendered yet when a fixed pause expired. */
+async function waitForCount(
+	frame: string,
+	query: Record<string, string>,
+	until: (count: number) => boolean,
+	timeoutMs: number,
+): Promise<number> {
+	const deadline = Date.now() + timeoutMs
+	let last = 0
+	while (Date.now() < deadline) {
+		last = await countIn(frame, query)
+		if (until(last)) {
+			return last
+		}
+		await sleep(300)
+	}
+	return last
+}
+
+/**
+ * Put the panel on one API provider by driving the picker, and report what the panel did.
+ *
+ * The picker is not a button. It is a search field that opens a `role="listbox"` on focus and
+ * filters that list by whatever is typed into it, so the option a scenario wants is absent from the
+ * DOM until the field is opened, and it can sit below the fold of a 200px scroll box until the typed
+ * term narrows the list. Both halves are therefore done here: open the field, then type the
+ * provider's name so the option is rendered and rendered first.
+ *
+ * Every step goes through `ui.locator`, the one harness surface that resolves the target INSIDE the
+ * addressed chat frame (`getTarget(frame)`) and returns the error instead of eating it. The older
+ * `ui.click` / `ui.fill` pair runs `frame.click(selector)` / `frame.fill(selector)` — the deprecated
+ * frame-level API — and a failure there is indistinguishable from a picker that never opened, which
+ * is how "the picker has never been clicked" survived as a harness fact: the caller swallowed the
+ * error with `.catch(() => {})` and reported only the absence of the option.
+ *
+ * The pick is believed by what the panel renders afterwards, never by the click that was meant to
+ * produce it: `confirmSelector` is a field that exists only on that provider's own screen, and the
+ * picker's own search field is read for the label the component re-syncs it to on commit. Both are
+ * stated in `detail` so a scenario prints observed values rather than a bare boolean.
+ */
+export async function pickProvider(opts: {
+	/** The chat surface to act on — `frameOf(surfaceId)`. */
+	frame: string
+	/** The provider id, which is also the option's test id suffix: `provider-option-<id>`. */
+	providerId: string
+	/** What to type into the search field; defaults to `providerId`. */
+	label?: string
+	inputSelector?: string
+	/** Override how the row itself is aimed at; defaults to `[data-testid="provider-option-<id>"]`. */
+	optionSelector?: string
+	/** A field that renders only on the chosen provider's screen — the strongest confirmation. */
+	confirmSelector?: string
+	/** A label the picker must read back once the choice commits (usually `label`). */
+	confirmLabel?: string
+	timeoutMs?: number
+}): Promise<{ picked: boolean; detail: string }> {
+	const frame = opts.frame
+	const input = opts.inputSelector ?? PROVIDER_PICKER_INPUT
+	const label = opts.label ?? opts.providerId
+	const rowId = `provider-option-${opts.providerId}`
+	// The row is looked up by CSS, not by `getByTestId`. Every webview gesture that has ever worked in
+	// this harness aims a piercing CSS selector at the frame, and the picker's rows are plain
+	// `data-testid` divs — so the same lookup that reaches the field reaches its rows. A provider id
+	// that the catalog does not list shows up honestly: the wanted row is absent, and the rows that
+	// ARE present get named in the report rather than left as a bare zero.
+	const option = { selector: opts.optionSelector ?? `[data-testid="${rowId}"]` }
+	const trace: string[] = []
+	const budget = opts.timeoutMs ?? 20000
+	const spent = { ms: 0 }
+	const remaining = () => Math.max(0, budget - spent.ms)
+	const spend = async (ms: number) => {
+		spent.ms += ms
+		await sleep(ms)
+	}
+
+	// 1. Open the picker by clicking the field — the gesture a person makes.
+	try {
+		await api("ui.locator", { frame, selector: input, action: "click" })
+		trace.push("field clicked")
+	} catch (e: any) {
+		trace.push(`field click failed: ${e.message}`)
+	}
+
+	let optionCount = await waitForCount(frame, option, (n) => n > 0, Math.min(3000, remaining()))
+	spent.ms += 3000
+
+	// 2. Nothing rendered: type the provider's name, which opens the list and filters it so the
+	//    wanted option is the list's first row rather than one below the scroll box.
+	if (optionCount === 0) {
+		try {
+			await api("ui.locator", { frame, selector: input, action: "fill", value: label })
+			trace.push(`typed ${JSON.stringify(label)}`)
+		} catch (e: any) {
+			trace.push(`typing failed: ${e.message}`)
+		}
+		optionCount = await waitForCount(frame, option, (n) => n > 0, Math.min(5000, remaining()))
+		spent.ms += 5000
+	}
+
+	// 2b. A picker that IS showing rows and simply has no row for the wanted id is a wrong id, not a
+	// stuck picker. Sending the keyboard there would press Enter on whichever row happens to be
+	// highlighted and report a provider switch nobody chose — so the rows on screen are named instead.
+	const rowsShown = await countIn(frame, { selector: '[data-testid^="provider-option-"]' })
+	if (optionCount === 0 && rowsShown > 0) {
+		const rows = await api("ui.get_text", { frame, selector: '[role="listbox"]' })
+			.then((r) =>
+				String(r?.text ?? "")
+					.replace(/\s+/g, " ")
+					.trim(),
+			)
+			.catch(() => "")
+		return {
+			picked: false,
+			detail: `${trace.join("; ")} — no picker row for ${rowId}; ${rowsShown} rows are showing${rows ? `: ${JSON.stringify(rows.slice(0, 160))}` : ""}`,
+		}
+	}
+
+	// 3. Nothing is showing at all: the keyboard path the component implements itself — arrow down onto
+	//    the highlighted row, Enter to commit it. `selectedIndex` starts at -1, so one ArrowDown is
+	//    required before Enter can commit anything.
+	if (optionCount === 0 && remaining() > 0) {
+		try {
+			await api("ui.locator", { frame, selector: input, action: "click" })
+			await api("ui.locator", { frame, selector: input, action: "fill", value: label })
+			await spend(400)
+			await api("ui.press", { key: "ArrowDown" })
+			await api("ui.press", { key: "Enter" })
+			trace.push("keyboard ArrowDown+Enter sent")
+		} catch (e: any) {
+			trace.push(`keyboard path failed: ${e.message}`)
+		}
+		optionCount = await waitForCount(frame, option, (n) => n > 0, Math.min(4000, remaining()))
+		spent.ms += 4000
+	}
+
+	if (optionCount === 0) {
+		// Say WHICH half failed. A picker that never opened, a picker that opened onto an empty list,
+		// and a picker whose list simply has no row for the wanted id are three different failures —
+		// and only the last one is about the id at all. The rows that WERE on screen are printed, so a
+		// wrong provider id reads as a wrong provider id instead of as a picker that cannot be clicked.
+		const listboxCount = await countIn(frame, { selector: '[role="listbox"]' })
+		const anyOption = await countIn(frame, { selector: '[role="listbox"] [role="option"]' })
+		const rows = await api("ui.get_text", { frame, selector: '[role="listbox"]' })
+			.then((r) =>
+				String(r?.text ?? "")
+					.replace(/\s+/g, " ")
+					.trim(),
+			)
+			.catch(() => "")
+		const seen = rows ? ` rows on screen: ${JSON.stringify(rows.slice(0, 160))}` : ""
+		const why =
+			listboxCount > 0 && anyOption === 0
+				? `the picker opened onto an empty list (${anyOption} rows in ${listboxCount} listbox) — the catalog handed it nothing to render`
+				: `no picker row for ${rowId} (listboxes: ${listboxCount}, option rows: ${anyOption})${seen}`
+		return { picked: false, detail: `${trace.join("; ")} — ${why}` }
+	}
+
+	// 4. Commit the option: click the row, and fall back to the keyboard commit if the row will not
+	//    take the click. The typed term put that row first, so it is on screen.
+	let committed = ""
+	try {
+		await api("ui.locator", { frame, ...option, action: "click" })
+		committed = "option clicked"
+	} catch (e: any) {
+		trace.push(`option click failed: ${e.message}`)
+		try {
+			await api("ui.locator", { frame, selector: input, action: "click" })
+			await api("ui.locator", { frame, selector: input, action: "fill", value: label })
+			await spend(400)
+			await api("ui.press", { key: "ArrowDown" })
+			await api("ui.press", { key: "Enter" })
+			committed = "option committed by keyboard"
+		} catch (e2: any) {
+			trace.push(`keyboard commit failed: ${e2.message}`)
+			return { picked: false, detail: `${trace.join("; ")} — ${rowId} rendered but would not commit` }
+		}
+	}
+	trace.push(committed)
+	await spend(1500) // the mode-field write and the provider's own screen both land here
+
+	// 5. Believe the pick by what the panel shows afterwards. `confirmSelector` is a field only this
+	//    provider's screen renders; the picker's own field re-syncs to the chosen provider's label
+	//    when the dropdown closes. A pick confirmed neither way is reported as not picked.
+	const confirmed: string[] = []
+	if (opts.confirmSelector) {
+		const present = await waitForCount(frame, { selector: opts.confirmSelector }, (n) => n > 0, Math.min(6000, remaining()))
+		spent.ms += 6000
+		if (present === 0) {
+			trace.push(`confirm selector absent: ${opts.confirmSelector}`)
+			return { picked: false, detail: `${trace.join("; ")} — panel did not switch to ${opts.providerId}` }
+		}
+		confirmed.push(`${opts.confirmSelector} present`)
+	}
+	const wanted = (opts.confirmLabel ?? label).trim().toLowerCase()
+	const readBack = await api("ui.locator", { frame, selector: input, action: "value" }).catch(() => null)
+	const readValue = typeof readBack?.value === "string" ? readBack.value : null
+	if (opts.confirmLabel || !opts.confirmSelector) {
+		if ((readValue ?? "").trim().toLowerCase() !== wanted) {
+			trace.push(`picker reads ${JSON.stringify(readValue)}, expected ${JSON.stringify(wanted)}`)
+			return { picked: false, detail: `${trace.join("; ")} — the picker did not take ${opts.providerId}` }
+		}
+		confirmed.push(`picker reads ${JSON.stringify(readValue)}`)
+	}
+
+	return { picked: true, detail: `${trace.join("; ")}; ${confirmed.join("; ")}` }
+}
+
 /** The chats list's full visible text (the primary sidebar's own webview). */
+
 export async function chatsListText(): Promise<string> {
 	const res = await api("ui.get_text", { frame: "chats-list", selector: "body" })
 	return String(res?.text ?? res ?? "")

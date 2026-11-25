@@ -204,6 +204,46 @@ describe("createProviderConfigStore", () => {
 		expect(store.read(providerId).apiLine).toBe("china")
 	})
 
+	it("reports no selection for an OpenAI Compatible mode whose own slot is empty", async () => {
+		const { createProviderConfigStore } = await import("./store")
+		mocks.setApiConfiguration({
+			planModeApiProvider: "openai",
+			actModeApiProvider: "openai",
+			actModeOpenAiModelId: "local-model",
+		})
+		mocks.setProviderSettings({ "openai-compatible": { provider: "openai-compatible", model: "local-model" } })
+		const store = createProviderConfigStore()
+		const providerId = parseProviderId("openai")
+
+		expect(store.readSelection(providerId, "plan")).toBeUndefined()
+		expect(store.readSelection(providerId, "act")?.modelId).toBe("local-model")
+	})
+
+	it("keeps the provider-wide OpenAI Compatible model when the mode has no stored provider", async () => {
+		const { createProviderConfigStore } = await import("./store")
+		mocks.setProviderSettings({ "openai-compatible": { provider: "openai-compatible", model: "local-model" } })
+		const store = createProviderConfigStore()
+
+		expect(store.readSelection(parseProviderId("openai"), "plan")?.modelId).toBe("local-model")
+	})
+
+	it("does not report the provider-wide model for a mode running that provider with an empty slot", async () => {
+		const { createProviderConfigStore } = await import("./store")
+		mocks.setApiConfiguration({ planModeApiProvider: "openrouter", actModeApiProvider: "openrouter" })
+		mocks.setProviderSettings({ openrouter: { provider: "openrouter", model: "vendor/model" } })
+		const store = createProviderConfigStore()
+
+		expect(store.readSelection(parseProviderId("openrouter"), "plan")).toBeUndefined()
+	})
+
+	it("keeps the provider-wide model for a mode with no stored provider", async () => {
+		const { createProviderConfigStore } = await import("./store")
+		mocks.setProviderSettings({ openrouter: { provider: "openrouter", model: "vendor/model" } })
+		const store = createProviderConfigStore()
+
+		expect(store.readSelection(parseProviderId("openrouter"), "plan")?.modelId).toBe("vendor/model")
+	})
+
 	it("round-trips commitSelection then readSelection for provider-specific model info", async () => {
 		const { createProviderConfigStore } = await import("./store")
 		const store = createProviderConfigStore()

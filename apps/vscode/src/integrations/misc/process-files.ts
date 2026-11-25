@@ -1,5 +1,6 @@
+import { MAX_CONVERTIBLE_IMAGE_BYTES } from "@integrations/misc/convert-image"
+import { hasImageExtension, IMAGE_FILE_EXTENSIONS } from "@shared/image-format"
 import fs from "fs/promises"
-import sizeOf from "image-size"
 import * as path from "path"
 import { HostProvider } from "@/hosts/host-provider"
 import { ShowMessageType } from "@/shared/proto/host/window"
@@ -10,14 +11,13 @@ import { Logger } from "@/shared/services/Logger"
  * For models which don't support images, will not allow them to be selected
  */
 export async function selectFiles(imagesAllowed: boolean): Promise<{ images: string[]; files: string[] }> {
-	const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] // supported by anthropic and openrouter
 	const OTHER_FILE_EXTENSIONS = ["xml", "json", "txt", "log", "md", "docx", "ipynb", "pdf", "xlsx", "csv"]
 
 	const showDialogueResponse = await HostProvider.window.showOpenDialogue({
 		canSelectMany: true,
 		openLabel: "Select",
 		filters: {
-			files: imagesAllowed ? [...IMAGE_EXTENSIONS, ...OTHER_FILE_EXTENSIONS] : OTHER_FILE_EXTENSIONS,
+			files: imagesAllowed ? [...IMAGE_FILE_EXTENSIONS, ...OTHER_FILE_EXTENSIONS] : OTHER_FILE_EXTENSIONS,
 		},
 	})
 
@@ -28,40 +28,28 @@ export async function selectFiles(imagesAllowed: boolean): Promise<{ images: str
 	}
 
 	const processFilesPromises = filePaths.map(async (filePath) => {
-		const fileExtension = path.extname(filePath).toLowerCase().substring(1)
-
-		const isImage = IMAGE_EXTENSIONS.includes(fileExtension)
-
-		if (isImage) {
-			let buffer: Buffer
+		if (hasImageExtension(filePath)) {
 			try {
-				// Read the file into a buffer first
-				buffer = await fs.readFile(filePath)
-				// Convert Node.js Buffer to Uint8Array
-				const uint8Array = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-				const dimensions = sizeOf(uint8Array) // Get dimensions from Uint8Array
-				if (dimensions.width! > 7680 || dimensions.height! > 7680) {
-					Logger.warn(`Image dimensions exceed 7500px, skipping: ${filePath}`)
+				const stats = await fs.stat(filePath)
+				if (stats.size > MAX_CONVERTIBLE_IMAGE_BYTES) {
 					HostProvider.window.showMessage({
 						type: ShowMessageType.ERROR,
-						message: `Image too large: ${path.basename(filePath)} was skipped (dimensions exceed 7500px).`,
+						message: `Image too large: ${path.basename(filePath)} was skipped (size exceeds 20MB).`,
 					})
 					return null
 				}
+				const buffer = await fs.readFile(filePath)
+				// The chat's image intake identifies, converts, and size-checks it, using this name in any message.
+				const name = encodeURIComponent(path.basename(filePath))
+				return { type: "image", data: `data:application/octet-stream;name=${name};base64,${buffer.toString("base64")}` }
 			} catch (error) {
-				Logger.error(`Error reading file or getting dimensions for ${filePath}:`, error)
+				Logger.error(`Error reading image ${filePath}:`, error)
 				HostProvider.window.showMessage({
 					type: ShowMessageType.ERROR,
-					message: `Could not read dimensions for ${path.basename(filePath)}, skipping.`,
+					message: `Could not read ${path.basename(filePath)}, skipping.`,
 				})
 				return null
 			}
-
-			// If dimensions are valid, proceed to convert the existing buffer to base64
-			const base64 = buffer.toString("base64")
-			const mimeType = getMimeType(filePath)
-
-			return { type: "image", data: `data:${mimeType};base64,${base64}` }
 		}
 		// for standard models we will check the size of the file to ensure its not too large
 		try {
@@ -100,19 +88,4 @@ export async function selectFiles(imagesAllowed: boolean): Promise<{ images: str
 	}
 
 	return { images, files }
-}
-
-function getMimeType(filePath: string): string {
-	const ext = path.extname(filePath).toLowerCase()
-	switch (ext) {
-		case ".png":
-			return "image/png"
-		case ".jpeg":
-		case ".jpg":
-			return "image/jpeg"
-		case ".webp":
-			return "image/webp"
-		default:
-			throw new Error(`Unsupported file type: ${ext}`)
-	}
 }

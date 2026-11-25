@@ -19,6 +19,11 @@ const mocks = vi.hoisted(() => {
 		hideAccount: vi.fn(),
 		hideSettings: vi.fn(),
 		listProviders: vi.fn(async () => ({ providers: [] })),
+		normalizedSelection: vi.fn(() => ({
+			selectedProvider: "openai",
+			selectedModelId: "selected-model",
+			selectedModelInfo: {},
+		})),
 		openUrl: vi.fn(async () => undefined),
 		setWelcomeViewCompleted: vi.fn(async () => {
 			callOrder.push("setWelcomeViewCompleted")
@@ -43,6 +48,10 @@ vi.mock("@/hooks/useProviderConfig", () => ({
 
 vi.mock("@/hooks/useProviderModels", () => ({
 	useProviderModels: mocks.useProviderModels,
+}))
+
+vi.mock("@/hooks/useNormalizedApiConfiguration", () => ({
+	useNormalizedApiConfiguration: () => mocks.normalizedSelection(),
 }))
 
 vi.mock("./useOnboardingModels", () => ({
@@ -138,6 +147,20 @@ describe("OnboardingView BYOK completion", () => {
 		await act(async () => {})
 
 		expect(screen.getByTestId("provider-config-panel")).toBeInTheDocument()
+	})
+
+	it("keeps Continue disabled until the provider panel has a model", async () => {
+		mocks.normalizedSelection.mockReturnValue({ selectedProvider: "anthropic", selectedModelId: "", selectedModelInfo: {} })
+		renderByokProviderStep()
+		await act(async () => {})
+
+		expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled()
+		expect(screen.getByText("Select a model to continue.")).toBeInTheDocument()
+		mocks.normalizedSelection.mockReturnValue({
+			selectedProvider: "openai",
+			selectedModelId: "selected-model",
+			selectedModelInfo: {},
+		})
 	})
 
 	it("persists the model chosen in the provider panel before closing the welcome view", async () => {

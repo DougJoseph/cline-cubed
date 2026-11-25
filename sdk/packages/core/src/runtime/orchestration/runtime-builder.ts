@@ -472,6 +472,7 @@ export class DefaultRuntimeBuilder implements RuntimeBuilder {
 						includeWorkflows: workflowsEnabled,
 						registerSkillsTool,
 						allowedSkillNames: config.skills,
+						isInstructionEnabled: config.isInstructionEnabled,
 					})
 				: undefined;
 		// Plan mode keeps run_commands for read-only investigation; this

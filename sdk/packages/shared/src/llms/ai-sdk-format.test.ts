@@ -779,6 +779,113 @@ describe("formatMessagesForAiSdk", () => {
 		});
 	});
 
+	// Cline Cubed: the caller's media budget replaces the built-in limits.
+	const threeLargeImages = () =>
+		[1, 2, 3].map((fill) => ({
+			type: "image" as const,
+			image: imageData(2_600_000, fill),
+			mediaType: "image/png",
+		}));
+
+	it("keeps every image under a given media budget above the stock 8 MiB total", () => {
+		const images = threeLargeImages();
+		const messages = formatMessagesForAiSdk(
+			undefined,
+			[{ role: "user", content: [{ type: "text", text: "look" }, ...images] }],
+			{ mediaBudget: { maxTotalMediaBytes: 64 * 1024 * 1024 } },
+		);
+
+		const serialized = JSON.stringify(messages);
+		for (const image of images) {
+			expect(serialized).toContain(image.image);
+		}
+		expect(serialized).not.toContain(
+			"[media omitted: invalid or exceeds size limit]",
+		);
+	});
+
+	it("still applies the stock 8 MiB total when no media budget is given", () => {
+		const images = threeLargeImages();
+		const messages = formatMessagesForAiSdk(undefined, [
+			{ role: "user", content: [{ type: "text", text: "look" }, ...images] },
+		]);
+
+		expect(JSON.stringify(messages)).toContain(
+			"[media omitted: invalid or exceeds size limit]",
+		);
+	});
+
+	it("uses a given per-image limit in place of the built-in one", () => {
+		const big = imageData(4_500_000, 4);
+		const withBudget = formatMessagesForAiSdk(
+			undefined,
+			[
+				{
+					role: "user",
+					content: [{ type: "image", image: big, mediaType: "image/png" }],
+				},
+			],
+			{
+				mediaBudget: {
+					maxImageEncodedBytes: 10 * 1024 * 1024,
+					maxImageDecodedBytes: 10 * 1024 * 1024,
+				},
+			},
+		);
+		const without = formatMessagesForAiSdk(undefined, [
+			{
+				role: "user",
+				content: [{ type: "image", image: big, mediaType: "image/png" }],
+			},
+		]);
+
+		expect(JSON.stringify(withBudget)).toContain(big);
+		expect(JSON.stringify(without)).not.toContain(big);
+	});
+
+	it("reports each image it leaves out, with the reason", () => {
+		const reports: string[] = [];
+		formatMessagesForAiSdk(
+			undefined,
+			[
+				{
+					role: "user",
+					content: [
+						...threeLargeImages(),
+						{
+							type: "image",
+							image: "data:image/jpeg;base64,/9j/",
+							mediaType: "image/png",
+						},
+					],
+				},
+			],
+			{ onMediaOmitted: (notice) => reports.push(notice) },
+		);
+
+		expect(reports).toEqual([
+			"2 images did not reach the model: 1 is over the 8 MB limit for all images in this request; 1 is not a valid image of a supported type.",
+		]);
+	});
+
+	it("reports nothing when every image fits", () => {
+		const reports: string[] = [];
+		formatMessagesForAiSdk(
+			undefined,
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "image", image: imageData(10), mediaType: "image/png" },
+					],
+				},
+			],
+			{ onMediaOmitted: (notice) => reports.push(notice) },
+		);
+
+		expect(reports).toEqual([]);
+	});
+
 	it("replaces invalid direct user images with text placeholders before provider formatting", () => {
 		const messages = formatMessagesForAiSdk(undefined, [
 			{

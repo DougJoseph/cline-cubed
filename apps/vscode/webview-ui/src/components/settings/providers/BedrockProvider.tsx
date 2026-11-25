@@ -2,14 +2,7 @@ import { openAiModelInfoSafeDefaults } from "@shared/api"
 import BedrockData from "@shared/providers/bedrock.json"
 import type { Mode } from "@shared/storage/types"
 import { isClaudeOpusAdaptiveThinkingModel, resolveClaudeOpusAdaptiveThinking } from "@shared/utils/reasoning-support"
-import {
-	VSCodeCheckbox,
-	VSCodeDropdown,
-	VSCodeOption,
-	VSCodeRadio,
-	VSCodeRadioGroup,
-	VSCodeTextField,
-} from "@vscode/webview-ui-toolkit/react"
+import { VSCodeDropdown, VSCodeOption, VSCodeRadio, VSCodeRadioGroup, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import Fuse from "fuse.js"
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react"
 import styled from "styled-components"
@@ -22,6 +15,7 @@ import { ApiKeyField } from "../common/ApiKeyField"
 import { DebouncedTextField } from "../common/DebouncedTextField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { DropdownContainer } from "../common/ModelSelector"
+import { SettingsCheckbox } from "../common/SettingsCheckbox"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
 import { getSavedApiKeyMask, sanitizeMaskedApiKeyInput } from "../utils/apiKeyMasking"
 import { useProviderApiKeyField } from "../utils/useProviderApiKeyField"
@@ -43,7 +37,6 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 	const { config, write, commitSelection } = useProviderConfig("bedrock")
 	const { selectedModelId, selectedModelInfo, commitModelSelection } = useProviderModelSelection("bedrock", currentMode, {
 		models: bedrockModels,
-		defaultModelId: bedrockDefaultModelId,
 		config,
 		commitSelection,
 		customModelInfo: (modelId) => ({
@@ -59,7 +52,8 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 	const isCustomModelSelected = Boolean(config?.aws?.customModelBaseId)
 	const customModelInputInitialValue = isCustomModelSelected && !bedrockModels[selectedModelId] ? selectedModelId : ""
 	const isAdaptiveThinkingModel =
-		isClaudeOpusAdaptiveThinkingModel(selectedModelId) || isClaudeOpusAdaptiveThinkingModel(customBaseModelId)
+		isClaudeOpusAdaptiveThinkingModel(selectedModelId) ||
+		(isCustomModelSelected && isClaudeOpusAdaptiveThinkingModel(customBaseModelId))
 	const supportsGlobalInferenceProfile =
 		selectedModelInfo.supportsGlobalEndpoint ||
 		selectedModelId.startsWith("global.") ||
@@ -404,7 +398,7 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 					</TooltipContent>
 					<TooltipTrigger>
 						<div className="flex items-center gap-2">
-							<VSCodeCheckbox
+							<SettingsCheckbox
 								checked={awsEndpointSelected}
 								disabled={remoteConfigSettings?.awsBedrockEndpoint !== undefined}
 								onChange={(e: any) => {
@@ -415,7 +409,7 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 									}
 								}}>
 								Use custom VPC endpoint
-							</VSCodeCheckbox>
+							</SettingsCheckbox>
 							{remoteConfigSettings?.awsBedrockEndpoint !== undefined && (
 								<i className="codicon codicon-lock text-description text-sm flex items-center" />
 							)}
@@ -440,7 +434,7 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 					</TooltipContent>
 					<TooltipTrigger>
 						<div className="flex items-center gap-2">
-							<VSCodeCheckbox
+							<SettingsCheckbox
 								checked={config?.aws?.useCrossRegionInference || false}
 								disabled={remoteConfigSettings?.awsUseCrossRegionInference !== undefined}
 								onChange={(e: any) => {
@@ -449,7 +443,7 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 									writeAws({ useCrossRegionInference: isChecked }, "cross-region inference")
 								}}>
 								Use cross-region inference
-							</VSCodeCheckbox>
+							</SettingsCheckbox>
 							{remoteConfigSettings?.awsUseCrossRegionInference !== undefined && (
 								<i className="codicon codicon-lock text-description text-sm" />
 							)}
@@ -464,7 +458,7 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 						</TooltipContent>
 						<TooltipTrigger>
 							<div className="flex items-center gap-2">
-								<VSCodeCheckbox
+								<SettingsCheckbox
 									checked={config?.aws?.useGlobalInference || false}
 									disabled={remoteConfigSettings?.awsUseGlobalInference !== undefined}
 									onChange={(e: any) => {
@@ -472,7 +466,7 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 										writeAws({ useGlobalInference: isChecked }, "global inference")
 									}}>
 									Use global inference profile
-								</VSCodeCheckbox>
+								</SettingsCheckbox>
 								{remoteConfigSettings?.awsUseGlobalInference !== undefined && (
 									<i className="codicon codicon-lock text-description text-sm" />
 								)}
@@ -488,7 +482,7 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 						</TooltipContent>
 						<TooltipTrigger>
 							<div className="flex items-center gap-2">
-								<VSCodeCheckbox
+								<SettingsCheckbox
 									checked={config?.aws?.usePromptCache || false}
 									disabled={remoteConfigSettings?.awsBedrockUsePromptCache !== undefined}
 									onChange={(e: any) => {
@@ -496,7 +490,7 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 										writeAws({ usePromptCache: isChecked }, "prompt caching")
 									}}>
 									Use prompt caching
-								</VSCodeCheckbox>
+								</SettingsCheckbox>
 								{remoteConfigSettings?.awsBedrockUsePromptCache !== undefined && (
 									<i className="codicon codicon-lock text-description text-sm" />
 								)}
@@ -538,7 +532,9 @@ export const BedrockProvider = ({ showModelOptions, isPopup, currentMode }: Bedr
 								}).catch((err) => console.error("Failed to commit Bedrock model selection:", err))
 							}}
 							value={isCustomModelSelected ? "custom" : selectedModelId}>
-							<VSCodeOption value="">Select a model...</VSCodeOption>
+							{!selectedModelId && !isCustomModelSelected && (
+								<VSCodeOption value="">No model selected</VSCodeOption>
+							)}
 							{bedrockModelIds.map((modelId) => (
 								<VSCodeOption
 									className="whitespace-normal wrap-break-word max-w-full"

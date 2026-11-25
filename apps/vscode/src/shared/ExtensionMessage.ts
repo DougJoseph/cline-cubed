@@ -123,6 +123,15 @@ export interface ExtensionState {
 	/** Cline Cubed: name a new chat from its first prompt. Default on; absent means on. */
 	autoNameChats?: boolean
 	/**
+	 * Cline Cubed: image limits in megabytes, which model describes images first, and whether
+	 * earlier images go as pictures or as descriptions.
+	 */
+	imagesTotalLimitMb?: number
+	imagesPerImageLimitMb?: number
+	imagesPerImageDecodedLimitMb?: number
+	imageDescriber?: "imageModeFirst" | "mainModelFirst"
+	earlierImages?: "pictures" | "descriptions"
+	/**
 	 * Cline Cubed: the retained image-bridge interception runs, oldest first — each run's lines and
 	 * when it started.
 	 *

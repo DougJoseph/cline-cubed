@@ -34,8 +34,7 @@ import { toLegacyApiProvider } from "@shared/model-catalog/provider-helpers"
 import { Logger } from "@shared/services/Logger"
 import type { Settings } from "@shared/storage/state-keys"
 import type { Mode } from "@shared/storage/types"
-import { reasoningEffortFromThinkingBudget } from "@shared/utils/reasoning-support"
-import { stringifyVsCodeLmModelSelector } from "@shared/vsCodeSelectorUtils"
+import { reasoningEffortFromThinkingBudget, supportsReasoningEffortForModel } from "@shared/utils/reasoning-support"
 import { StateManager } from "@/core/storage/StateManager"
 import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
@@ -49,6 +48,11 @@ import { nonNegativeFiniteNumber, positiveFiniteNumber, toSdkApiFormat } from ".
 import { parseProviderId } from "./model-catalog/provider-id"
 import { toSdkProviderId } from "./model-catalog/sdk-provider-id"
 import { createProviderConfigStore, resolveRuntimeModelSelection } from "./model-catalog/store"
+import {
+	providerHasLocalModelSource,
+	providerModelIsSetByProvider,
+	readStoredModeModelId,
+} from "./model-catalog/stored-mode-model"
 import { getProviderSettingsManager } from "./provider-migration"
 import { buildSapProviderConfig, type SapProviderConfig } from "./sap-config"
 import type { SdkSessionHost } from "./session-host"
@@ -232,6 +236,36 @@ function resolveOcaReasoningConfig(mode: Mode, apiConfig: ApiConfiguration | und
 	return isReasoningEffort(effort) ? { thinking: true, reasoningEffort: effort } : undefined
 }
 
+/**
+ * The reasoning settings a mode sends are the ones its own Settings tab shows:
+ * its stored effort, else the effort its stored thinking budget maps to, else
+ * nothing. The tab hides the control for a model that does not support
+ * reasoning, so nothing is sent for one. The OpenAI Compatible tab (also used by
+ * custom providers) always shows the control.
+ */
+function resolveModeReasoningConfig(
+	providerId: string,
+	mode: Mode,
+	apiConfig: ApiConfiguration | undefined,
+	modelId: string | undefined,
+	runtimeModel: ResolvedModelSelection | undefined,
+): SessionReasoningConfig {
+	const stored = (mode === "plan" ? apiConfig?.planModeReasoningEffort : apiConfig?.actModeReasoningEffort)
+		?.trim()
+		.toLowerCase()
+	const budget = mode === "plan" ? apiConfig?.planModeThinkingBudgetTokens : apiConfig?.actModeThinkingBudgetTokens
+	const effort = stored === "none" || isReasoningEffort(stored) ? stored : reasoningEffortFromThinkingBudget(budget)
+	if (!effort) {
+		return {}
+	}
+	const controlAlwaysShown = providerId === "openai" || !MODEL_COLLECTIONS_BY_PROVIDER_ID[toSdkProviderId(providerId)]
+	const modelSupportsReasoning = runtimeModel?.modelInfo.supportsReasoning === true || supportsReasoningEffortForModel(modelId)
+	if (!controlAlwaysShown && !modelSupportsReasoning) {
+		return {}
+	}
+	return effort === "none" ? { thinking: false } : { thinking: true, reasoningEffort: effort }
+}
+
 function resolveOpenAiCompatibleMaxTokens(config: ApiConfiguration | undefined, mode: Mode): number | undefined {
 	const modelInfo = mode === "plan" ? config?.planModeOpenAiModelInfo : config?.actModeOpenAiModelInfo
 	return positiveFiniteNumber(modelInfo?.maxTokens)
@@ -315,6 +349,31 @@ function toSdkModelInfo(selection: ResolvedModelSelection): SdkModelInfo {
 	}
 }
 
+/** The active mode's endpoint and context limits, as saved in the model settings. */
+export function resolveActiveEndpointLimits(): {
+	providerId?: string
+	baseUrl?: string
+	contextWindow?: number
+	maxInputTokens?: number
+} {
+	const stateManager = StateManager.get()
+	const apiConfig = stateManager.getApiConfiguration()
+	const mode: Mode = stateManager.getGlobalSettingsKey("mode") === "plan" ? "plan" : "act"
+	const modeProvider = mode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider
+	if (!modeProvider) {
+		return {}
+	}
+	const providerId = toLegacyApiProvider(modeProvider)
+	const modelId = resolveModelId(providerId, mode, apiConfig)
+	const modelInfo = resolveCommittedRuntimeModel(providerId, mode, modelId)?.modelInfo
+	return {
+		providerId,
+		baseUrl: resolveBaseUrl(providerId, apiConfig),
+		contextWindow: positiveFiniteNumber(modelInfo?.contextWindow),
+		maxInputTokens: positiveFiniteNumber(modelInfo?.maxInputTokens),
+	}
+}
+
 function resolveCommittedRuntimeModel(
 	providerId: string,
 	mode: Mode,
@@ -384,54 +443,11 @@ const PROVIDER_API_KEY_MAP: Record<string, keyof ApiConfiguration> = {
 	oca: "ocaApiKey",
 }
 
-/**
- * Maps a provider ID to the mode-specific model ID field name in ApiConfiguration.
- * For providers that have dedicated model ID fields per mode.
- */
-const PROVIDER_MODEL_ID_MAP: Record<string, { plan: keyof ApiConfiguration; act: keyof ApiConfiguration }> = {
-	anthropic: { plan: "planModeApiModelId", act: "actModeApiModelId" },
-	openrouter: { plan: "planModeOpenRouterModelId", act: "actModeOpenRouterModelId" },
-	openai: { plan: "planModeOpenAiModelId", act: "actModeOpenAiModelId" },
-	"openai-native": { plan: "planModeApiModelId", act: "actModeApiModelId" },
-	"openai-codex": { plan: "planModeApiModelId", act: "actModeApiModelId" },
-	ollama: { plan: "planModeOllamaModelId", act: "actModeOllamaModelId" },
-	lmstudio: { plan: "planModeLmStudioModelId", act: "actModeLmStudioModelId" },
-	gemini: { plan: "planModeApiModelId", act: "actModeApiModelId" },
-	bedrock: { plan: "planModeApiModelId", act: "actModeApiModelId" },
-	vertex: { plan: "planModeApiModelId", act: "actModeApiModelId" },
-	deepseek: { plan: "planModeApiModelId", act: "actModeApiModelId" },
-	cline: { plan: "planModeClineModelId", act: "actModeClineModelId" },
-	"cline-pass": { plan: "planModeClinePassModelId", act: "actModeClinePassModelId" },
-	litellm: { plan: "planModeLiteLlmModelId", act: "actModeLiteLlmModelId" },
-	requesty: { plan: "planModeRequestyModelId", act: "actModeRequestyModelId" },
-	together: { plan: "planModeTogetherModelId", act: "actModeTogetherModelId" },
-	fireworks: { plan: "planModeFireworksModelId", act: "actModeFireworksModelId" },
-	groq: { plan: "planModeGroqModelId", act: "actModeGroqModelId" },
-	baseten: { plan: "planModeBasetenModelId", act: "actModeBasetenModelId" },
-	huggingface: { plan: "planModeHuggingFaceModelId", act: "actModeHuggingFaceModelId" },
-	"huawei-cloud-maas": { plan: "planModeHuaweiCloudMaasModelId", act: "actModeHuaweiCloudMaasModelId" },
-	oca: { plan: "planModeOcaModelId", act: "actModeOcaModelId" },
-	aihubmix: { plan: "planModeAihubmixModelId", act: "actModeAihubmixModelId" },
-	hicap: { plan: "planModeHicapModelId", act: "actModeHicapModelId" },
-	nousResearch: { plan: "planModeNousResearchModelId", act: "actModeNousResearchModelId" },
-	"vercel-ai-gateway": { plan: "planModeVercelAiGatewayModelId", act: "actModeVercelAiGatewayModelId" },
-}
-
 // ---------------------------------------------------------------------------
 // Provider/model defaults
 // ---------------------------------------------------------------------------
 
 const DEFAULT_PROVIDER_ID = "cline"
-
-/**
- * Providers whose model list comes from a live local endpoint (Ollama's
- * `/api/tags`, LM Studio's `/v1/models`). Their installed models are the only
- * meaningful catalog; a bundled-catalog default would silently select a model
- * the user never installed (e.g. an Ollama Cloud nemotron model).
- */
-function providerHasLocalModelSource(providerId: string): boolean {
-	return Boolean(MODEL_COLLECTIONS_BY_PROVIDER_ID[toSdkProviderId(providerId)]?.provider.modelsSourceUrl)
-}
 
 export function getDefaultModelIdForProvider(providerId: string): string | undefined {
 	const sdkProviderId = toSdkProviderId(providerId)
@@ -516,44 +532,10 @@ export function resolveApiKey(providerId: string, config: ApiConfiguration): str
 
 /**
  * Resolve the model ID for a given provider and mode from the ApiConfiguration.
- * Uses mode-specific model ID fields when available, falls back to generic fields.
+ * Settings reads the same function, so the displayed model is the model sent.
  */
 export function resolveModelId(providerId: string, mode: Mode, config: ApiConfiguration): string | undefined {
-	// VS Code LM has no plain model-id field: the selected model is stored as a
-	// structured LanguageModelChatSelector ({vendor, family, ...}) in
-	// plan/actModeVsCodeLmModelSelector. The SDK ProviderConfig only carries a
-	// string modelId, so we stringify the selector to "vendor/family[/version/id]"
-	// and the VS Code LM handler parses it back. See sdk/vscode-lm/vscode-lm-handler.ts.
-	if (providerId === "vscode-lm") {
-		const selector = mode === "plan" ? config.planModeVsCodeLmModelSelector : config.actModeVsCodeLmModelSelector
-		return selector ? stringifyVsCodeLmModelSelector(selector) || undefined : undefined
-	}
-
-	if (providerId === "sapaicore") {
-		const genericField = mode === "plan" ? "planModeApiModelId" : "actModeApiModelId"
-		const legacyField = mode === "plan" ? "planModeSapAiCoreModelId" : "actModeSapAiCoreModelId"
-		return (
-			(config[genericField] as string | undefined)?.trim() ||
-			(config[legacyField] as string | undefined)?.trim() ||
-			undefined
-		)
-	}
-
-	// Check provider-specific mode model ID fields.
-	// If the provider has a dedicated field, do not fall back to generic
-	// *ModeApiModelId. Those generic slots may contain a stale model from a
-	// previous provider (for example openai/gpt-5.4), which would make the SDK
-	// session use a different model than the Cline provider UI shows.
-	const modelFields = PROVIDER_MODEL_ID_MAP[providerId]
-	if (modelFields) {
-		const field = mode === "plan" ? modelFields.plan : modelFields.act
-		return (config[field] as string | undefined)?.trim() || undefined
-	}
-
-	// Fallback to generic mode model ID fields only for providers without a
-	// dedicated model field.
-	const genericField = mode === "plan" ? "planModeApiModelId" : "actModeApiModelId"
-	return (config[genericField] as string | undefined)?.trim() || undefined
+	return readStoredModeModelId(config, providerId, mode)
 }
 
 /**
@@ -884,7 +866,10 @@ export async function buildSessionConfig(input: SessionConfigInput): Promise<Cor
 		}
 		modelId = modelId || ""
 	} else {
-		modelId = modelId ?? getDefaultModelIdForProvider(providerId) ?? getDefaultModelIdForProvider(DEFAULT_PROVIDER_ID) ?? ""
+		// A mode with no stored model stays empty, and the guard stops the request.
+		// Dify is the exception: its application chooses the model.
+		modelId =
+			modelId ?? (providerModelIsSetByProvider(providerId) ? getDefaultModelIdForProvider(providerId) : undefined) ?? ""
 	}
 	if (!apiKey && apiConfig) {
 		apiKey = resolveApiKey(providerId, apiConfig)
@@ -899,7 +884,7 @@ export async function buildSessionConfig(input: SessionConfigInput): Promise<Cor
 	const reasoningConfig =
 		providerId === "oca"
 			? (resolveOcaReasoningConfig(mode, apiConfig) ?? resolveProviderReasoningConfig(providerId))
-			: resolveProviderReasoningConfig(providerId)
+			: resolveModeReasoningConfig(providerId, mode, apiConfig, modelId, committedRuntimeModel)
 
 	// Build the system prompt using the shared prompt builder. Core still
 	// expects callers to provide a concrete systemPrompt, but the prompt builder
@@ -995,6 +980,19 @@ export async function buildSessionConfig(input: SessionConfigInput): Promise<Cor
 		// straight from providerConfig — notably the compaction summarizer, which
 		// otherwise falls back to a small default output cap (CLINE-2911).
 		...(maxTokensPerTurn !== undefined ? { maxOutputTokens: maxTokensPerTurn } : {}),
+		// Stated explicitly, even when empty: the SDK otherwise fills these from the
+		// provider-wide value in providers.json, which no Settings tab displays.
+		thinking: reasoningConfig.thinking,
+		reasoningEffort: reasoningConfig.reasoningEffort,
+		thinkingBudgetTokens: undefined,
+		// The Claude Code CLI path Settings shows. Without it the engine finds the program itself.
+		...(providerId === "claude-code" && apiConfig?.claudeCodePath?.trim()
+			? { claudeCode: { defaultSettings: { pathToClaudeCodeExecutable: apiConfig.claudeCodePath.trim() } } }
+			: {}),
+		// The Azure API version Settings shows. Without it the gateway never adds one.
+		...(providerId === "openai" && apiConfig?.azureApiVersion?.trim()
+			? { azure: { apiVersion: apiConfig.azureApiVersion.trim() } }
+			: {}),
 		fetch,
 	}
 

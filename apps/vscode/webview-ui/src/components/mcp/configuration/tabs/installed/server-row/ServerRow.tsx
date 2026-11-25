@@ -7,16 +7,10 @@ import {
 	UpdateMcpTimeoutRequest,
 } from "@shared/proto/cline/mcp"
 import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mcp/mcp-server-conversion"
-import {
-	VSCodeCheckbox,
-	VSCodeDropdown,
-	VSCodeOption,
-	VSCodePanels,
-	VSCodePanelTab,
-	VSCodePanelView,
-} from "@vscode/webview-ui-toolkit/react"
+import { VSCodeDropdown, VSCodeOption, VSCodePanels, VSCodePanelTab, VSCodePanelView } from "@vscode/webview-ui-toolkit/react"
 import { RefreshCcwIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
+import { SettingsCheckbox } from "@/components/settings/common/SettingsCheckbox"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -148,7 +142,7 @@ const ServerRow = ({
 			})
 	}
 
-	const handleAutoApproveChange = () => {
+	const handleAutoApproveChange = (event: any) => {
 		if (!server.name) {
 			return
 		}
@@ -157,7 +151,7 @@ const ServerRow = ({
 			ToggleToolAutoApproveRequest.create({
 				serverName: server.name,
 				toolNames: server.tools?.map((tool) => tool.name) || [],
-				autoApprove: !server.tools?.every((tool) => tool.autoApprove),
+				autoApprove: event.target.checked === true,
 			}),
 		)
 			.then((response) => {
@@ -329,13 +323,13 @@ const ServerRow = ({
 								{server.tools && server.tools.length > 0 ? (
 									<div className="flex flex-col gap-2 w-full pt-2">
 										{SHOW_MCP_PER_TOOL_AUTO_APPROVE && server.name && autoApprovalSettings.actions.useMcp && (
-											<VSCodeCheckbox
+											<SettingsCheckbox
 												checked={server.tools.every((tool) => tool.autoApprove)}
 												className="mb-1 text-xs"
 												data-tool="all-tools"
 												onChange={handleAutoApproveChange}>
 												Auto-approve all tools
-											</VSCodeCheckbox>
+											</SettingsCheckbox>
 										)}
 										{server.tools.map((tool) => (
 											<McpToolRow key={tool.name} serverName={server.name} tool={tool} />

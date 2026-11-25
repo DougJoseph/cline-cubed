@@ -32,6 +32,7 @@ import { applyHostModelInfoOverrides } from "./host-overrides"
 import { fromSdkApiFormat, nonNegativeFiniteNumber, positiveFiniteNumber, toSdkApiFormat } from "./model-values"
 import { toSdkProviderId } from "./sdk-provider-id"
 import { adaptSdkModelInfo } from "./shape-adapter"
+import { providerHasLocalModelSource, readStoredModeModelId } from "./stored-mode-model"
 
 type ProviderSettingsRecord = Record<string, unknown>
 type ProviderSettingsPatchKey = "apiKey" | "baseUrl" | "apiLine" | "headers" | "region" | "auth" | "extras" | "aws" | "gcp"
@@ -169,13 +170,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isModelInfo(value: unknown): value is ModelInfo {
 	return isRecord(value) && typeof value.supportsPromptCache === "boolean"
-}
-
-function isKnownModelIdForProvider(providerId: ProviderId, modelId: string): boolean {
-	const sdkProviderId = toSdkProviderId(providerId)
-	return Boolean(
-		getGeneratedModelsForProvider(sdkProviderId)[modelId] || MODEL_COLLECTIONS_BY_PROVIDER_ID[sdkProviderId]?.models[modelId],
-	)
 }
 
 function readProviderSettingsModelId(providerId: ProviderId): string | undefined {
@@ -859,15 +853,33 @@ function readStateModelInfoHint(providerId: ProviderId, mode: Mode, modelId: str
 
 function readSelectionFromState(providerId: ProviderId, mode: Mode): ResolvedModelSelection | undefined {
 	const apiConfiguration = StateManager.get().getApiConfiguration()
-	const modelId = apiConfiguration[getModelIdKey(providerId, mode)]
+	const provider = providerForStorage(providerId)
+	const activeProvider =
+		mode === "plan"
+			? apiConfiguration.planModeApiProvider
+			: mode === "image"
+				? apiConfiguration.imageModeApiProvider
+				: apiConfiguration.actModeApiProvider
+	const modeRunsThisProvider = activeProvider === provider
 	const modelInfoKey = getModelInfoKey(providerId, mode)
 	const rememberedSelection = selectionMemory.get(memoryKey(providerId, mode))
+	const modelId = provider ? readStoredModeModelId(apiConfiguration, provider, mode, rememberedSelection?.modelId) : undefined
+
+	if (!modelId) {
+		// Image Mode runs only its own stored model.
+		if (mode === "image") {
+			return undefined
+		}
+		// A mode running this provider sends its own slot and nothing else, except
+		// local providers, whose runtime does read the provider-wide model.
+		if (modeRunsThisProvider && !providerHasLocalModelSource(providerId)) {
+			return undefined
+		}
+		return (modelInfoKey ? undefined : rememberedSelection) ?? readSelectionFromProviderSettings(providerId)
+	}
 
 	if (modelInfoKey) {
 		const modelInfo = apiConfiguration[modelInfoKey]
-		if (typeof modelId !== "string" || modelId.length === 0) {
-			return readSelectionFromProviderSettings(providerId)
-		}
 		// The mode-specific model id alone identifies the selection; the state
 		// modelInfo snapshot is optional input for legacy migration and, for
 		// dynamic-list providers, the base-metadata hint. Fallback-tier commits
@@ -882,32 +894,14 @@ function readSelectionFromState(providerId: ProviderId, mode: Mode): ResolvedMod
 		)
 	}
 
-	const providerSettingsSelection = readSelectionFromProviderSettings(providerId)
-	const activeProvider =
-		mode === "plan"
-			? apiConfiguration.planModeApiProvider
-			: mode === "image"
-				? apiConfiguration.imageModeApiProvider
-				: apiConfiguration.actModeApiProvider
-	const provider = providerForStorage(providerId)
-	if (activeProvider !== provider) {
-		return rememberedSelection ?? providerSettingsSelection
-	}
-
-	if (typeof modelId !== "string" || modelId.length === 0) {
-		return rememberedSelection ?? providerSettingsSelection
-	}
-
-	if (!isKnownModelIdForProvider(providerId, modelId)) {
-		return rememberedSelection ?? providerSettingsSelection
+	if (!modeRunsThisProvider) {
+		return rememberedSelection ?? readSelectionFromProviderSettings(providerId)
 	}
 
 	// The mode-specific state field is authoritative for this mode. providers.json
 	// carries ONE provider-level model shared by every mode, so a commit on any
 	// mode overwrites it; falling back to it here would bleed that mode's model
 	// into this one (e.g. choosing an Image-mode model also changed the Plan tab).
-	// Reaching this point means `modelId` is a known catalog id (guarded above),
-	// so resolving from state yields real metadata, not fabrication.
 	if (rememberedSelection && rememberedSelection.modelId === modelId) {
 		return rememberedSelection
 	}

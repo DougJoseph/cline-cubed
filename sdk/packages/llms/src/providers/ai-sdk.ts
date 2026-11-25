@@ -23,6 +23,7 @@ import {
 	formatMessagesForAiSdk,
 	GeneratedMediaSchema,
 	generatedMediaModalityFromMediaType,
+	type MediaBudgetOptions,
 	modelProducesImages,
 	modelSupportsToolCalling,
 	parseJsonStream,
@@ -382,9 +383,12 @@ function buildAiSdkRequestMessages(
 	request: GatewayStreamRequest,
 	context: GatewayProviderContext,
 	systemPrompt?: string,
+	onMediaOmitted?: (notice: string) => void,
 ) {
 	const aiMessages = toAiSdkMessages(request.messages, systemPrompt, {
 		includeReasoning: shouldIncludeReasoningHistory(request, context),
+		mediaBudget: request.mediaBudget,
+		onMediaOmitted,
 		supportedInputModalities:
 			context.model.modalities?.input ??
 			(context.model.capabilities
@@ -700,6 +704,8 @@ function toAiSdkMessages(
 	options?: {
 		includeReasoning?: boolean;
 		supportedInputModalities?: readonly string[];
+		mediaBudget?: MediaBudgetOptions;
+		onMediaOmitted?: (notice: string) => void;
 	},
 ) {
 	const includeReasoning = options?.includeReasoning ?? true;
@@ -813,6 +819,8 @@ function toAiSdkMessages(
 	return formatMessagesForAiSdk(systemPrompt, normalizedMessages, {
 		assistantToolCallArgKey: "input",
 		supportedInputModalities: options?.supportedInputModalities,
+		mediaBudget: options?.mediaBudget,
+		onMediaOmitted: options?.onMediaOmitted,
 	});
 }
 
@@ -2080,6 +2088,12 @@ function createAiSdkProvider(kind: ProviderModuleKind): GatewayProviderFactory {
 									},
 								}
 							: composedProviderOptions;
+				// Cline Cubed: the request's image limits ride along for
+				// `splitToolImagesMiddleware`, which reads and removes them. Providers
+				// read only their own namespaces, so none forwards this key.
+				const languageProviderOptions = request.mediaBudget
+					? { ...providerOptions, clineMediaBudget: request.mediaBudget }
+					: providerOptions;
 				const modelOperation = context.model.operation ?? "language";
 				if (
 					modelOperation !== "language" &&
@@ -2184,11 +2198,24 @@ function createAiSdkProvider(kind: ProviderModuleKind): GatewayProviderFactory {
 				const useSystemOption =
 					typeof systemPrompt === "string" && systemPrompt.trim().length > 0;
 				const messagesSystemPrompt = useSystemOption ? undefined : systemPrompt;
+				// Cline Cubed: images the format step leaves out are reported in the chat.
+				let mediaOmittedNotice: string | undefined;
 				const messages = buildAiSdkRequestMessages(
 					request,
 					context,
 					messagesSystemPrompt,
+					(notice) => {
+						mediaOmittedNotice = notice;
+					},
 				);
+				if (mediaOmittedNotice) {
+					log?.error?.(mediaOmittedNotice);
+					yield {
+						type: "notice",
+						message: mediaOmittedNotice,
+						metadata: { reason: "media_omitted" },
+					};
+				}
 				const portableReasoning = resolvePortableReasoning(request);
 				const requestConfig = provider.buildStreamConfig
 					? provider.buildStreamConfig(request, context)
@@ -2200,7 +2227,7 @@ function createAiSdkProvider(kind: ProviderModuleKind): GatewayProviderFactory {
 						messages,
 						...(useSystemOption ? { system: systemPrompt } : {}),
 						tools,
-						providerOptions,
+						providerOptions: languageProviderOptions,
 						...requestConfig,
 						...(portableReasoning ? { reasoning: portableReasoning } : {}),
 					},
@@ -2240,7 +2267,7 @@ function createAiSdkProvider(kind: ProviderModuleKind): GatewayProviderFactory {
 								},
 							},
 							runtimeContext: buildAiSdkRuntimeContext(request, context),
-							providerOptions: providerOptions as never,
+							providerOptions: languageProviderOptions as never,
 							...(provider.executesModelTools && activeModelTools.length
 								? { stopWhen: stepCountIs(8) }
 								: {}),

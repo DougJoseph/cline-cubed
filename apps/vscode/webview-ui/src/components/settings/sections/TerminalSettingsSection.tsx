@@ -1,10 +1,11 @@
 import { UpdateTerminalConnectionTimeoutResponse } from "@shared/proto/index.cline"
-import { VSCodeCheckbox, VSCodeDropdown, VSCodeOption, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeDropdown, VSCodeOption, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import React, { useState } from "react"
 import { PlatformType } from "@/config/platform.config"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { usePlatform } from "@/context/PlatformContext"
 import { StateServiceClient } from "../../../services/grpc-client"
+import { SettingsCheckbox } from "../common/SettingsCheckbox"
 import Section from "../Section"
 import { updateSetting } from "../utils/settingsHandlers"
 
@@ -137,11 +138,11 @@ const TerminalSettingsSection: React.FC<TerminalSettingsSectionProps> = ({ rende
 
 							<div className="mb-4">
 								<div className="flex items-center mb-2">
-									<VSCodeCheckbox
+									<SettingsCheckbox
 										checked={terminalReuseEnabled ?? true}
 										onChange={(event) => handleTerminalReuseChange(event as Event)}>
 										Enable aggressive terminal reuse
-									</VSCodeCheckbox>
+									</SettingsCheckbox>
 								</div>
 								<p className="text-xs text-(--vscode-descriptionForeground)">
 									When enabled, Cline will reuse existing terminal windows that aren't in the current working

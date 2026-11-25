@@ -10,6 +10,7 @@ import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useShowNavbar } from "@/context/PlatformContext"
 import { useNormalizedApiConfiguration } from "@/hooks/useNormalizedApiConfiguration"
 import { FileServiceClient, UiServiceClient } from "@/services/grpc-client"
+import { intakeDataUrls, reportImageIntakeNotices } from "@/utils/imageIntake"
 import { Navbar } from "../menu/Navbar"
 import AutoApproveBar from "./auto-approve-menu/AutoApproveBar"
 // Import utilities and hooks from the new structure
@@ -260,14 +261,16 @@ const ChatView = ({ isHidden, showHistoryView }: ChatViewProps) => {
 				response.values2 &&
 				(response.values1.length > 0 || response.values2.length > 0)
 			) {
+				const { images: pickedImages, notices } = await intakeDataUrls(response.values1)
+				reportImageIntakeNotices(notices)
 				const currentTotal = selectedImages.length + selectedFiles.length
 				const availableSlots = MAX_IMAGES_AND_FILES_PER_MESSAGE - currentTotal
 
 				if (availableSlots > 0) {
 					// Prioritize images first
-					const imagesToAdd = Math.min(response.values1.length, availableSlots)
+					const imagesToAdd = Math.min(pickedImages.length, availableSlots)
 					if (imagesToAdd > 0) {
-						setSelectedImages((prevImages) => [...prevImages, ...response.values1.slice(0, imagesToAdd)])
+						setSelectedImages((prevImages) => [...prevImages, ...pickedImages.slice(0, imagesToAdd)])
 					}
 
 					// Use remaining slots for files

@@ -230,6 +230,99 @@ describe("OpenAICompatibleProvider", () => {
 		})
 	})
 
+	it("is blank when no temperature is stored, even if the model details carry a default", async () => {
+		setCommittedSelection({ contextWindow: 200_000 })
+		renderProvider()
+		await act(async () => {})
+		fireEvent.click(screen.getByText("Model Configuration"))
+
+		expect(screen.getByLabelText("Temperature")).toHaveValue("")
+	})
+
+	it("explains what Temperature means under the box", async () => {
+		setCommittedSelection({ contextWindow: 200_000 })
+		renderProvider()
+		await act(async () => {})
+		fireEvent.click(screen.getByText("Model Configuration"))
+
+		expect(
+			screen.getByText(
+				"How predictable replies are. 0 is focused and repeatable; higher is more varied. Most providers accept 0 to 2. Blank sends none, and your server's default applies.",
+			),
+		).toBeInTheDocument()
+	})
+
+	it("shows a stored temperature, including 0", async () => {
+		setCommittedSelection({ temperature: 0 })
+		renderProvider()
+		await act(async () => {})
+		fireEvent.click(screen.getByText("Model Configuration"))
+
+		expect(screen.getByLabelText("Temperature")).toHaveValue("0")
+	})
+
+	it("stores a typed 0", async () => {
+		setCommittedSelection({ contextWindow: 200_000 })
+		renderProvider()
+		await act(async () => {})
+		fireEvent.click(screen.getByText("Model Configuration"))
+
+		fireEvent.change(screen.getByLabelText("Temperature"), { target: { value: "0" } })
+
+		expect(mocks.commitSelection).toHaveBeenLastCalledWith("act", {
+			providerId: "custom-openai",
+			modelId: "custom-model",
+			overrides: { contextWindow: 200_000, temperature: 0 },
+		})
+	})
+
+	it("says Microsoft sign-in comes from stock Cline's engine and is not supported", async () => {
+		setCommittedSelection({})
+		renderProvider()
+		await act(async () => {})
+
+		expect(
+			screen.getByText("Stock Cline's current engine doesn't support Microsoft sign-in. Use an API key."),
+		).toBeInTheDocument()
+	})
+
+	describe("a mode with no stored model", () => {
+		const showsNoModel = async () => {
+			mocks.refreshOpenAiModels.mockResolvedValue({ values: ["listed-model"] })
+			mocks.useDynamicProviderSelection.mockReturnValue({
+				selectedModelId: "",
+				selectedModelInfo: { contextWindow: 128_000, inputPrice: 0, maxTokens: -1, outputPrice: 0, temperature: 0 },
+			})
+			await act(async () => {
+				render(<OpenAICompatibleProvider currentMode="plan" providerId="openai" showModelOptions={true} />)
+			})
+		}
+
+		it("shows that no model is selected and no context size", async () => {
+			await showsNoModel()
+
+			const picker = screen.getByLabelText("Model ID") as HTMLSelectElement
+			expect(picker.value).toBe("")
+			expect(picker.selectedOptions[0]?.textContent).toBe("No model selected")
+			expect(screen.getByText("Select a model for Plan Mode.")).toBeTruthy()
+			expect(screen.queryByText(/128/)).toBeNull()
+
+			fireEvent.click(screen.getByText("Model Configuration"))
+
+			expect((screen.getByLabelText("Context Window Size") as HTMLInputElement).value).toBe("")
+		})
+
+		it("commits a chosen model to that mode", async () => {
+			await showsNoModel()
+
+			fireEvent.change(screen.getByLabelText("Model ID"), { target: { value: "listed-model" } })
+
+			await vi.waitFor(() => expect(mocks.commitSelection).toHaveBeenCalled())
+			expect(mocks.commitSelection.mock.calls[0][0]).toBe("plan")
+			expect(mocks.commitSelection.mock.calls[0][1]).toMatchObject({ modelId: "listed-model" })
+		})
+	})
+
 	it("refreshes keyless endpoints and displays only the saved-key mask", async () => {
 		renderProvider()
 

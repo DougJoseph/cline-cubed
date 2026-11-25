@@ -67,6 +67,7 @@ import { createProviderCatalog } from "./model-catalog/catalog"
 import type { Disposable, ProviderCatalog, ProviderConfigChange, ProviderConfigStore } from "./model-catalog/contracts"
 import { parseProviderId } from "./model-catalog/provider-id"
 import { createProviderConfigStore } from "./model-catalog/store"
+import { MissingModelError } from "./model-catalog/stored-mode-model"
 import {
 	PROVIDER_FAILURE_ERROR_TYPE,
 	PROVIDER_FAILURE_PHASE,
@@ -375,7 +376,9 @@ export class Controller {
 		this.sessionConfigBuilder = new SdkSessionConfigBuilder({
 			stateManager: this.stateManager,
 			emitHookMessage: (msg) => this.messages.emitHookMessage(msg),
+			emitSessionMessage: (msg, sessionId) => this.messages.emitHookMessage(msg, sessionId),
 			onConsecutiveMistakeLimitReached: (context) => this.interactions.handleConsecutiveMistakeLimitReached(context),
+			providerConfigStore: this.providerConfigStore,
 		})
 		this.diffEdits = new SdkDiffEditCoordinator({
 			getCwd: () => this.getWorkspaceRoot(),
@@ -474,6 +477,15 @@ export class Controller {
 				// The FAILING session's phase — a background chat's turn failure must not mark
 				// the focused chat "error".
 				this.setPhaseForSession("error", undefined, sessionId)
+				if (error instanceof MissingModelError) {
+					// A settings state, not a provider failure: show it in this chat only.
+					this.messages.emitHookMessage(
+						{ ts: Date.now(), type: "say", say: "error", text: error.message, partial: false },
+						sessionId,
+					)
+					this.postStateToWebview().catch(() => {})
+					return
+				}
 				const errorMessage = error instanceof Error ? error.message : String(error)
 				const providerId = this.getSessionProviderId(sessionId) ?? this.getActiveProviderId()
 				const isClineAuthError =

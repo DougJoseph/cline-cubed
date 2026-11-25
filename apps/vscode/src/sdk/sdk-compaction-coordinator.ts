@@ -30,6 +30,7 @@ import type { Mode } from "@shared/storage/types"
 import type { StateManager } from "@/core/storage/StateManager"
 import { Logger } from "@/shared/services/Logger"
 import { buildCompactionMessage, parseCompactionNoticeMetadata } from "./message-translator"
+import { NO_MODEL_SELECTED_ID } from "./model-catalog/stored-mode-model"
 import { compactSessionMessages } from "./sdk-compaction"
 import type { SdkMessageCoordinator } from "./sdk-message-coordinator"
 import type { SdkSessionConfigBuilder } from "./sdk-session-config-builder"
@@ -215,6 +216,11 @@ export class SdkCompactionCoordinator {
 		const cwd = await this.options.getWorkspaceRoot()
 		const mode = this.getCurrentMode()
 		const config = await this.options.sessionConfigBuilder.build({ cwd, mode })
+		if (config.modelId === NO_MODEL_SELECTED_ID) {
+			this.emitInfo("No model is selected, so this chat cannot be compacted. Select one in Settings.", sessionId)
+			await this.options.postStateToWebview()
+			return
+		}
 
 		// A live divider row, updated in place (same ts) from "started" to its
 		// terminal state — the same UX as the CLI's compaction divider.

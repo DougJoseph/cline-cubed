@@ -15,6 +15,15 @@ import type { Mode } from "@shared/storage/types"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ProviderId } from "@/context/ExtensionStateContext"
 import { ModelsServiceClient } from "@/services/grpc-client"
+import {
+	beginSettingsLoad,
+	endSettingsLoad,
+	reportSettingsLoadFailure,
+	reportSettingsSaveFailure,
+	SETTINGS_ANSWER_LIMIT_MS,
+	SETTINGS_SAVE_LIMIT_MS,
+	withAnswerLimit,
+} from "@/utils/settingsHealth"
 
 export type ProviderConfigWritePatch = Partial<Omit<WriteProviderConfigPatch, "headers" | "aws" | "gcp">> & {
 	headers?: Record<string, string>
@@ -52,6 +61,12 @@ function toWriteProviderConfigPatch(patch: ProviderConfigWritePatch): WriteProvi
 	})
 }
 
+function savedFieldName(patch: ProviderConfigWritePatch): string {
+	if ("apiKey" in patch) return "API key"
+	if ("baseUrl" in patch) return "Base URL"
+	return "this setting"
+}
+
 export function useProviderConfig(providerId: ProviderId) {
 	const [config, setConfig] = useState<ProviderConfigResponse | undefined>(undefined)
 
@@ -69,28 +84,45 @@ export function useProviderConfig(providerId: ProviderId) {
 
 	const read = useCallback(async () => {
 		const seq = ++requestSeqRef.current
-		const response = await ModelsServiceClient.readProviderConfig(StringRequest.create({ value: providerId }))
+		const response = await withAnswerLimit(
+			ModelsServiceClient.readProviderConfig(StringRequest.create({ value: providerId })),
+			SETTINGS_ANSWER_LIMIT_MS,
+		)
 		applyConfig(seq, response)
 		return response
 	}, [providerId, applyConfig])
 
 	useEffect(() => {
-		void read()
-	}, [read])
+		const seq = requestSeqRef.current + 1
+		beginSettingsLoad()
+		read()
+			.catch((error) => {
+				console.error(`Failed to load ${providerId} settings:`, error)
+				// A newer request owns the outcome once one has been issued.
+				if (seq === requestSeqRef.current) {
+					reportSettingsLoadFailure()
+				}
+			})
+			.finally(endSettingsLoad)
+	}, [providerId, read])
 
 	const write = useCallback(
 		async (patch: ProviderConfigWritePatch) => {
 			const seq = ++requestSeqRef.current
 			try {
-				const response = await ModelsServiceClient.writeProviderConfig(
-					WriteProviderConfigRequest.create({
-						providerId,
-						patch: toWriteProviderConfigPatch(patch),
-					}),
+				const response = await withAnswerLimit(
+					ModelsServiceClient.writeProviderConfig(
+						WriteProviderConfigRequest.create({
+							providerId,
+							patch: toWriteProviderConfigPatch(patch),
+						}),
+					),
+					SETTINGS_SAVE_LIMIT_MS,
 				)
 				applyConfig(seq, response)
 				return response
 			} catch (error) {
+				reportSettingsSaveFailure(savedFieldName(patch))
 				// A failed write may still have partially applied host-side, and
 				// its failure means no response will ever apply for this seq —
 				// without a re-read, older dropped responses could leave config
@@ -123,15 +155,25 @@ export function useProviderConfig(providerId: ProviderId) {
 				throw new Error(`commitSelection for provider ${providerId} requires a model id`)
 			}
 
-			await ModelsServiceClient.commitModelSelection(
-				CommitModelSelectionRequest.create({
-					providerId,
-					mode,
-					modelId,
-					overrides:
-						selection.overrides !== undefined ? toProtobufProviderModelOverrides(selection.overrides) : undefined,
-				}),
-			)
+			try {
+				await withAnswerLimit(
+					ModelsServiceClient.commitModelSelection(
+						CommitModelSelectionRequest.create({
+							providerId,
+							mode,
+							modelId,
+							overrides:
+								selection.overrides !== undefined
+									? toProtobufProviderModelOverrides(selection.overrides)
+									: undefined,
+						}),
+					),
+					SETTINGS_SAVE_LIMIT_MS,
+				)
+			} catch (error) {
+				reportSettingsSaveFailure("model")
+				throw error
+			}
 			await read()
 		},
 		[providerId, read],

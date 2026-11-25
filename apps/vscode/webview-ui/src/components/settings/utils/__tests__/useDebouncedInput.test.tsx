@@ -23,6 +23,26 @@ async function flushDebounce() {
 }
 
 describe("useDebouncedInput", () => {
+	it("saves a typed value that equals the value already shown", async () => {
+		const onChange = vi.fn()
+		let setValue: (value: string) => void = () => {}
+		render(
+			<Harness
+				initialValue="0"
+				onChange={onChange}
+				onRender={(_value, setter) => {
+					setValue = setter
+				}}
+			/>,
+		)
+
+		act(() => setValue("0"))
+		await flushDebounce()
+
+		expect(onChange).toHaveBeenCalledTimes(1)
+		expect(onChange).toHaveBeenCalledWith("0")
+	})
+
 	it("does not echo the initial value to onChange on mount", async () => {
 		// Secret fields mount with an empty mask while their provider config
 		// is still loading; echoing that to the backend would delete the

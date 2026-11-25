@@ -507,6 +507,97 @@ describe("sdk-gateway", () => {
 		});
 	});
 
+	it.each([
+		{
+			name: "image data",
+			messages: [
+				{
+					id: "user-image",
+					role: "user",
+					createdAt: 1,
+					content: [
+						{ type: "text", text: "see this" },
+						{
+							type: "image",
+							image: "A".repeat(300_000),
+							mediaType: "image/png",
+						},
+					],
+				},
+			],
+			expectedMaxTokens: 8_000,
+		},
+		{
+			name: "stored text the server already reported as smaller",
+			messages: [
+				{
+					id: "user-text",
+					role: "user",
+					createdAt: 1,
+					content: [{ type: "text", text: "x".repeat(300_000) }],
+				},
+				{
+					id: "assistant-reported",
+					role: "assistant",
+					createdAt: 2,
+					content: [{ type: "text", text: "answer" }],
+					modelInfo: { id: "clamp-model", provider: "custom-provider" },
+					metrics: { inputTokens: 20_000, outputTokens: 100 },
+				},
+			],
+			expectedMaxTokens: 8_000,
+		},
+	] as Array<{
+		name: string;
+		messages: AgentMessage[];
+		expectedMaxTokens: number;
+	}>)("does not squeeze output because of $name", async ({
+		messages,
+		expectedMaxTokens,
+	}) => {
+		const seenMaxTokens: Array<number | undefined> = [];
+		const gateway = createGateway({
+			builtins: false,
+			providers: [
+				{
+					manifest: {
+						id: "custom-provider",
+						name: "CustomProvider",
+						defaultModelId: "clamp-model",
+						models: [
+							{
+								id: "clamp-model",
+								name: "Clamp Model",
+								providerId: "custom-provider",
+								contextWindow: 50_000,
+								maxOutputTokens: 8_000,
+							},
+						],
+					},
+					createProvider: () => ({
+						async *stream(request: { maxTokens?: number }) {
+							seenMaxTokens.push(request.maxTokens);
+							yield {
+								type: "finish",
+								reason: "stop",
+							} satisfies AgentModelEvent;
+						},
+					}),
+				},
+			],
+		});
+
+		await collect(
+			await gateway.stream({
+				providerId: "custom-provider",
+				modelId: "clamp-model",
+				messages,
+			}),
+		);
+
+		expect(seenMaxTokens).toEqual([expectedMaxTokens]);
+	});
+
 	it("keeps estimating when request tools cannot be JSON stringified", () => {
 		const circularTool = {
 			name: "large_tool",
@@ -521,6 +612,86 @@ describe("sdk-gateway", () => {
 		});
 
 		expect(estimatedTokens).toBeGreaterThan(4_000);
+	});
+
+	it("passes a request's media budget to the formatter and to the call's provider options", async () => {
+		mockSuccessfulStream();
+		const gateway = createGateway({
+			providerConfigs: [{ providerId: "openrouter", apiKey: "openrouter-key" }],
+		});
+		const model = gateway.createAgentModel({
+			providerId: "openrouter",
+			modelId: "openai/gpt-5.4",
+		});
+		const mediaBudget = { maxTotalMediaBytes: 64 * 1024 * 1024 };
+		const images = [1, 2, 3].map((fill) =>
+			Buffer.alloc(2_600_000, fill).toString("base64"),
+		);
+
+		await collect(
+			await model.stream({
+				messages: [
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "look" },
+							...images.map((image) => ({
+								type: "image" as const,
+								image,
+								mediaType: "image/png",
+							})),
+						],
+					},
+				] as never,
+				tools: [],
+				options: { mediaBudget },
+			}),
+		);
+
+		const call = streamTextSpy.mock.calls.at(-1)?.[0] as
+			| { messages?: unknown; providerOptions?: Record<string, unknown> }
+			| undefined;
+		expect(call?.providerOptions?.clineMediaBudget).toEqual(mediaBudget);
+		expect(JSON.stringify(call?.messages)).not.toContain(
+			"[media omitted: invalid or exceeds size limit]",
+		);
+	});
+
+	it("tells the chat when the format step leaves an image out", async () => {
+		mockSuccessfulStream();
+		const gateway = createGateway({
+			providerConfigs: [{ providerId: "openrouter", apiKey: "openrouter-key" }],
+		});
+		const model = gateway.createAgentModel({
+			providerId: "openrouter",
+			modelId: "openai/gpt-5.4",
+		});
+		const images = [1, 2, 3].map((fill) =>
+			Buffer.alloc(2_600_000, fill).toString("base64"),
+		);
+
+		const events = await collect(
+			await model.stream({
+				messages: [
+					{
+						role: "user",
+						content: images.map((image) => ({
+							type: "image" as const,
+							image,
+							mediaType: "image/png",
+						})),
+					},
+				] as never,
+				tools: [],
+			}),
+		);
+
+		expect(events).toContainEqual({
+			type: "notice",
+			message:
+				"1 image did not reach the model: 1 is over the 8 MB limit for all images in this request.",
+			metadata: { reason: "media_omitted" },
+		});
 	});
 
 	it("applies the old default output cap when the request omits max tokens", async () => {
@@ -4711,6 +4882,43 @@ describe("sdk-gateway", () => {
 				}),
 			}),
 		);
+	});
+
+	it("sends an OpenAI Compatible model's output limit and temperature from the agent model defaults", async () => {
+		streamTextSpy.mockReturnValue({
+			fullStream: makeStreamParts([
+				{ type: "finish", usage: { inputTokens: 1, outputTokens: 1 } },
+			]),
+		});
+		const gateway = createGateway({
+			providerConfigs: [
+				{
+					providerId: "openai-compatible",
+					apiKey: "local-key",
+					baseUrl: "http://127.0.0.1:9/v1",
+					models: [
+						{
+							id: "local-model",
+							name: "local-model",
+							contextWindow: 1_048_576,
+							maxOutputTokens: 32_768,
+						},
+					],
+				},
+			],
+		});
+		const model = gateway.createAgentModel(
+			{ providerId: "openai-compatible", modelId: "local-model" },
+			{ maxTokens: 32_768, temperature: 0.6 },
+		);
+
+		await collect(await model.stream({ messages: baseMessages, tools: [] }));
+
+		const call = streamTextSpy.mock.calls.at(-1)?.[0] as
+			| { maxOutputTokens?: unknown; temperature?: unknown }
+			| undefined;
+		expect(call?.maxOutputTokens).toBe(32_768);
+		expect(call?.temperature).toBe(0.6);
 	});
 
 	it("does not send explicit maxOutputTokens to ChatGPT OAuth", async () => {

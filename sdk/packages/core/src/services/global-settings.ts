@@ -70,6 +70,7 @@ export const GlobalSettingsSchema = z
 		disabledTools: GlobalSettingsStringListSchema.optional(),
 		tools: ModelToolSettingsSchema,
 		disabledPlugins: GlobalSettingsStringListSchema.optional(),
+		alwaysRememberedFiles: GlobalSettingsStringListSchema.optional(),
 	})
 	.strip()
 	.transform((settings) => {
@@ -84,6 +85,7 @@ export const GlobalSettingsSchema = z
 			disabledTools?: string[];
 			tools?: ModelToolSettings;
 			disabledPlugins?: string[];
+			alwaysRememberedFiles?: string[];
 		} = {
 			autoUpdateEnabled: settings.autoUpdateEnabled,
 			telemetryOptOut: settings.telemetryOptOut,
@@ -111,6 +113,9 @@ export const GlobalSettingsSchema = z
 		}
 		if (settings.disabledPlugins?.length) {
 			normalized.disabledPlugins = settings.disabledPlugins;
+		}
+		if (settings.alwaysRememberedFiles?.length) {
+			normalized.alwaysRememberedFiles = settings.alwaysRememberedFiles;
 		}
 		return normalized;
 	});
@@ -243,6 +248,20 @@ export function setAutoUpdateEnabledGlobally(
 		},
 		options,
 	);
+}
+
+/** Files whose contents stay in the system prompt, in their listed order. */
+export function readAlwaysRememberedFilesGlobally(): string[] {
+	return [...(readGlobalSettings().alwaysRememberedFiles ?? [])];
+}
+
+export function setAlwaysRememberedFilesGlobally(
+	alwaysRememberedFiles: readonly string[],
+): void {
+	writeGlobalSettings({
+		...readGlobalSettings(),
+		alwaysRememberedFiles: [...alwaysRememberedFiles],
+	});
 }
 
 export function readCompactionStrategyGlobally(): GlobalCompactionStrategy {

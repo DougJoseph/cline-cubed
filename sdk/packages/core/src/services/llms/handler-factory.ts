@@ -81,6 +81,8 @@ function buildGatewayProviderOptions(
 		// then refuses writes outside its allowed working directories.
 		const workspace = config.extensionContext?.workspace;
 		Object.assign(options, {
+			// Host-supplied Claude Code options, such as a configured executable path.
+			...config.claudeCode,
 			cwd: workspace?.cwd ?? workspace?.rootPath,
 		});
 	}

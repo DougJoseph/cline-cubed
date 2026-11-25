@@ -74,7 +74,7 @@ describe("GenericProviderSettings", () => {
 			fingerprint: "fingerprint",
 		})
 		vi.mocked(useProviderConfig).mockReturnValue({
-			config: undefined,
+			config: providerConfig({ actSelection: { modelId: "deepseek-chat" } as never }),
 			write,
 			commitSelection,
 		})
@@ -120,7 +120,7 @@ describe("GenericProviderSettings", () => {
 			fingerprint: "fingerprint",
 		})
 		vi.mocked(useProviderConfig).mockReturnValue({
-			config: undefined,
+			config: providerConfig({ actSelection: { modelId: "deepseek-reasoner" } as never }),
 			write: vi.fn(async () => undefined),
 			commitSelection: vi.fn(),
 		})

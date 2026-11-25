@@ -104,7 +104,11 @@ export function useNormalizedApiConfiguration(mode: Mode): NormalizedApiConfig {
 		// or warm; if the response is `unknown`, the catalog truly has no
 		// data and the UI renders a placeholder.
 		void ModelsServiceClient.resolveModelInfo(
-			ResolveModelInfoRequest.create({ providerId: provider, modelId: modelId || undefined }),
+			ResolveModelInfoRequest.create({
+				providerId: provider,
+				modelId: modelId || undefined,
+				mode,
+			}),
 		)
 			.then((response) => {
 				if (!cancelled) {
@@ -119,13 +123,13 @@ export function useNormalizedApiConfiguration(mode: Mode): NormalizedApiConfig {
 		return () => {
 			cancelled = true
 		}
-	}, [provider, modelId])
+	}, [provider, modelId, mode])
 
 	return useMemo(() => {
 		if (!resolvedInfo || resolvedInfo.source === "unknown" || !resolvedInfo.modelInfo) {
 			return {
 				selectedProvider: provider,
-				selectedModelId: resolvedInfo?.modelId || modelId || "",
+				selectedModelId: resolvedInfo ? resolvedInfo.modelId : modelId || "",
 				selectedModelInfo: unknownModelInfo,
 			}
 		}

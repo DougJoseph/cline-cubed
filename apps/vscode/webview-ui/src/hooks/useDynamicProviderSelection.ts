@@ -9,7 +9,7 @@ import { useProviderUsageCostDisplay } from "./useProviderUsageCostDisplay"
  * has committed to its provider-specific slot in `ApiConfiguration`.
  * Dynamic-list providers (openrouter, cline, openai-compatible, ollama,
  * lmstudio, requesty, litellm, hicap, groq, baseten, huggingface,
- * vercel-ai-gateway, aihubmix, oca, huawei-cloud-maas, dify, fireworks,
+ * vercel-ai-gateway, aihubmix, oca, huawei-cloud-maas, fireworks,
  * together, vscode-lm) all store the user's commit in their own
  * provider-named field instead of the common `apiModelId` plus a shared
  * catalog. This hook surfaces those fields uniformly so picker
@@ -19,10 +19,7 @@ import { useProviderUsageCostDisplay } from "./useProviderUsageCostDisplay"
  * `ProviderListing.usage_cost_display` (see `useProviderUsageCostDisplay`)
  * so picker components do not hard-code any per-provider knowledge here.
  *
- * When a provider has not yet been committed (first-time use), the
- * hook falls through to safe defaults so the picker UI renders without
- * undefined-shaped surprises; the real values arrive once the user
- * selects a model from the live picker.
+ * A provider with no committed model reports an empty id and blank details.
  */
 export interface DynamicProviderSelection {
 	selectedModelId: string
@@ -52,7 +49,8 @@ export function useDynamicProviderSelection(
 
 		const resolve = (id: string | undefined, info: ModelInfo | undefined, defaultId = ""): DynamicProviderSelection => ({
 			selectedModelId: id || defaultId,
-			selectedModelInfo: info ?? fallbackInfo,
+			// With no model there are no model details to show.
+			selectedModelInfo: id || defaultId ? (info ?? fallbackInfo) : { supportsPromptCache: false },
 			hideUsageCost,
 		})
 
@@ -100,20 +98,13 @@ export function useDynamicProviderSelection(
 				return resolve(fields.togetherModelId, undefined)
 			case "fireworks":
 				return resolve(fields.fireworksModelId, undefined)
-			case "dify":
-				return {
-					selectedModelId: "dify-workflow",
-					selectedModelInfo: fallbackInfo,
-					hideUsageCost,
-				}
 			case "vscode-lm":
-				return {
-					selectedModelId: fields.vsCodeLmModelSelector
+				return resolve(
+					fields.vsCodeLmModelSelector
 						? `${fields.vsCodeLmModelSelector.vendor}/${fields.vsCodeLmModelSelector.family}`
-						: "",
-					selectedModelInfo: fallbackInfo,
-					hideUsageCost,
-				}
+						: undefined,
+					undefined,
+				)
 			default:
 				return resolve(undefined, undefined)
 		}

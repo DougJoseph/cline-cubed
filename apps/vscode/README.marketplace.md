@@ -8,6 +8,9 @@ Want several Cline chats running at the same time, side by side? **Get Cline Cub
 
 Want them all still there after you reload the window — or reinstall? **Get Cline Cubed!**
 
+Want a longer chat context that remembers more, and never forgets the key context files you say
+matter most? **Get Cline Cubed!**
+
 Want your chats and your files to stop fighting over the same editor space?
 **Get Cline Cubed!**
 
@@ -27,7 +30,9 @@ you ask something else in another. **Keep the workspace tidy** — chats gather 
 a single locked editor group, files open in a group of their own, and edited files leave
 one preview tab instead of a pile. **Come back to it** — after a window reload, or a full
 reinstall, every chat returns with its conversation. **Know when everything happened** —
-every message carries its own timestamp. And a third model channel, **Image Mode**, lets
+every message carries its own timestamp. **Keep its context** — compaction goes by your model's
+real token count, so a long chat holds on to far more, and the files you name are never
+forgotten. And a third model channel, **Image Mode**, lets
 a text-only Plan/Act model understand a pasted image: your vision model describes it, the
 description is bridged in as a collapsible, copyable block, and the reasoning model never
 receives raw image bytes.
@@ -44,13 +49,22 @@ receives raw image bytes.
   and in every copy-and-paste.
 - **Prompt history in the chat box** — `↑` and `↓` walk back through what you typed,
   per chat.
+- **Chats that keep their context** — compaction goes by the token count your model's server
+  really reports, so it happens far less often and keeps far more; and with **Always Remembered
+  Files**, the files your agent must never forget go with every request, where no compaction can
+  remove them.
+- **Settings that show what is sent** — stock Cline's Settings could show a model you never chose
+  and a Temperature that was never sent. Here, a mode with no model says "No model selected" so
+  you can fix it; reasoning effort, Temperature, and output limits are sent exactly as their tabs
+  show them.
 - **Three model channels — Plan, Act, and Image Mode.** Each tab in API Configuration
   keeps its own provider, model, API key, and reasoning effort.
 - **Capability-aware image bridge** — it runs only when the active Plan/Act model is
   non-vision (or unknown); vision-capable models receive the raw image as usual.
 - **One master debug-logging switch** — Settings → General → **Debug logging**, off by
   default, turns on diagnostic output for the whole extension (the image bridge's per-call
-  records among them) in the output channel. Errors and warnings are never gated by it, and a
+  records among them: provider, model, URL, image type and size, auth, and status) in the output
+  channel. Errors and warnings are never gated by it, and a
   failed bridge call still shows its recent calls inline in the chat.
 - **Update notices** — after an update, a notice names the new version and **What's New** opens
   in the chat view with this fork's own notes for that version, shipped inside the extension
@@ -100,7 +114,8 @@ setting (Settings → General, and offered on Get Started):
 The secondary sidebar can house only one chat, at full height, so the two choices come out like this: pick
 **Secondary sidebar** and your first chat docks there while every later one opens as an editor
 tab; pick **Editor area** and nothing docks at all — every chat is an editor tab. The setting
-governs where new chats open; chats you already have open stay where they are. A gear button in the chat input row opens Settings quickly.
+governs where new chats open; chats you already have open stay where they are. A gear button in the chat input row opens Settings quickly,
+restoring the settings affordance stock Cline removed from the VS Code panel.
 
 ## Chats in one group, files in another
 
@@ -200,6 +215,75 @@ draft back before the final one returns you to an empty box, and **↑** from em
 up again. Multi-line editing keeps its arrows — the cycle only engages when the caret is on the
 first line going up, or the last line coming down.
 
+## Chats that keep their context
+
+When a long conversation fills the context window, older messages get summarized. That is
+compaction, and it is where a chat loses context. Cline Cubed changes it in two ways: you can now
+choose files as "Always Remembered" so they're never compacted at all, and compaction itself
+happens far less often and keeps far more.
+
+### Files your agent never forgets
+
+A file your agent read an hour ago can shrink to almost nothing. **Settings → Features → Always Remembered Files**
+is the answer: the files you list go with every request, whole, so no compaction can touch them. It
+is the place for a work contract, project rules, or anything else that must stay in force.
+
+You don't need to list files Cline already loads as rules, because compaction doesn't remove those
+either: `AGENTS.md`, `.clinerules`, and `.cline/rules/` in your workspace, plus `~/.agents/AGENTS.md`,
+`~/.cline/rules/`, and `~/Documents/Cline/Rules/`. In those folders, only `.md`, `.markdown`, and `.txt`
+files directly inside the folder load. Settings shows these locations. Files from other tools, such as
+a `CLAUDE.md`, are not loaded automatically, so add them to the list.
+
+Add a file with **Add File**, or type or paste its path and press Enter, which is the easy way to reach
+a hidden folder. The X removes a file from the list without touching the file itself, and the arrows
+set the order. There is no Save button: changes apply from your next message, an edited file is picked
+up the same way, and each install keeps its own list.
+
+Remembered files use context on every request, so Settings shows each file's size and the total's
+share of your model's context window. A listed file that goes missing is reported in Settings and in
+the chat, and the agent is told it could not be loaded. Secrets files such as `.env` are refused, and
+if the active model is not on your own machine or local network, you are warned that these files are
+being sent to that remote endpoint on every request.
+
+### Compaction only when it is needed
+
+Stock Cline decided when to compact from a rough estimate of the conversation's size. That estimate
+ran well above the real number, so a chat could lose most of its context with much of its window
+still unused, and a few pasted screenshots could force a compaction on a nearly empty window. Cline
+Cubed goes by the token count your model's server actually reports, and does not count image data
+as text. When a compaction does happen, a quarter of the usable window is kept word for word on a
+large context window. The room left for a reply is measured the same way, so a long conversation no
+longer squeezes it.
+
+### Images past the limit are sent as short descriptions
+
+Stock Cline sent every image in a chat again with every message, and once a chat's images filled the
+8 MB image limit, new images were replaced with a placeholder and nothing told you. Images still go
+with every message, but when they don't fit the limits, the newest are kept as pictures and the
+oldest are sent as short saved descriptions, written once by your Image Mode model or your main
+model. Every image stays saved with the chat on your computer, so the model can ask to see any of
+them as a picture again, and both the chat and the model are told why an image is a description. A
+new setting, Earlier images, can instead send an image as a picture only with the message it came
+with and as its description after that, which uses less context. The setting, the limits, and which
+model describes images first are in Settings → Features → Images sent to the model.
+
+## Settings shows what is sent
+
+In stock Cline, a tab with no model of its own displayed a default or another mode's model, and a
+chat could send a model you never chose. Plan and Act each showed their own reasoning effort while
+every chat sent one shared value. Temperature showed 0 when nothing was set, and none was sent.
+
+In Cline Cubed, the Plan, Act, and Image tabs show what each mode really sends. A mode with no model
+says "No model selected" so you can fix it. Each mode sends the reasoning effort on its own tab. If
+Settings can't load, it says so and offers Retry instead of showing your API key and Base URL as
+empty.
+
+Temperature controls how predictable the model's replies are. At 0 it nearly always picks its most
+likely next word, so answers are focused and repeatable, which suits coding. Higher values make
+replies more varied and less predictable. Most providers accept values from 0 to 2, and around 1 is
+a common default. Leave the box blank and no temperature is sent, so your server's default applies;
+a value you type is stored and sent.
+
 ## It knows what it is
 
 Ask Cline Cubed what it is and it can tell you: the fork's name, its Marketplace listing, and its
@@ -217,8 +301,11 @@ feature that needs a model of its own:
 2. Choose a vision-capable **model** — DeepSeek's `deepseek-v4-flash-vision-exp`, for
    instance, or a vision model from OpenAI, OpenRouter, or Gemini — and enter that
    provider's API key.
-3. Paste an image into the chat — the bridge describes it and feeds the text
-   description to your Plan/Act model.
+3. Set **Max Output Tokens** on the same tab. A reasoning vision model spends output tokens
+   thinking before it writes its description, so give it room. Left blank, no limit is sent.
+4. Paste, drop, or pick an image — the bridge describes it and feeds the text description to your
+   Plan/Act model. BMP, GIF, ICO, SVG, and similar formats are converted to PNG; on macOS, HEIC,
+   TIFF, and PSD are converted too. An image that can't be attached is named in the chat.
 
 **The pairing this fork is developed and tested against:** `deepseek-reasoner` for Plan and Act,
 which cannot see images, with `deepseek-v4-flash-vision-exp` as the Image Mode model. That is the

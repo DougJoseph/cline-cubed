@@ -101,6 +101,11 @@ export async function getStateToPostToWebview(controller: {
 	const debugLoggingEnabled = stateManager.getGlobalSettingsKey("debugLoggingEnabled")
 	// Cline Cubed: name a new chat from its first prompt (Settings -> General).
 	const autoNameChats = stateManager.getGlobalSettingsKey("autoNameChats")
+	const imagesTotalLimitMb = stateManager.getGlobalSettingsKey("imagesTotalLimitMb")
+	const imagesPerImageLimitMb = stateManager.getGlobalSettingsKey("imagesPerImageLimitMb")
+	const imagesPerImageDecodedLimitMb = stateManager.getGlobalSettingsKey("imagesPerImageDecodedLimitMb")
+	const imageDescriber = stateManager.getGlobalSettingsKey("imageDescriber")
+	const earlierImages = stateManager.getGlobalSettingsKey("earlierImages")
 	const globalClineRulesToggles = stateManager.getGlobalStateKey("globalClineRulesToggles")
 	const globalWorkflowToggles = stateManager.getGlobalStateKey("globalWorkflowToggles")
 	const globalSkillsToggles = stateManager.getGlobalStateKey("globalSkillsToggles")
@@ -193,6 +198,11 @@ export async function getStateToPostToWebview(controller: {
 		// Cline Cubed: master debug logging + the inline bridge debug panel's data.
 		debugLoggingEnabled,
 		autoNameChats,
+		imagesTotalLimitMb,
+		imagesPerImageLimitMb,
+		imagesPerImageDecodedLimitMb,
+		imageDescriber,
+		earlierImages,
 		imageBridgeDebug: getBridgeDebugRuns(),
 		platform,
 		environment,

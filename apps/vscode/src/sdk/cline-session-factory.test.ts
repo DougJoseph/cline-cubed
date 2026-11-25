@@ -341,6 +341,26 @@ describe("normalizeProviderReasoningSettings", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildSessionConfig", () => {
+	it("never substitutes a catalog model for an OpenAI Compatible mode with no model", async () => {
+		mocks.stateManager.getApiConfiguration.mockReturnValue({
+			planModeApiProvider: "openai",
+			actModeApiProvider: "openai",
+			actModeOpenAiModelId: "local-model",
+			openAiApiKey: "local-key",
+			openAiBaseUrl: "http://localhost:8000/v1",
+		} as any)
+		mocks.providerSettingsManager.getProviderSettings.mockReturnValue({
+			provider: "openai-compatible",
+			model: "local-model",
+		} as any)
+
+		const plan = await buildSessionConfig({ cwd: "/tmp/workspace", mode: "plan" })
+		const act = await buildSessionConfig({ cwd: "/tmp/workspace", mode: "act" })
+
+		expect(plan.modelId).toBe("")
+		expect(act.modelId).toBe("local-model")
+	})
+
 	it("resolves Cline OAuth credentials after defaulting to the Cline provider", async () => {
 		mocks.stateManager.getApiConfiguration.mockReturnValue({} as any)
 		mocks.providerSettingsManager.getProviderSettings.mockReturnValue({
@@ -414,6 +434,147 @@ describe("buildSessionConfig", () => {
 
 		expect(resolveApiKey("openai", {} as any)).toBe("migrated-openai-compatible-key")
 		expect(mocks.providerSettingsManager.getProviderSettings).toHaveBeenCalledWith("openai-compatible")
+	})
+
+	describe("reasoning effort is the mode's own", () => {
+		const base = {
+			planModeApiProvider: "deepseek",
+			actModeApiProvider: "deepseek",
+			planModeApiModelId: "deepseek-v4-flash",
+			actModeApiModelId: "deepseek-v4-flash",
+			deepSeekApiKey: "key",
+		}
+		const withProviderWide = (reasoning: unknown) =>
+			mocks.providerSettingsManager.getProviderSettings.mockImplementation(((id?: string) =>
+				id === "deepseek" ? { provider: "deepseek", reasoning } : undefined) as never)
+
+		it("sends each mode the effort its own tab shows, not the provider-wide one", async () => {
+			mocks.stateManager.getApiConfiguration.mockReturnValue({
+				...base,
+				planModeReasoningEffort: "xhigh",
+				actModeReasoningEffort: "low",
+			} as any)
+			withProviderWide({ enabled: true, effort: "medium" })
+
+			const plan = await buildSessionConfig({ cwd: "/tmp/workspace", mode: "plan" })
+			const act = await buildSessionConfig({ cwd: "/tmp/workspace", mode: "act" })
+
+			expect(plan).toMatchObject({ thinking: true, reasoningEffort: "xhigh" })
+			expect(act).toMatchObject({ thinking: true, reasoningEffort: "low" })
+		})
+
+		it("sends nothing for a mode with no effort stored, whatever the provider-wide value is", async () => {
+			mocks.stateManager.getApiConfiguration.mockReturnValue(base as any)
+			withProviderWide({ enabled: true, effort: "high" })
+
+			const act = await buildSessionConfig({ cwd: "/tmp/workspace", mode: "act" })
+
+			expect(act).not.toHaveProperty("reasoningEffort")
+			expect(act).not.toHaveProperty("thinking")
+			// Present but empty, so the SDK cannot fill them from the provider-wide value.
+			expect(Object.hasOwn(act.providerConfig as object, "reasoningEffort")).toBe(true)
+			expect(act.providerConfig).toMatchObject({
+				reasoningEffort: undefined,
+				thinking: undefined,
+				thinkingBudgetTokens: undefined,
+			})
+		})
+
+		it("turns thinking off for none", async () => {
+			mocks.stateManager.getApiConfiguration.mockReturnValue({ ...base, actModeReasoningEffort: "none" } as any)
+
+			const act = await buildSessionConfig({ cwd: "/tmp/workspace", mode: "act" })
+
+			expect(act.thinking).toBe(false)
+			expect(act).not.toHaveProperty("reasoningEffort")
+		})
+
+		it("maps a stored thinking budget when no effort is stored", async () => {
+			mocks.stateManager.getApiConfiguration.mockReturnValue({ ...base, actModeThinkingBudgetTokens: 6000 } as any)
+
+			const act = await buildSessionConfig({ cwd: "/tmp/workspace", mode: "act" })
+
+			expect(act).toMatchObject({ thinking: true, reasoningEffort: "medium" })
+		})
+
+		it("sends nothing when the model does not support reasoning", async () => {
+			mocks.stateManager.getApiConfiguration.mockReturnValue({
+				actModeApiProvider: "deepseek",
+				actModeApiModelId: "a-model-no-catalog-lists",
+				deepSeekApiKey: "key",
+				actModeReasoningEffort: "high",
+			} as any)
+
+			const act = await buildSessionConfig({ cwd: "/tmp/workspace", mode: "act" })
+
+			expect(act).not.toHaveProperty("reasoningEffort")
+		})
+
+		it("always sends the effort on OpenAI Compatible, whose tab always shows the selector", async () => {
+			mocks.stateManager.getApiConfiguration.mockReturnValue({
+				actModeApiProvider: "openai",
+				actModeOpenAiModelId: "local-model",
+				openAiApiKey: "key",
+				openAiBaseUrl: "http://127.0.0.1:9/v1",
+				actModeReasoningEffort: "low",
+			} as any)
+
+			const act = await buildSessionConfig({ cwd: "/tmp/workspace", mode: "act" })
+
+			expect(act).toMatchObject({ thinking: true, reasoningEffort: "low" })
+		})
+	})
+
+	it("passes the Claude Code CLI path Settings shows to the runtime", async () => {
+		mocks.stateManager.getApiConfiguration.mockReturnValue({
+			actModeApiProvider: "claude-code",
+			actModeApiModelId: "sonnet",
+			claudeCodePath: "  /opt/tools/claude  ",
+		} as any)
+
+		const config = await buildSessionConfig({ cwd: "/tmp/workspace" })
+
+		expect((config.providerConfig as any).claudeCode).toEqual({
+			defaultSettings: { pathToClaudeCodeExecutable: "/opt/tools/claude" },
+		})
+	})
+
+	it("passes no Claude Code path when none is set", async () => {
+		mocks.stateManager.getApiConfiguration.mockReturnValue({
+			actModeApiProvider: "claude-code",
+			actModeApiModelId: "sonnet",
+		} as any)
+
+		const config = await buildSessionConfig({ cwd: "/tmp/workspace" })
+
+		expect(config.providerConfig).not.toHaveProperty("claudeCode")
+	})
+
+	it("passes the Azure API version Settings shows to the runtime", async () => {
+		mocks.stateManager.getApiConfiguration.mockReturnValue({
+			actModeApiProvider: "openai",
+			actModeOpenAiModelId: "my-deployment",
+			openAiApiKey: "key",
+			openAiBaseUrl: "https://example.openai.azure.com/openai/deployments/my-deployment",
+			azureApiVersion: "2099-01-01-test",
+		} as any)
+
+		const config = await buildSessionConfig({ cwd: "/tmp/workspace" })
+
+		expect((config.providerConfig as any).azure).toEqual({ apiVersion: "2099-01-01-test" })
+	})
+
+	it("passes no Azure options when no API version is set", async () => {
+		mocks.stateManager.getApiConfiguration.mockReturnValue({
+			actModeApiProvider: "openai",
+			actModeOpenAiModelId: "local-model",
+			openAiApiKey: "key",
+			openAiBaseUrl: "http://127.0.0.1:9/v1",
+		} as any)
+
+		const config = await buildSessionConfig({ cwd: "/tmp/workspace" })
+
+		expect(config.providerConfig).not.toHaveProperty("azure")
 	})
 
 	it("resolves the OpenAI Compatible base URL when the provider is stored under its SDK spelling", async () => {

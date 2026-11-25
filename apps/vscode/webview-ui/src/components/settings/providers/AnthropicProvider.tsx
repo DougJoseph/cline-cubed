@@ -43,7 +43,6 @@ export const AnthropicProvider = ({ showModelOptions, isPopup, currentMode }: An
 	} = useStaticProviderSelection(PROVIDER_ID, apiConfiguration, currentMode)
 	const { selectedModelId, selectedModelInfo, commitModelSelection } = useProviderModelSelection(PROVIDER_ID, currentMode, {
 		models,
-		defaultModelId: defaultModelId || legacySelectedModelId,
 		config,
 		commitSelection,
 		fallbackModelInfo: legacySelectedModelInfo,

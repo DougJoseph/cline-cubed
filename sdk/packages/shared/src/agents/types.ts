@@ -26,7 +26,7 @@ import type {
 	PluginSetupContext,
 } from "../extensions/contribution-registry";
 import type { HookControl } from "../hooks/contracts";
-import type { GeneratedMedia } from "../llms/media";
+import type { GeneratedMedia, MediaBudgetOptions } from "../llms/media";
 import type { Message, MessageWithMetadata } from "../llms/messages";
 import type { ModelInfo } from "../llms/model-info";
 import { ModelInfoSchema } from "../llms/model-info";
@@ -756,6 +756,11 @@ export interface AgentConfig {
 	 */
 	temperature?: number;
 	/**
+	 * Size limits for the images sent raw in one request. Omitted fields keep
+	 * the defaults in `media.ts`.
+	 */
+	mediaBudget?: MediaBudgetOptions;
+	/**
 	 * Timeout for each API call in milliseconds
 	 * @default 180000 (3 minutes)
 	 */
@@ -933,6 +938,13 @@ export const AgentConfigSchema = z.object({
 	maxParallelToolCalls: z.number().int().positive().default(8),
 	maxTokensPerTurn: z.number().positive().optional(),
 	temperature: z.number().nonnegative().optional(),
+	mediaBudget: z
+		.object({
+			maxImageEncodedBytes: z.number().positive().optional(),
+			maxImageDecodedBytes: z.number().positive().optional(),
+			maxTotalMediaBytes: z.number().positive().optional(),
+		})
+		.optional(),
 	apiTimeoutMs: z.number().positive().default(180000),
 	userFileContentLoader: z
 		.function()

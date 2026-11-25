@@ -104,4 +104,53 @@ describe("ActionButtons", () => {
 		expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled()
 		expect(screen.getByRole("button", { name: "Reject" })).not.toBeDisabled()
 	})
+
+	// Cline Cubed: Send locks when a message is sent, and only this component unlocks it. A turn
+	// that finishes before its streaming phase is drawn goes from one finished state to the next with
+	// the same shared button config, so the unlock must follow the turn state's sequence number too.
+	const finishedTurn = (seq: number) => ({ phase: "completed", anchorTs: 1, seq }) as unknown as TurnState
+	const completion: ClineMessage = { ts: 1, type: "say", say: "completion_result", text: "Done.", partial: false }
+
+	it("unlocks Send when a new finished turn state arrives with the same button config", () => {
+		const chatState = makeChatState()
+		const props = {
+			task: completion,
+			chatState,
+			messageHandlers: { executeButtonAction: vi.fn() } as unknown as MessageHandlers,
+			mode: "act" as const,
+			messages: [completion],
+		}
+		mockTurnState.mockReturnValue(finishedTurn(1))
+		const { rerender } = render(<ActionButtons {...props} />)
+		const setSendingDisabled = chatState.setSendingDisabled as ReturnType<typeof vi.fn>
+		const callsAfterFirstTurn = setSendingDisabled.mock.calls.length
+
+		// The next turn finished before its streaming phase was drawn.
+		mockTurnState.mockReturnValue(finishedTurn(2))
+		rerender(<ActionButtons {...props} />)
+
+		expect(setSendingDisabled.mock.calls.length).toBe(callsAfterFirstTurn + 1)
+		expect(setSendingDisabled).toHaveBeenLastCalledWith(false)
+	})
+
+	it("does not touch the Send lock on a redraw of the same turn state", () => {
+		const chatState = makeChatState()
+		const props = {
+			task: completion,
+			chatState,
+			messageHandlers: { executeButtonAction: vi.fn() } as unknown as MessageHandlers,
+			mode: "act" as const,
+			messages: [completion],
+		}
+		mockTurnState.mockReturnValue(finishedTurn(1))
+		const { rerender } = render(<ActionButtons {...props} />)
+		const setSendingDisabled = chatState.setSendingDisabled as ReturnType<typeof vi.fn>
+		const callsAfterFirstTurn = setSendingDisabled.mock.calls.length
+
+		// A new copy of the same state (same seq), as a redraw would pass.
+		mockTurnState.mockReturnValue(finishedTurn(1))
+		rerender(<ActionButtons {...props} />)
+
+		expect(setSendingDisabled.mock.calls.length).toBe(callsAfterFirstTurn)
+	})
 })

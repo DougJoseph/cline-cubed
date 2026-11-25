@@ -1297,6 +1297,16 @@ export class AgentRuntime {
 					await this.updateUsage(event.usage);
 					break;
 				}
+				case "notice": {
+					// Cline Cubed: a provider's notice, such as images its checks left out.
+					await this.emit({
+						type: "status-notice",
+						snapshot: this.snapshot(),
+						message: event.message,
+						...(event.metadata ? { metadata: event.metadata } : {}),
+					});
+					break;
+				}
 				case "finish": {
 					finishReason = event.reason;
 					if (event.error) {

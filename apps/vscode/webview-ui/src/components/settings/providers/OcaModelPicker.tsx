@@ -147,6 +147,7 @@ const OcaModelPicker: React.FC<OcaModelPickerProps> = ({
 					}}
 					style={{ position: "relative", zIndex: 100 }}
 					value={selectedModelId || ""}>
+					{!selectedModelId && <VSCodeOption value="">No model selected</VSCodeOption>}
 					{modelIds?.map((modelId) => (
 						<VSCodeOption
 							key={modelId}

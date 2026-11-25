@@ -7,6 +7,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import Section from "../Section"
 import { updateSetting } from "../utils/settingsHandlers"
+import AlwaysRememberedFilesSection from "./AlwaysRememberedFilesSection"
+import ImagesSentToModelSection from "./ImagesSentToModelSection"
 
 // Reusable checkbox component for feature settings
 interface FeatureCheckboxProps {
@@ -209,6 +211,8 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 								label="Web Search"
 								onChange={(checked) => updateSetting("webSearchEnabled", checked)}
 							/>
+							<AlwaysRememberedFilesSection />
+							<ImagesSentToModelSection />
 						</div>
 					</div>
 

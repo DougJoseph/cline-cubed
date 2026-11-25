@@ -12,6 +12,7 @@ import type { VscodeTerminalManager } from "@/hosts/vscode/terminal/VscodeTermin
 import { McpHub } from "@/services/mcp/McpHub"
 import { Logger } from "@/shared/services/Logger"
 import type { ActiveSession } from "./cline-session-factory"
+import { MissingModelError, NO_MODEL_SELECTED_ID, readStoredModeModelId } from "./model-catalog/stored-mode-model"
 import type { SdkForegroundCommandCoordinator } from "./sdk-foreground-command-coordinator"
 import { buildToolPolicies } from "./sdk-tool-policies"
 import type { SdkSessionHost } from "./session-host"
@@ -489,6 +490,35 @@ export class SdkSessionLifecycle {
 		// Chats run side by side, so the focused session is unrelated to where this send belongs;
 		// comparing against it would discard the completion callbacks of every background chat.
 		const sessionAtSend = this.sessions.get(sessionId)
+		// A chat with no model still opens, but it cannot send. If a model has been chosen
+		// since it started, adopt it; otherwise stop before any request and tell that chat why.
+		const startConfig = sessionAtSend?.startConfig
+		if (startConfig?.modelId === NO_MODEL_SELECTED_ID) {
+			const stateManager = StateManager.get()
+			const mode = stateManager.getGlobalSettingsKey("mode") === "plan" ? "plan" : "act"
+			const chosenModelId = startConfig.providerId
+				? readStoredModeModelId(stateManager.getApiConfiguration(), startConfig.providerId, mode)
+				: undefined
+			if (chosenModelId && sdkHost.updateSessionModel) {
+				void sdkHost
+					.updateSessionModel(sessionId, chosenModelId)
+					.then(() => {
+						startConfig.modelId = chosenModelId
+						this.fireAndForgetSend(sdkHost, sessionId, prompt, images, files, delivery)
+					})
+					.catch(async (error: unknown) => {
+						Logger.error("[SdkController] Failed to apply the selected model:", error)
+						this.setRunning(false, sessionId)
+						await this.options.onSendError(error, sessionId)
+					})
+				return
+			}
+			this.setRunning(false, sessionId)
+			void Promise.resolve(
+				this.options.onSendError(new MissingModelError(mode === "plan" ? "Plan" : "Act"), sessionId),
+			).catch((error) => Logger.error("[SdkController] Failed to report the missing model:", error))
+			return
+		}
 		const isSuperseded = (label: string): boolean => {
 			// A send is superseded only when ITS OWN session was stopped or replaced.
 			if (this.sessions.get(sessionId) === sessionAtSend) {

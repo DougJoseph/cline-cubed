@@ -19,6 +19,8 @@ export default defineConfig({
 			"src/shared/services/Logger.test.ts",
 			"src/shared/storage/ClineFileStorage.test.ts",
 			"src/shared/vsCodeSelectorUtils.test.ts",
+			"src/shared/image-format.test.ts",
+			"src/integrations/misc/convert-image.test.ts",
 			"src/shared/proto-conversions/models/**/*.test.ts",
 			"src/core/storage/remote-config/**/*.test.ts",
 			"src/core/controller/account/setUserOrganization.test.ts",

@@ -39,9 +39,27 @@ export async function resolveModelInfo(
 	request: ResolveModelInfoRequest,
 ): Promise<ResolveModelInfoResponse> {
 	const providerId = parseProviderIdRequest(request.providerId)
-	const requestedModelId = request.modelId?.trim() || ""
+	let requestedModelId = request.modelId?.trim() || ""
 
 	const store = controller.getProviderConfigStore()
+	// A request that names a mode is answered from that mode's own selection, so a
+	// value another provider left in a shared slot is never reported as chosen.
+	if (request.mode === "plan" || request.mode === "act" || request.mode === "image") {
+		const selection = store.readSelection(providerId, request.mode)
+		if (!selection) {
+			return ResolveModelInfoResponse.create({ providerId, modelId: "", source: "unknown" })
+		}
+		if (selection.modelInfoSource !== "fallback" || selection.overrides) {
+			return ResolveModelInfoResponse.create({
+				providerId,
+				modelId: selection.modelId,
+				modelInfo: toProtobufModelInfo(selection.modelInfo),
+				source: "committed-selection",
+			})
+		}
+		// Fallback-grade details: let the live catalog below improve them.
+		requestedModelId = selection.modelId
+	}
 	// A committed selection whose metadata is pure fallback fabrication (no
 	// catalog/state base and no user overrides) must not shadow the live
 	// catalog below; it is kept only as a last resort before "unknown".

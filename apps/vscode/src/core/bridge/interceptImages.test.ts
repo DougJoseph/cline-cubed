@@ -221,11 +221,94 @@ describe("interceptImagesForNonVisionModel — the capability gate", () => {
 			mode: "act",
 		})
 		expect(bridgeImage).not.toHaveBeenCalled()
-		expect(noImageModel.images).toEqual([PNG])
+		// The active model cannot see images and no Image Mode model is set: the image is not sent,
+		// and the text tells the model an image could not be read.
+		expect(noImageModel.images).toEqual([])
+		expect(noImageModel.text).toContain("could not be read")
+	})
+
+	it("keeps the image when no Image Mode model is set and the active model's capability is unknown", async () => {
+		const { interceptImagesForNonVisionModel } = await import("./interceptImages")
+		const result = await interceptImagesForNonVisionModel({
+			text: "hello",
+			images: [PNG],
+			apiConfiguration: configuration({ imageModeApiProvider: undefined, imageModeApiModelId: undefined }),
+			providerConfigStore: makeStore({ "anthropic:act": { modelId: "unknown-model" } }),
+			mode: "act",
+		})
+		expect(result.images).toEqual([PNG])
 	})
 })
 
 describe("interceptImagesForNonVisionModel — provider-scoped credentials", () => {
+	it("says the image can't be read when the active model cannot see it and Image Mode has no model", async () => {
+		const { interceptImagesForNonVisionModel } = await import("./interceptImages")
+		const { recordBridgeDebug } = await import("./bridgeDebug")
+		vi.mocked(recordBridgeDebug).mockClear()
+
+		await interceptImagesForNonVisionModel({
+			text: "look",
+			images: [PNG],
+			mode: "act",
+			apiConfiguration: configuration({ imageModeApiModelId: undefined }),
+			providerConfigStore: makeStore({ "anthropic:act": { modelId: "claude-sonnet-4.5", supportsImages: false } }),
+		})
+
+		expect(recordBridgeDebug).toHaveBeenCalledWith(
+			expect.stringContaining(
+				"This image can't be read: the selected model can't see images and no Image Mode model is set. Choose one in Settings → API Configuration → Image Mode.",
+			),
+			true,
+			false,
+		)
+	})
+
+	it("does not report a missing Image Mode model when the active model can read the image", async () => {
+		const { interceptImagesForNonVisionModel } = await import("./interceptImages")
+		const { recordBridgeDebug } = await import("./bridgeDebug")
+		vi.mocked(recordBridgeDebug).mockClear()
+
+		await interceptImagesForNonVisionModel({
+			text: "look",
+			images: [PNG],
+			mode: "act",
+			apiConfiguration: configuration({ imageModeApiModelId: undefined }),
+			providerConfigStore: makeStore({ "anthropic:act": { modelId: "claude-sonnet-4.5", supportsImages: true } }),
+		})
+
+		expect(recordBridgeDebug).not.toHaveBeenCalledWith(expect.anything(), true, expect.anything())
+	})
+
+	it("passes the Image Mode model's own output limit to the bridge", async () => {
+		const { interceptImagesForNonVisionModel } = await import("./interceptImages")
+		bridgeImage.mockReset()
+		bridgeImage.mockResolvedValue("described")
+		const store = makeStore({ "anthropic:act": { modelId: "claude-sonnet-4.5", supportsImages: false } })
+		vi.mocked(store.readSelection).mockImplementation((providerId: unknown, mode: unknown) =>
+			String(providerId) === "deepseek" && mode === "image"
+				? ({
+						providerId,
+						modelId: "deepseek-v4-flash-vision-exp",
+						modelInfo: { supportsPromptCache: false, maxTokens: 54_321 },
+					} as never)
+				: ({
+						providerId,
+						modelId: "claude-sonnet-4.5",
+						modelInfo: { supportsPromptCache: false, supportsImages: false },
+					} as never),
+		)
+
+		await interceptImagesForNonVisionModel({
+			text: "look",
+			images: [PNG],
+			mode: "act",
+			apiConfiguration: configuration(),
+			providerConfigStore: store,
+		})
+
+		expect(bridgeImage).toHaveBeenCalledWith(expect.objectContaining({ maxTokens: 54_321 }))
+	})
+
 	it("takes the key and base URL from the IMAGE provider, not the Plan/Act one", async () => {
 		const { interceptImagesForNonVisionModel } = await import("./interceptImages")
 		const store = makeStore(

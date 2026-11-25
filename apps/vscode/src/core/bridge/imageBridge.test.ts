@@ -55,6 +55,38 @@ describe("bridgeImage — a 200 with no description says why", () => {
 		})
 	})
 
+	it("sends the limit it is given", async () => {
+		const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+			jsonResponse({ choices: [{ message: { content: "ok" } }] }),
+		)
+		await mockFetchForTesting(fetchMock as never, () => callBridge({ maxTokens: 123_456 }))
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).max_tokens).toBe(123_456)
+	})
+
+	it("sends the prompt it is given instead of the Image Mode prompt", async () => {
+		const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+			jsonResponse({ choices: [{ message: { content: "ok" } }] }),
+		)
+		await mockFetchForTesting(fetchMock as never, () => callBridge({ prompt: "SHORT PROMPT" }))
+		const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).messages[0].content[0].text
+		expect(sent).toBe("SHORT PROMPT")
+	})
+
+	it("sends no limit when none is known", async () => {
+		const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+			jsonResponse({ choices: [{ message: { content: "ok" } }] }),
+		)
+		await mockFetchForTesting(fetchMock as never, () => callBridge())
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).not.toHaveProperty("max_tokens")
+	})
+
+	it("names the limit it actually sent when the model runs out", async () => {
+		const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" }, finish_reason: "length" }] }))
+		await mockFetchForTesting(fetchMock, async () => {
+			await expect(callBridge({ maxTokens: 9_000 })).rejects.toThrow("max_tokens 9000")
+		})
+	})
+
 	it("quotes the raw body when a non-OK request fails", async () => {
 		const fetchMock = vi.fn(async () => new Response("rate limited", { status: 429 }))
 		await mockFetchForTesting(fetchMock, async () => {

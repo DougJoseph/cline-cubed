@@ -1,4 +1,5 @@
 import { mentionRegex, mentionRegexGlobal } from "@shared/context-mentions"
+import { hasImageExtension } from "@shared/image-format"
 import { StringRequest } from "@shared/proto/cline/common"
 import { FileSearchRequest, FileSearchType, RelativePathsRequest } from "@shared/proto/cline/file"
 import { PlanActMode, TogglePlanActModeRequest } from "@shared/proto/cline/state"
@@ -32,6 +33,7 @@ import {
 	shouldShowContextMenu,
 } from "@/utils/context-mentions"
 import { useMetaKeyDetection, useShortcut } from "@/utils/hooks"
+import { intakeFiles, pickImageFiles, reportImageIntakeNotices } from "@/utils/imageIntake"
 import { isSafari } from "@/utils/platformUtils"
 import {
 	getMatchingSlashCommands,
@@ -44,27 +46,10 @@ import {
 } from "@/utils/slash-commands"
 import ClineRulesToggleModal from "../cline-rules/ClineRulesToggleModal"
 import { getModeToggleDraftAction } from "./chat-textarea-mode-toggle"
+import { ImageIntakeNotices } from "./ImageIntakeNotices"
 import ServersToggleModal from "./ServersToggleModal"
 
 const { MAX_IMAGES_AND_FILES_PER_MESSAGE } = CHAT_CONSTANTS
-
-const getImageDimensions = (dataUrl: string): Promise<{ width: number; height: number }> => {
-	return new Promise((resolve, reject) => {
-		const img = new Image()
-		img.onload = () => {
-			if (img.naturalWidth > 7500 || img.naturalHeight > 7500) {
-				reject(new Error("Image dimensions exceed maximum allowed size of 7500px."))
-			} else {
-				resolve({ width: img.naturalWidth, height: img.naturalHeight })
-			}
-		}
-		img.onerror = (err) => {
-			console.error("Failed to load image for dimension check:", err)
-			reject(new Error("Failed to load image to check dimensions."))
-		}
-		img.src = dataUrl
-	})
-}
 
 // Set to "File" option by default
 const DEFAULT_CONTEXT_MENU_OPTION = getContextMenuOptionIndex(ContextMenuOptionType.File)
@@ -270,8 +255,6 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		const _shiftHoldTimerRef = useRef<NodeJS.Timeout | null>(null)
 		const [showUnsupportedFileError, setShowUnsupportedFileError] = useState(false)
 		const unsupportedFileTimerRef = useRef<NodeJS.Timeout | null>(null)
-		const [showDimensionError, setShowDimensionError] = useState(false)
-		const dimensionErrorTimerRef = useRef<NodeJS.Timeout | null>(null)
 
 		const [fileSearchResults, setFileSearchResults] = useState<SearchResult[]>([])
 		const [searchLoading, setSearchLoading] = useState(false)
@@ -941,16 +924,21 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			onFocusChange?.(false) // Call prop on blur
 		}, [isMouseDownOnMenu, onFocusChange])
 
-		const showDimensionErrorMessage = useCallback(() => {
-			setShowDimensionError(true)
-			if (dimensionErrorTimerRef.current) {
-				clearTimeout(dimensionErrorTimerRef.current)
-			}
-			dimensionErrorTimerRef.current = setTimeout(() => {
-				setShowDimensionError(false)
-				dimensionErrorTimerRef.current = null
-			}, 3000)
-		}, [])
+		const attachImageFiles = useCallback(
+			async (files: File[]) => {
+				const availableSlots = MAX_IMAGES_AND_FILES_PER_MESSAGE - selectedImages.length - selectedFiles.length
+				const accepted = files.slice(0, Math.max(availableSlots, 0))
+				const { images, notices } = await intakeFiles(accepted)
+				const skipped = files
+					.slice(accepted.length)
+					.map((file) => `Couldn't attach ${file.name || "image"}: this message already has the maximum attachments.`)
+				reportImageIntakeNotices([...notices, ...skipped])
+				if (images.length > 0) {
+					setSelectedImages((previous) => [...previous, ...images])
+				}
+			},
+			[selectedFiles.length, selectedImages.length, setSelectedImages],
+		)
 
 		const handlePaste = useCallback(
 			async (e: React.ClipboardEvent) => {
@@ -982,70 +970,25 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					return
 				}
 
-				const acceptedTypes = ["png", "jpeg", "webp"] // supported by anthropic and openrouter (jpg is just a file extension but the image will be recognized as jpeg)
-				const imageItems = Array.from(items).filter((item) => {
-					const [type, subtype] = item.type.split("/")
-					return type === "image" && acceptedTypes.includes(subtype)
-				})
-				if (!shouldDisableFilesAndImages && imageItems.length > 0) {
+				const pastedFiles = Array.from(items)
+					.filter((item) => item.kind === "file")
+					.map((item) => item.getAsFile())
+					.filter((file): file is File => file !== null)
+				const imageFiles = pickImageFiles(pastedFiles)
+				if (imageFiles.length > 0) {
+					// Without this, the default paste would insert only the file's name.
 					e.preventDefault()
-					const imagePromises = imageItems.map((item) => {
-						return new Promise<string | null>((resolve) => {
-							const blob = item.getAsFile()
-							if (!blob) {
-								resolve(null)
-								return
-							}
-							const reader = new FileReader()
-							reader.onloadend = async () => {
-								if (reader.error) {
-									console.error("Error reading file:", reader.error)
-									resolve(null)
-								} else {
-									const result = reader.result
-									if (typeof result === "string") {
-										try {
-											await getImageDimensions(result)
-											resolve(result)
-										} catch (error) {
-											console.warn((error as Error).message)
-											showDimensionErrorMessage()
-											resolve(null)
-										}
-									} else {
-										resolve(null)
-									}
-								}
-							}
-							reader.readAsDataURL(blob)
-						})
-					})
-					const imageDataArray = await Promise.all(imagePromises)
-					const dataUrls = imageDataArray.filter((dataUrl): dataUrl is string => dataUrl !== null)
-					//.map((dataUrl) => dataUrl.split(",")[1]) // strip the mime type prefix, sharp doesn't need it
-					if (dataUrls.length > 0) {
-						const filesAndImagesLength = selectedImages.length + selectedFiles.length
-						const availableSlots = MAX_IMAGES_AND_FILES_PER_MESSAGE - filesAndImagesLength
-
-						if (availableSlots > 0) {
-							const imagesToAdd = Math.min(dataUrls.length, availableSlots)
-							setSelectedImages((prevImages) => [...prevImages, ...dataUrls.slice(0, imagesToAdd)])
-						}
-					} else {
-						console.warn("No valid images were processed")
-					}
+					await attachImageFiles(imageFiles)
+					return
+				}
+				const pastedName = pastedText.trim()
+				if (!pastedName.includes("\n") && hasImageExtension(pastedName)) {
+					reportImageIntakeNotices([
+						`Only the name ${pastedName} was pasted, so the image itself was not attached. Use the + button to attach it.`,
+					])
 				}
 			},
-			[
-				shouldDisableFilesAndImages,
-				setSelectedImages,
-				selectedImages,
-				selectedFiles,
-				cursorPosition,
-				setInputValue,
-				inputValue,
-				showDimensionErrorMessage,
-			],
+			[attachImageFiles, cursorPosition, setInputValue, inputValue],
 		)
 
 		const handleThumbnailsHeightChange = useCallback((height: number) => {
@@ -1245,6 +1188,12 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			if (!apiConfiguration) {
 				return unknownModel
 			}
+			if (selectedProvider === "dify") {
+				return "dify"
+			}
+			if (!selectedModelId) {
+				return `${selectedProvider}:no model selected`
+			}
 			switch (selectedProvider) {
 				case "cline":
 					return `${selectedProvider}:${selectedModelId}`
@@ -1304,8 +1253,8 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				const items = Array.from(e.dataTransfer.items)
 				const hasNonImageFile = items.some((item) => {
 					if (item.kind === "file") {
-						const type = item.type.split("/")[0]
-						return type !== "image"
+						// Finder leaves the type empty for formats the browser does not know.
+						return item.type !== "" && !item.type.startsWith("image/")
 					}
 					return false
 				})
@@ -1417,38 +1366,17 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				return
 			}
 
+			// A file dragged from Finder can also carry its path as text, so images go first.
+			const droppedImages = pickImageFiles(Array.from(e.dataTransfer.files))
+			if (droppedImages.length > 0) {
+				await attachImageFiles(droppedImages)
+				return
+			}
+
 			const text = e.dataTransfer.getData("text")
 			if (text) {
 				handleTextDrop(text)
 				return
-			}
-
-			// --- 3. Image Drop Handling ---
-			// Only proceed if it wasn't a VSCode resource or plain text drop
-			const files = Array.from(e.dataTransfer.files)
-			const acceptedTypes = ["png", "jpeg", "webp"]
-			const imageFiles = files.filter((file) => {
-				const [type, subtype] = file.type.split("/")
-				return type === "image" && acceptedTypes.includes(subtype)
-			})
-
-			if (shouldDisableFilesAndImages || imageFiles.length === 0) {
-				return
-			}
-
-			const imageDataArray = await readImageFiles(imageFiles)
-			const dataUrls = imageDataArray.filter((dataUrl): dataUrl is string => dataUrl !== null)
-
-			if (dataUrls.length > 0) {
-				const filesAndImagesLength = selectedImages.length + selectedFiles.length
-				const availableSlots = MAX_IMAGES_AND_FILES_PER_MESSAGE - filesAndImagesLength
-
-				if (availableSlots > 0) {
-					const imagesToAdd = Math.min(dataUrls.length, availableSlots)
-					setSelectedImages((prevImages) => [...prevImages, ...dataUrls.slice(0, imagesToAdd)])
-				}
-			} else {
-				console.warn("No valid images were processed")
 			}
 		}
 
@@ -1466,45 +1394,6 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			setIntendedCursorPosition(newCursorPosition)
 		}
 
-		/**
-		 * Reads image files and returns their data URLs.
-		 * Uses FileReader to read the files as data URLs.
-		 *
-		 * @param {File[]} imageFiles - The image files to read.
-		 * @returns {Promise<(string | null)[]>} - A promise that resolves to an array of data URLs or null values.
-		 */
-		const readImageFiles = (imageFiles: File[]): Promise<(string | null)[]> => {
-			return Promise.all(
-				imageFiles.map(
-					(file) =>
-						new Promise<string | null>((resolve) => {
-							const reader = new FileReader()
-							reader.onloadend = async () => {
-								// Make async
-								if (reader.error) {
-									console.error("Error reading file:", reader.error)
-									resolve(null)
-								} else {
-									const result = reader.result
-									if (typeof result === "string") {
-										try {
-											await getImageDimensions(result) // Check dimensions
-											resolve(result)
-										} catch (error) {
-											console.warn((error as Error).message)
-											showDimensionErrorMessage() // Show error to user
-											resolve(null) // Don't add this image
-										}
-									} else {
-										resolve(null)
-									}
-								}
-							}
-							reader.readAsDataURL(file)
-						}),
-				),
-			)
-		}
 		// Replace Meta with the platform specific key and uppercase the command letter.
 		const togglePlanActKeys = usePlatform()
 			.togglePlanActKeys.replace("Meta", metaKeyChar)
@@ -1512,17 +1401,13 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 		return (
 			<div>
+				<ImageIntakeNotices />
 				<div
 					className="relative flex transition-colors ease-in-out duration-100 px-3.5 py-2.5"
 					onDragEnter={handleDragEnter}
 					onDragLeave={handleDragLeave}
 					onDragOver={onDragOver}
 					onDrop={onDrop}>
-					{showDimensionError && (
-						<div className="absolute inset-2.5 bg-[rgba(var(--vscode-errorForeground-rgb),0.1)] border-2 border-error rounded-xs flex items-center justify-center z-10 pointer-events-none">
-							<span className="text-error font-bold text-xs text-center">Image dimensions exceed 7500px</span>
-						</div>
-					)}
 					{showUnsupportedFileError && (
 						<div className="absolute inset-2.5 bg-[rgba(var(--vscode-errorForeground-rgb),0.1)] border-2 border-error rounded-xs flex items-center justify-center z-10 pointer-events-none">
 							<span className="text-error font-bold text-xs">Files other than images are currently disabled</span>
@@ -1610,7 +1495,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 						onPaste={handlePaste}
 						onScroll={() => updateHighlights()}
 						onSelect={updateCursorPosition}
-						placeholder={showUnsupportedFileError || showDimensionError ? "" : placeholderText}
+						placeholder={showUnsupportedFileError ? "" : placeholderText}
 						ref={(el) => {
 							if (typeof ref === "function") {
 								ref(el)

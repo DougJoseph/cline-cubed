@@ -502,6 +502,7 @@ export {
 } from "./runtime/process-start-token";
 export {
 	formatRulesForSystemPrompt,
+	type InstructionEnabledCheck,
 	isRuleEnabled,
 	mergeRulesForSystemPrompt,
 } from "./runtime/safety/rules";
@@ -561,6 +562,7 @@ export {
 	isPluginDisabledGlobally,
 	isTelemetryOptedOutGlobally,
 	isToolDisabledGlobally,
+	readAlwaysRememberedFilesGlobally,
 	readCompactionModeGlobally,
 	readCompactionStrategyGlobally,
 	readGlobalSettings,
@@ -570,6 +572,7 @@ export {
 	resolveDisabledPluginPaths,
 	resolveDisabledToolNames,
 	resolveModelToolSettings,
+	setAlwaysRememberedFilesGlobally,
 	setAutoUpdateEnabledGlobally,
 	setCompactionModeGlobally,
 	setCompactionStrategyGlobally,
@@ -900,6 +903,7 @@ export {
 	createCompactionStateAwarePrepareTurn,
 	createContextCompactionPrepareTurn,
 } from "./extensions/context/compaction";
+export { resolveCompactionTriggerTokens } from "./extensions/context/compaction-shared";
 export {
 	ALL_DEFAULT_TOOL_NAMES,
 	type ApplyPatchExecutor,

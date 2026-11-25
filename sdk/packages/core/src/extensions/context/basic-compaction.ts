@@ -295,7 +295,9 @@ function mergeAdjacentUserTurns(
  * message was produced; after compaction rewrites the transcript they no
  * longer add up, so they are dropped from the compacted result.
  */
-function stripStaleMetrics(message: MessageWithMetadata): MessageWithMetadata {
+export function stripStaleMetrics(
+	message: MessageWithMetadata,
+): MessageWithMetadata {
 	if (!message.metrics) {
 		return message;
 	}

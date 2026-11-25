@@ -565,6 +565,11 @@ function toApiStreamChunk(
 			// event path. The legacy ApiStream contract has no observational tool
 			// event that would not imply caller-owned execution.
 			return undefined;
+		case "notice":
+			// Cline Cubed: the legacy ApiStream contract has no notice chunk; the
+			// notice reaches the chat through the AgentRuntime event path, and the
+			// provider has already written it to its log.
+			return undefined;
 		case "reasoning-delta": {
 			const metadata = event.metadata as Record<string, unknown> | undefined;
 			return {

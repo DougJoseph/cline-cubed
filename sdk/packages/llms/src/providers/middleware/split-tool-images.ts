@@ -17,10 +17,11 @@
 // it:
 //
 //   1. Replaces the media parts inside the tool-result with placeholder
-//      text parts: `(see following user message for image)`. The
+//      text parts: `(the image is in the next message, marked as tool output)`. The
 //      tool-result then carries only text — safe for any wire format.
 //   2. Inserts a synthetic `role:"user"` message right after the tool
-//      message, carrying the media parts as `LanguageModelV4FilePart`s.
+//      message, carrying the media parts as `LanguageModelV4FilePart`s,
+//      led by a text part saying it is tool output and naming the tools.
 //
 // Because the synthetic user message is typed (not raw JSON), every
 // downstream converter — Chat Completions, Mistral, Anthropic, Bedrock,
@@ -58,12 +59,37 @@ import {
 	DEFAULT_MAX_IMAGE_ENCODED_BYTES,
 	IMAGE_OMITTED_PLACEHOLDER,
 	isCanonicalBase64,
+	type MediaBudgetOptions,
 	type MediaBudgetState,
 	reserveImageMediaBytes,
 	validateAndReserveImageMedia,
 } from "@cline/shared";
 
-const IMAGE_PLACEHOLDER = "(see following user message for image)";
+// Cline Cubed: the placeholder and the label on the inserted message say the media is tool
+// output, so a model does not read the inserted user-role message as the user writing again.
+const IMAGE_PLACEHOLDER =
+	"(the image is in the next message, marked as tool output)";
+
+function toolOutputLabel(
+	media: LanguageModelV4FilePart[],
+	toolNames: string[],
+): LanguageModelV4TextPart {
+	const allImages = media.every((part) => part.mediaType.startsWith("image/"));
+	const kind = allImages ? "image" : "file";
+	const names = [...new Set(toolNames)];
+	const named =
+		names.length <= 1
+			? (names[0] ?? "a tool")
+			: `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+	const what =
+		media.length === 1
+			? `the ${kind} returned by ${named} above`
+			: `the ${media.length} ${kind}s returned by ${named}, in the order of the calls above`;
+	return {
+		type: "text",
+		text: `[Tool output, not a message from the user: ${what}.]`,
+	};
+}
 
 type ContentOutput = Extract<
 	LanguageModelV4ToolResultOutput,
@@ -345,13 +371,17 @@ function splitContentOutputMedia(
  * Returns the (possibly new) prompt array and a `mutated` flag for
  * test/observation use.
  */
-export function rewritePromptToolImages(prompt: LanguageModelV4Message[]): {
+export function rewritePromptToolImages(
+	prompt: LanguageModelV4Message[],
+	mediaBudget?: MediaBudgetOptions,
+): {
 	prompt: LanguageModelV4Message[];
 	mutated: boolean;
 } {
 	const newPrompt: LanguageModelV4Message[] = [];
 	let mutated = false;
-	const mediaState = createMediaBudgetState();
+	// Cline Cubed: the request's own image limits, when given, replace the built-in ones.
+	const mediaState = createMediaBudgetState(mediaBudget);
 
 	for (const message of prompt) {
 		if (message.role !== "tool") {
@@ -360,6 +390,7 @@ export function rewritePromptToolImages(prompt: LanguageModelV4Message[]): {
 		}
 
 		const collectedMedia: LanguageModelV4FilePart[] = [];
+		const collectedToolNames: string[] = [];
 		const newContent: typeof message.content = message.content.map((part) => {
 			if (part.type !== "tool-result") {
 				return part;
@@ -369,6 +400,9 @@ export function rewritePromptToolImages(prompt: LanguageModelV4Message[]): {
 				return part;
 			}
 			collectedMedia.push(...split.media);
+			if (split.media.length > 0) {
+				collectedToolNames.push(part.toolName);
+			}
 			mutated = true;
 			const newPart: LanguageModelV4ToolResultPart = {
 				...part,
@@ -382,7 +416,10 @@ export function rewritePromptToolImages(prompt: LanguageModelV4Message[]): {
 		if (collectedMedia.length > 0) {
 			newPrompt.push({
 				role: "user",
-				content: collectedMedia,
+				content: [
+					toolOutputLabel(collectedMedia, collectedToolNames),
+					...collectedMedia,
+				],
 			});
 		}
 	}
@@ -407,14 +444,28 @@ export function rewritePromptToolImages(prompt: LanguageModelV4Message[]): {
 export const splitToolImagesMiddleware: LanguageModelV4Middleware = {
 	specificationVersion: "v4",
 	transformParams: async ({ params }) => {
+		// Cline Cubed: the request's image limits arrive in the provider options
+		// under `clineMediaBudget` (set in ai-sdk.ts). They are used here and
+		// removed, so the provider never receives them.
+		const { clineMediaBudget, ...otherProviderOptions } =
+			params.providerOptions ?? {};
+		const mediaBudget = clineMediaBudget as MediaBudgetOptions | undefined;
+		const base: LanguageModelV4CallOptions =
+			clineMediaBudget === undefined
+				? params
+				: {
+						...params,
+						providerOptions: otherProviderOptions,
+					};
 		const { prompt: newPrompt, mutated } = rewritePromptToolImages(
-			params.prompt,
+			base.prompt,
+			mediaBudget,
 		);
 		if (!mutated) {
-			return params;
+			return base;
 		}
 		const next: LanguageModelV4CallOptions = {
-			...params,
+			...base,
 			prompt: newPrompt,
 		};
 		return next;

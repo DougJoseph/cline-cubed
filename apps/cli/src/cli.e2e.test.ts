@@ -382,13 +382,14 @@ Review checklist.`,
 		expect(parsed.some((workflow) => workflow.name === "review")).toBe(true);
 	});
 
-	it("includes Documents/Webwork/cline-cubed/Cline workflows", () => {
+	it("includes Documents/Cline workflows", () => {
 		const homeDir = mkdtempSync(path.join(os.tmpdir(), "cli-e2e-home-"));
 		const workspace = mkdtempSync(path.join(os.tmpdir(), "cli-e2e-workspace-"));
 		tempDirs.push(homeDir, workspace);
 		const docsWorkflowsDir = path.join(
 			homeDir,
-			"Documents", "Webwork", "cline-cubed", "Cline",
+			"Documents",
+			"Cline",
 			"Workflows",
 		);
 		mkdirSync(docsWorkflowsDir, { recursive: true });
@@ -460,14 +461,15 @@ Create a concise commit message.`,
 		expect(asText(result.stdout)).toContain(path.join(skillsDir, "SKILL.md"));
 	});
 
-	it("includes Documents/Webwork/cline-cubed/Cline rules and skills", () => {
+	it("includes Documents/Cline rules and skills", () => {
 		const homeDir = mkdtempSync(path.join(os.tmpdir(), "cli-e2e-home-"));
 		const workspace = mkdtempSync(path.join(os.tmpdir(), "cli-e2e-workspace-"));
 		tempDirs.push(homeDir, workspace);
-		const docsRulesDir = path.join(homeDir, "Documents", "Webwork", "cline-cubed", "Cline", "Rules");
+		const docsRulesDir = path.join(homeDir, "Documents", "Cline", "Rules");
 		const docsSkillsDir = path.join(
 			homeDir,
-			"Documents", "Webwork", "cline-cubed", "Cline",
+			"Documents",
+			"Cline",
 			"Skills",
 			"review",
 		);
@@ -588,7 +590,8 @@ Break work into clear steps.`,
 		const userPluginsDir = path.join(homeDir, ".cline", "plugins");
 		const documentsPluginsDir = path.join(
 			homeDir,
-			"Documents", "Webwork", "cline-cubed", "Cline",
+			"Documents",
+			"Cline",
 			"Plugins",
 		);
 		mkdirSync(workspacePluginsDir, { recursive: true });
@@ -668,7 +671,7 @@ Break work into clear steps.`,
 		expect(
 			parsed.some((plugin) =>
 				plugin.path.endsWith(
-					path.join("Documents", "Webwork", "cline-cubed", "Cline", "Plugins", "docs-plugin.ts"),
+					path.join("Documents", "Cline", "Plugins", "docs-plugin.ts"),
 				),
 			),
 		).toBe(true);

@@ -10,6 +10,7 @@ export type {
 } from "./orchestration/session-runtime";
 export {
 	formatRulesForSystemPrompt,
+	type InstructionEnabledCheck,
 	isRuleEnabled,
 	mergeRulesForSystemPrompt,
 } from "./safety/rules";

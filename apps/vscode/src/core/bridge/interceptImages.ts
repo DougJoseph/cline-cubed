@@ -37,6 +37,78 @@ export interface ImageInterceptionInput {
 	sessionId?: string
 }
 
+/** Shown when an image arrives and no model that can see images is set. */
+export const IMAGE_CANNOT_BE_READ =
+	"This image can't be read: the selected model can't see images and no Image Mode model is set. Choose one in Settings → API Configuration → Image Mode."
+
+export interface ImageModeBridgeConfig {
+	provider: string
+	modelId: string
+	apiKey?: string
+	apiUri?: string
+	apiFormat?: string
+	reasoningEffort?: string
+	maxTokens?: number
+}
+
+/**
+ * The Image Mode model and its credentials, or undefined when no Image Mode model is set. The Image
+ * tab writes provider-scoped credentials (e.g. `deepSeekApiKey`), so those are read from the provider
+ * config store, falling back to the generic `imageModeApi*` slots.
+ */
+export function resolveImageModeBridge(
+	apiConfiguration: ApiConfiguration,
+	providerConfigStore?: ProviderConfigStore,
+): ImageModeBridgeConfig | undefined {
+	const modelId = resolveActiveModelIdFromApiConfiguration(apiConfiguration, "image")
+	if (!modelId || modelId === "unknown") {
+		return undefined
+	}
+	const provider = (apiConfiguration.imageModeApiProvider ?? "openai") as string
+	let apiKey = apiConfiguration.imageModeApiKey
+	let apiUri = apiConfiguration.imageModeApiUri
+	// Reasoning effort is forwarded only when the image model is KNOWN to support reasoning
+	// (catalog metadata); unknown/custom models get no reasoning param so the request is never
+	// rejected for it.
+	let reasoningEffort: string | undefined
+	let maxTokens: number | undefined
+	if (providerConfigStore) {
+		try {
+			const effective = providerConfigStore.read(parseProviderId(provider))
+			apiKey = apiKey ?? effective.apiKey
+			apiUri = apiUri ?? effective.baseUrl
+			const imageSelection = providerConfigStore.readSelection(parseProviderId(provider), "image")
+			maxTokens = imageSelection?.modelInfo.maxTokens
+			if (imageSelection?.modelInfo.supportsReasoning === true) {
+				reasoningEffort = apiConfiguration.imageModeReasoningEffort
+			}
+		} catch (error) {
+			Logger.warn("Image bridge credential resolution failed; using imageModeApi* slots:", error)
+		}
+	}
+	return { provider, modelId, apiKey, apiUri, apiFormat: apiConfiguration.imageModeApiFormat, reasoningEffort, maxTokens }
+}
+
+/** Whether the active Plan/Act model can see images: "yes", "no", or "unknown" when it cannot be told. */
+export function activeModelImageSupport(
+	apiConfiguration: ApiConfiguration,
+	providerConfigStore: ProviderConfigStore | undefined,
+	mode: string | undefined,
+): "yes" | "no" | "unknown" {
+	const activeMode = mode === "plan" ? "plan" : "act"
+	const provider = activeMode === "plan" ? apiConfiguration.planModeApiProvider : apiConfiguration.actModeApiProvider
+	if (!provider || !providerConfigStore) {
+		return "unknown"
+	}
+	try {
+		const supports = providerConfigStore.readSelection(parseProviderId(provider), activeMode)?.modelInfo.supportsImages
+		return supports === true ? "yes" : supports === false ? "no" : "unknown"
+	} catch (error) {
+		Logger.warn("Image capability check failed:", error)
+		return "unknown"
+	}
+}
+
 export interface ImageInterceptionResult {
 	text: string
 	images: string[]
@@ -70,56 +142,30 @@ export async function interceptImagesForNonVisionModel(input: ImageInterceptionI
 		return { text, images, bridgedCount: 0 }
 	}
 
-	const imageModeModelId = resolveActiveModelIdFromApiConfiguration(apiConfiguration, "image")
-	if (!imageModeModelId || imageModeModelId === "unknown") {
+	const imageMode = resolveImageModeBridge(apiConfiguration, providerConfigStore)
+	const activeSupport = activeModelImageSupport(apiConfiguration, providerConfigStore, mode)
+	if (!imageMode) {
+		// No Image Mode model. A model known not to see images cannot read the image, so it is not
+		// sent, and both the person and the model are told. An unknown capability keeps today's
+		// behavior: the image goes to the model, which may be able to read it.
+		if (activeSupport === "no") {
+			debug(IMAGE_CANNOT_BE_READ, true)
+			const count = images.length
+			const note = `\n\n[${count === 1 ? "An image was" : `${count} images were`} attached but could not be read: no model that can see images is set.]`
+			return { text: text + note, images: [], bridgedCount: 0 }
+		}
 		debug("skipped: no Image Mode model configured")
 		return { text, images, bridgedCount: 0 }
 	}
 
 	// Capability gate: skip the bridge when the active Plan/Act model itself is
 	// vision-capable — it should see the raw images, not the bridge's paraphrase.
-	const activeMode = mode === "plan" || mode === "act" ? mode : "act"
-	const activeProvider = (activeMode === "plan" ? apiConfiguration.planModeApiProvider : apiConfiguration.actModeApiProvider) as
-		| string
-		| undefined
-	if (activeProvider && providerConfigStore) {
-		try {
-			const activeSelection = providerConfigStore.readSelection(parseProviderId(activeProvider), activeMode)
-			if (activeSelection && activeSelection.modelInfo.supportsImages === true) {
-				debug(`skipped: active ${activeMode} model ${activeSelection.modelId} is vision-capable`)
-				return { text, images, bridgedCount: 0 }
-			}
-		} catch (error) {
-			Logger.warn("Image bridge capability-gate resolution failed; bridging anyway:", error)
-		}
+	if (activeSupport === "yes") {
+		debug(`skipped: active ${mode === "plan" ? "plan" : "act"} model is vision-capable`)
+		return { text, images, bridgedCount: 0 }
 	}
 
-	const provider = (apiConfiguration.imageModeApiProvider ?? "openai") as string
-
-	// Resolve Image Mode credentials. The Image tab writes provider-scoped
-	// creds (e.g. `deepSeekApiKey`), so prefer those from the provider config
-	// store, falling back to the generic `imageModeApi*` slots for backward
-	// compat. Without this the bridge fires with no Authorization header.
-	let apiKey = apiConfiguration.imageModeApiKey
-	let apiUri = apiConfiguration.imageModeApiUri
-	const apiFormat = apiConfiguration.imageModeApiFormat
-	// Forward the Image tab's reasoning effort only when the image model is
-	// KNOWN to support reasoning (catalog metadata); unknown/custom models get
-	// no reasoning param so the request is never rejected for it.
-	let reasoningEffort: string | undefined
-	if (providerConfigStore) {
-		try {
-			const effective = providerConfigStore.read(parseProviderId(provider))
-			apiKey = apiKey ?? effective.apiKey
-			apiUri = apiUri ?? effective.baseUrl
-			const imageSelection = providerConfigStore.readSelection(parseProviderId(provider), "image")
-			if (imageSelection?.modelInfo.supportsReasoning === true) {
-				reasoningEffort = apiConfiguration.imageModeReasoningEffort
-			}
-		} catch (error) {
-			Logger.warn("Image bridge credential resolution failed; using imageModeApi* slots:", error)
-		}
-	}
+	const { provider, modelId: imageModeModelId, apiKey, apiUri, apiFormat, reasoningEffort, maxTokens } = imageMode
 
 	const descriptions: string[] = []
 	let bridgedCount = 0
@@ -139,6 +185,7 @@ export async function interceptImagesForNonVisionModel(input: ImageInterceptionI
 				apiUri,
 				apiFormat,
 				reasoningEffort,
+				maxTokens,
 				recordDebug: debug,
 			})
 			descriptions.push(description)

@@ -206,6 +206,36 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 			controller.stateManager.setGlobalState("autoNameChats", !!request.autoNameChats)
 		}
 
+		// Cline Cubed: image limits, in megabytes. Settings refuses an invalid entry before it is
+		// sent; one that arrives anyway is ignored and logged rather than stored.
+		const imageLimits = [
+			["imagesTotalLimitMb", request.imagesTotalLimitMb],
+			["imagesPerImageLimitMb", request.imagesPerImageLimitMb],
+			["imagesPerImageDecodedLimitMb", request.imagesPerImageDecodedLimitMb],
+		] as const
+		for (const [key, value] of imageLimits) {
+			if (value === undefined) continue
+			if (Number.isFinite(value) && value > 0) {
+				controller.stateManager.setGlobalState(key, value)
+			} else {
+				Logger.warn(`updateSettings: ignoring invalid ${key}: ${value}`)
+			}
+		}
+		if (request.imageDescriber !== undefined) {
+			if (request.imageDescriber === "imageModeFirst" || request.imageDescriber === "mainModelFirst") {
+				controller.stateManager.setGlobalState("imageDescriber", request.imageDescriber)
+			} else {
+				Logger.warn(`updateSettings: ignoring invalid imageDescriber: ${request.imageDescriber}`)
+			}
+		}
+		if (request.earlierImages !== undefined) {
+			if (request.earlierImages === "pictures" || request.earlierImages === "descriptions") {
+				controller.stateManager.setGlobalState("earlierImages", request.earlierImages)
+			} else {
+				Logger.warn(`updateSettings: ignoring invalid earlierImages: ${request.earlierImages}`)
+			}
+		}
+
 		if (request.compactionStrategy !== undefined) {
 			const strategy = request.compactionStrategy
 			if (strategy !== "basic" && strategy !== "agentic") {

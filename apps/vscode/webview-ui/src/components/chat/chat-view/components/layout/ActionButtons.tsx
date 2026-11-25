@@ -60,9 +60,14 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({ task, messages, ch
 
 	// Mirror the config's sending-disabled flag into chat state whenever the active button set
 	// changes.
+	// Cline Cubed: also on every new turn state. The configs are shared objects, so a turn that
+	// finishes before its streaming phase is drawn goes from one finished state to the next with the
+	// same config, and Send, locked by the send, stayed locked. `seq` advances on every state the
+	// backend sends. The last message is not a trigger: the user's own message appears the moment it
+	// is sent, and unlocking on it would allow a double send.
 	useEffect(() => {
 		setSendingDisabled(buttonConfig.sendingDisabled)
-	}, [buttonConfig, setSendingDisabled])
+	}, [buttonConfig, turnState?.seq, setSendingDisabled])
 
 	// Clear input when transitioning from command_output to api_req
 	// This happens when user provides feedback during command execution

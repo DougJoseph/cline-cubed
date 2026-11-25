@@ -164,6 +164,10 @@ export function buildModelOptions(
 	if (config.apiTimeoutMs !== undefined) {
 		options.apiTimeoutMs = config.apiTimeoutMs;
 	}
+	// Cline Cubed: the user's image limits reach the provider's own checks too.
+	if (config.mediaBudget !== undefined) {
+		options.mediaBudget = config.mediaBudget;
+	}
 	return Object.keys(options).length > 0 ? options : undefined;
 }
 

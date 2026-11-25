@@ -316,6 +316,17 @@ const USER_SETTINGS_FIELDS = {
 	// token who would rather not.
 	autoNameChats: { default: true as boolean },
 
+	// Cline Cubed: limits on the images sent to the model as pictures in one request, in megabytes
+	// as sent (base64). The defaults match the engine's built-in limits. Images over a limit are sent
+	// as text descriptions instead (src/sdk/image-descriptions.ts).
+	imagesTotalLimitMb: { default: 8 as number },
+	imagesPerImageLimitMb: { default: 5 as number },
+	imagesPerImageDecodedLimitMb: { default: 6 as number },
+	// Cline Cubed: which model writes an image's description first; the other is the fallback.
+	imageDescriber: { default: "imageModeFirst" as "imageModeFirst" | "mainModelFirst" },
+	// Cline Cubed: whether images from before the current turn go as pictures or as their descriptions.
+	earlierImages: { default: "pictures" as "pictures" | "descriptions" },
+
 	// OpenTelemetry configuration
 	openTelemetryEnabled: { default: true as boolean },
 	openTelemetryMetricsExporter: { default: undefined as string | undefined },

@@ -1,4 +1,7 @@
-import { estimateRequestInputTokens } from "@cline/shared";
+import {
+	estimateRequestInputTokens,
+	resolveMeasuredRequestInputTokens,
+} from "@cline/shared";
 import {
 	captureCompactionBudgetEmergency,
 	captureCompactionExecuted,
@@ -20,13 +23,13 @@ import type {
 } from "../../types/config";
 import type { ProviderConfig } from "../../types/provider-settings";
 import { runAgenticCompaction } from "./agentic-compaction";
-import { runBasicCompaction } from "./basic-compaction";
+import { runBasicCompaction, stripStaleMetrics } from "./basic-compaction";
 import {
 	COMPACTION_TRIGGER_RATIO,
 	createTokenEstimator,
 	DEFAULT_MAX_INPUT_TOKENS,
-	DEFAULT_PRESERVE_RECENT_TOKENS,
 	DEFAULT_TARGET_RATIO,
+	resolveDefaultPreserveRecentTokens,
 	resolveEffectiveMaxInputTokens,
 } from "./compaction-shared";
 
@@ -166,7 +169,10 @@ const BUILTIN_COMPACTION_STRATEGIES = {
 			providerConfig,
 			summarizer: compaction?.summarizer,
 			preserveRecentTokens: Math.min(
-				compaction?.preserveRecentTokens ?? DEFAULT_PRESERVE_RECENT_TOKENS,
+				compaction?.preserveRecentTokens ??
+					resolveDefaultPreserveRecentTokens(
+						context.budget.request.maxInputTokens,
+					),
 				context.budget.messages.targetTokens,
 			),
 			estimateMessageTokens,
@@ -320,7 +326,15 @@ export function createContextCompactionPrepareTurn(
 			requestTriggerTokens,
 			requestOverheadTokens,
 		);
-		const shouldCompact = requestInputTokens >= requestTriggerTokens;
+		// The trigger and the reported sizes use provider-reported usage when it
+		// exists. Budgets and cut points stay in estimated units, so they remain
+		// comparable with the per-message estimates the strategies work from.
+		const measuredRequestTokens = resolveMeasuredRequestInputTokens({
+			messages: context.apiMessages,
+			modelId: context.model.id,
+		});
+		const requestSizeTokens = measuredRequestTokens ?? requestInputTokens;
+		const shouldCompact = requestSizeTokens >= requestTriggerTokens;
 		config.logger?.debug("Context compaction diagnostics", {
 			mode: effectiveMode,
 			strategy,
@@ -328,6 +342,7 @@ export function createContextCompactionPrepareTurn(
 			providerId: config.providerId,
 			modelId: config.modelId,
 			requestInputTokens,
+			measuredRequestTokens,
 			apiMessageTokens,
 			messageInputTokens,
 			requestOverheadTokens,
@@ -538,6 +553,14 @@ export function createContextCompactionPrepareTurn(
 				0,
 			);
 			const afterRequestTokens = requestOverheadTokens + afterMessageTokens;
+			// Before and after must share one scale: the context bar rescales the
+			// last reported usage by their ratio.
+			const reportedAfterTokens =
+				measuredRequestTokens === undefined
+					? afterRequestTokens
+					: Math.ceil(
+							measuredRequestTokens * (afterRequestTokens / requestInputTokens),
+						);
 			config.logger?.log("Context compaction completed", {
 				severity: "info",
 				strategy: executedStrategy,
@@ -561,8 +584,8 @@ export function createContextCompactionPrepareTurn(
 				reason: statusReason,
 				phase: "completed",
 				iteration: context.iteration,
-				tokensBefore: requestInputTokens,
-				tokensAfter: afterRequestTokens,
+				tokensBefore: requestSizeTokens,
+				tokensAfter: reportedAfterTokens,
 				messagesBefore: beforeMessageCount,
 				messagesAfter: result.messages.length,
 				maxInputTokens,
@@ -574,9 +597,9 @@ export function createContextCompactionPrepareTurn(
 				messagesBefore: beforeMessageCount,
 				messagesAfter: result.messages.length,
 				messagesRemoved: beforeMessageCount - result.messages.length,
-				tokensBefore: requestInputTokens,
-				tokensAfter: afterRequestTokens,
-				tokensSaved: requestInputTokens - afterRequestTokens,
+				tokensBefore: requestSizeTokens,
+				tokensAfter: reportedAfterTokens,
+				tokensSaved: requestSizeTokens - reportedAfterTokens,
 				triggerTokens: requestTriggerTokens,
 				maxInputTokens,
 				thresholdRatio: COMPACTION_TRIGGER_RATIO,
@@ -625,7 +648,7 @@ export function createContextCompactionPrepareTurn(
 				strategy: executedStrategy,
 				mode: effectiveMode,
 				reason: "no_result",
-				tokensBefore: requestInputTokens,
+				tokensBefore: requestSizeTokens,
 				triggerTokens: requestTriggerTokens,
 				maxInputTokens,
 				thresholdRatio: COMPACTION_TRIGGER_RATIO,
@@ -636,7 +659,11 @@ export function createContextCompactionPrepareTurn(
 			});
 		}
 
-		return result;
+		// Usage on kept messages describes the larger request they came from, so
+		// it must not size the next request.
+		return result?.messages
+			? { ...result, messages: result.messages.map(stripStaleMetrics) }
+			: result;
 	};
 }
 

@@ -30,7 +30,6 @@ export const ClaudeCodeProvider = ({ showModelOptions, isPopup, currentMode }: C
 	const { config, write, commitSelection } = useProviderConfig(providerId)
 	const { selectedModelId, selectedModelInfo, commitModelSelection } = useProviderModelSelection(providerId, currentMode, {
 		models,
-		defaultModelId,
 		config,
 		commitSelection,
 	})

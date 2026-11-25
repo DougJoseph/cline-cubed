@@ -72,7 +72,7 @@ describe("useProviderModelSelection", () => {
 		const { result } = renderHook(() =>
 			useProviderModelSelection("groq", "act", {
 				commitSelection,
-				defaultModelId: "llama-3.3-70b-versatile",
+				config: { actSelection: { modelId: "llama-3.3-70b-versatile" } } as never,
 				models: {
 					"llama-3.3-70b-versatile": { contextWindow: 128_000, maxTokens: 8_192, supportsPromptCache: false },
 					"mixtral-8x7b": { contextWindow: 32_768, maxTokens: 4_096, supportsPromptCache: false },

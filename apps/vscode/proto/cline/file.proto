@@ -34,6 +34,9 @@ service FileService {
   // Select images and other files from the file system and returns as data URLs & paths respectively
   rpc selectFiles(BooleanRequest) returns (StringArrays);
 
+  // Converts an image the webview cannot decode to a PNG data URL
+  rpc convertImageToPng(ConvertImageRequest) returns (ConvertImageResponse);
+
   // Convert URIs to workspace-relative paths
   rpc getRelativePaths(RelativePathsRequest) returns (RelativePaths);
 
@@ -93,6 +96,51 @@ service FileService {
 
   // Deletes an existing skill directory
   rpc deleteSkillFile(DeleteSkillRequest) returns (SkillsToggles);
+
+  // Returns the always-remembered file list with each file's status and size
+  rpc getAlwaysRememberedFiles(EmptyRequest) returns (AlwaysRememberedFiles);
+
+  // Adds a typed or pasted path to the always-remembered list
+  rpc addAlwaysRememberedFile(StringRequest) returns (AlwaysRememberedFiles);
+
+  // Opens the file picker and adds the chosen file to the always-remembered list
+  rpc pickAlwaysRememberedFile(EmptyRequest) returns (AlwaysRememberedFiles);
+
+  // Removes a path from the always-remembered list without touching the file
+  rpc removeAlwaysRememberedFile(StringRequest) returns (AlwaysRememberedFiles);
+
+  // Moves a path up or down the always-remembered list
+  rpc moveAlwaysRememberedFile(MoveAlwaysRememberedFileRequest) returns (AlwaysRememberedFiles);
+}
+
+// One row of the always-remembered file list
+message AlwaysRememberedFileRow {
+  string path = 1;
+  string resolved_path = 2;
+  string status = 3; // ok, missing, unreadable, or refused
+  optional string error = 4;
+  int32 chars = 5;
+  int32 estimated_tokens = 6;
+  bool already_loaded_as_rule = 7;
+}
+
+// The always-remembered file list and what it costs on the active model
+message AlwaysRememberedFiles {
+  repeated AlwaysRememberedFileRow files = 1;
+  int32 total_estimated_tokens = 2;
+  optional int32 context_window = 3;
+  bool endpoint_is_local = 4;
+  optional string add_error = 5;
+  bool reaches_compaction_trigger = 6;
+  repeated string automatic_workspace_locations = 7; // Rule locations loaded for this workspace without being listed
+  repeated string automatic_global_locations = 8; // Rule locations loaded for every workspace without being listed
+}
+
+// Request to move a path on the always-remembered list
+message MoveAlwaysRememberedFileRequest {
+  Metadata metadata = 1;
+  string path = 2;
+  int32 delta = 3; // -1 moves up, 1 moves down
 }
 
 // Response for refreshRules operation
@@ -343,4 +391,15 @@ message DeleteSkillRequest {
   Metadata metadata = 1;
   string skill_path = 2; // Path to the skill directory
   bool is_global = 3; // Whether this is a global or workspace skill
+}
+
+message ConvertImageRequest {
+  Metadata metadata = 1;
+  string name = 2;
+  string base64 = 3;
+}
+
+message ConvertImageResponse {
+  string data_url = 1;
+  string error = 2;
 }

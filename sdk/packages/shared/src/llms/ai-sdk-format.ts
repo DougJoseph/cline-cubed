@@ -8,7 +8,9 @@ import {
 	IMAGE_OMITTED_PLACEHOLDER,
 	IMAGE_UNSUPPORTED_PLACEHOLDER,
 	imageBase64LengthForDecodedBytes,
+	type MediaBudgetOptions,
 	type MediaBudgetState,
+	mediaOmittedNotice,
 	reserveImageMediaBytes,
 	SUPPORTED_IMAGE_MEDIA_TYPES,
 	validateAndReserveImageMedia,
@@ -650,6 +652,18 @@ export function formatMessagesForAiSdk(
 		 * time only — stored conversation history is never mutated.
 		 */
 		supportedInputModalities?: readonly string[];
+		/**
+		 * Cline Cubed: the request's image limits. Each field given replaces
+		 * the built-in limit for every image this call checks, tool results
+		 * included. Omitted: the built-in limits apply.
+		 */
+		mediaBudget?: MediaBudgetOptions;
+		/**
+		 * Cline Cubed: called once with a notice naming how many images this
+		 * call left out and why, when it left any out, so the caller can tell
+		 * the user instead of dropping them silently.
+		 */
+		onMediaOmitted?: (notice: string) => void;
 	},
 ): AiSdkMessage[] {
 	const toolCallArgKey = options?.assistantToolCallArgKey ?? "input";
@@ -657,7 +671,7 @@ export function formatMessagesForAiSdk(
 	const supportsImages =
 		!supportedInputModalities || supportedInputModalities.includes("image");
 	const result: AiSdkMessage[] = [];
-	const mediaState = createMediaBudgetState();
+	const mediaState = createMediaBudgetState(options?.mediaBudget);
 	const pendingAssistantMedia: Array<
 		| Extract<AiSdkFormatterPart, { type: "image" }>
 		| Extract<AiSdkFormatterPart, { type: "media" }>
@@ -879,5 +893,9 @@ export function formatMessagesForAiSdk(
 		});
 	}
 
+	const omittedNotice = mediaOmittedNotice(mediaState);
+	if (omittedNotice) {
+		options?.onMediaOmitted?.(omittedNotice);
+	}
 	return result;
 }

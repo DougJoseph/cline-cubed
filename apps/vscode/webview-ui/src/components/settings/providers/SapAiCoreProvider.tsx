@@ -1,12 +1,13 @@
 import { SapAiCoreModelDeployment, SapAiCoreModelsRequest } from "@shared/proto/index.cline"
 import { Mode } from "@shared/storage/types"
-import { VSCodeCheckbox, VSCodeLink } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeLink } from "@vscode/webview-ui-toolkit/react"
 import { useCallback, useEffect, useState } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useStaticProviderSelection } from "@/hooks/useStaticProviderSelection"
 import { ModelsServiceClient } from "@/services/grpc-client"
 import { DebouncedTextField } from "../common/DebouncedTextField"
 import { ModelInfoView } from "../common/ModelInfoView"
+import { SettingsCheckbox } from "../common/SettingsCheckbox"
 import SapAiCoreModelPicker from "../SapAiCoreModelPicker"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
@@ -35,6 +36,14 @@ export const SapAiCoreProvider = ({ showModelOptions, isPopup, currentMode }: Sa
 		"sapaicore",
 		apiConfiguration,
 		currentMode,
+		{
+			savedModelId:
+				currentMode === "plan"
+					? (apiConfiguration?.planModeSapAiCoreModelId ?? "")
+					: currentMode === "act"
+						? (apiConfiguration?.actModeSapAiCoreModelId ?? "")
+						: undefined,
+		},
 	)
 
 	// State for dynamic model fetching
@@ -197,7 +206,7 @@ export const SapAiCoreProvider = ({ showModelOptions, isPopup, currentMode }: Sa
 			{orchestrationAvailable && (
 				<div className="flex flex-col gap-2.5 mt-[15px]">
 					<div className="flex items-center gap-2">
-						<VSCodeCheckbox
+						<SettingsCheckbox
 							aria-label="Orchestration Mode"
 							checked={useOrchestrationMode}
 							onChange={(e) => handleOrchestrationChange((e.target as HTMLInputElement).checked)}

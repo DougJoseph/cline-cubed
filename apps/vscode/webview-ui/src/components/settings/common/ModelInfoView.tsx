@@ -211,6 +211,14 @@ export const ModelInfoView = ({
 	// Check if we have cache pricing to show in Advanced section
 	const hasCachePricing = modelInfo.supportsPromptCache && (modelInfo.cacheWritesPrice || modelInfo.cacheReadsPrice)
 
+	if (!selectedModelId) {
+		return (
+			<p className="mt-1 text-xs text-muted-foreground" role="status">
+				No model selected.
+			</p>
+		)
+	}
+
 	return (
 		<div style={{ marginTop: 4 }}>
 			{/* Description */}

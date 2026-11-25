@@ -10,6 +10,7 @@ import type {
 	ExtensionContext,
 	HookErrorMode,
 	ITelemetryService,
+	MediaBudgetOptions,
 	MessageWithMetadata,
 	SessionExecutionConfig,
 	SessionPromptConfig,
@@ -17,6 +18,7 @@ import type {
 } from "@cline/shared";
 import type { ToolRoutingRule } from "../extensions/tools/model-tool-routing";
 import type { TeamEvent } from "../extensions/tools/team";
+import type { InstructionEnabledCheck } from "../runtime/safety/rules";
 import type { ProviderConfig } from "./provider-settings";
 
 export type CoreAgentMode = AgentMode;
@@ -49,6 +51,11 @@ export interface CoreModelConfig {
 	 * Sampling temperature per API call.
 	 */
 	temperature?: number;
+	/**
+	 * Size limits for the images sent raw in one request. Omitted fields keep
+	 * the defaults in `media.ts`.
+	 */
+	mediaBudget?: MediaBudgetOptions;
 }
 
 export interface CoreRuntimeFeatures {
@@ -261,6 +268,12 @@ export interface CoreSessionConfig
 	sessionId?: string;
 	workspaceRoot?: string;
 	systemPrompt: string;
+	/**
+	 * Cline Cubed: reports whether a rule or skill file is switched on outside its own
+	 * frontmatter, such as in the VS Code Rules panel. Read on every request. Absent: every
+	 * file counts as on.
+	 */
+	isInstructionEnabled?: InstructionEnabledCheck;
 	teamName?: string;
 	missionLogIntervalSteps?: number;
 	missionLogIntervalMs?: number;

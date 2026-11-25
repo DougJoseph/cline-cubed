@@ -1,12 +1,13 @@
 import { toRequestyServiceUrl } from "@shared/clients/requesty"
 import { StringRequest } from "@shared/proto/cline/common"
 import { Mode } from "@shared/storage/types"
-import { VSCodeButton, VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react"
 import { useState } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { AccountServiceClient } from "@/services/grpc-client"
 import { ApiKeyField } from "../common/ApiKeyField"
 import { DebouncedTextField } from "../common/DebouncedTextField"
+import { SettingsCheckbox } from "../common/SettingsCheckbox"
 import RequestyModelPicker from "../RequestyModelPicker"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
@@ -57,7 +58,7 @@ export const RequestyProvider = ({ showModelOptions, isPopup, currentMode }: Req
 					Get Requesty API Key
 				</VSCodeButton>
 			)}
-			<VSCodeCheckbox
+			<SettingsCheckbox
 				checked={requestyEndpointSelected}
 				onChange={(e: any) => {
 					const isChecked = e.target.checked === true
@@ -68,7 +69,7 @@ export const RequestyProvider = ({ showModelOptions, isPopup, currentMode }: Req
 					}
 				}}>
 				Use custom base URL
-			</VSCodeCheckbox>
+			</SettingsCheckbox>
 			{requestyEndpointSelected && (
 				<DebouncedTextField
 					initialValue={apiConfiguration?.requestyBaseUrl ?? ""}

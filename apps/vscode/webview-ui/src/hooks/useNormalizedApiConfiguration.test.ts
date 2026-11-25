@@ -59,7 +59,7 @@ describe("useNormalizedApiConfiguration", () => {
 		expect(result.current.selectedModelInfo.contextWindow).toBeUndefined()
 		await waitFor(() => expect(result.current.selectedModelInfo.contextWindow).toBe(1_000_000))
 		expect(result.current.selectedModelId).toBe("deepseek-v4-pro")
-		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "deepseek", modelId: "deepseek-v4-pro" })
+		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "deepseek", modelId: "deepseek-v4-pro", mode: "act" })
 		expect(mockResolveProviderModels).not.toHaveBeenCalled()
 	})
 
@@ -73,7 +73,7 @@ describe("useNormalizedApiConfiguration", () => {
 		expect(mockResolveProviderModels).not.toHaveBeenCalled()
 	})
 
-	it("uses the SDK default model info when model id is empty", async () => {
+	it("reports the model the host says this mode runs when the slot is empty", async () => {
 		setApiConfiguration({ actModeApiProvider: "deepseek", actModeApiModelId: "" })
 		mockResolveModelInfo.mockResolvedValue(deepSeekResponse("deepseek-v4-flash"))
 
@@ -81,7 +81,7 @@ describe("useNormalizedApiConfiguration", () => {
 
 		await waitFor(() => expect(result.current.selectedModelId).toBe("deepseek-v4-flash"))
 		expect(result.current.selectedModelInfo.contextWindow).toBe(1_000_000)
-		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "deepseek", modelId: undefined })
+		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "deepseek", modelId: undefined, mode: "act" })
 		expect(mockResolveProviderModels).not.toHaveBeenCalled()
 	})
 
@@ -97,10 +97,14 @@ describe("useNormalizedApiConfiguration", () => {
 		const { result } = renderHook(() => useNormalizedApiConfiguration("act"))
 
 		await waitFor(() => expect(result.current.selectedModelId).toBe("anthropic/claude-sonnet-4.6"))
-		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "cline", modelId: "anthropic/claude-sonnet-4.6" })
+		expect(mockResolveModelInfo).toHaveBeenCalledWith({
+			providerId: "cline",
+			modelId: "anthropic/claude-sonnet-4.6",
+			mode: "act",
+		})
 	})
 
-	it("asks the backend for the Cline default when no Cline-specific model is selected", async () => {
+	it("asks the host about this mode when no Cline-specific model is selected", async () => {
 		setApiConfiguration({
 			actModeApiProvider: "cline",
 			actModeApiModelId: "openai/gpt-5.4",
@@ -111,7 +115,17 @@ describe("useNormalizedApiConfiguration", () => {
 		const { result } = renderHook(() => useNormalizedApiConfiguration("act"))
 
 		await waitFor(() => expect(result.current.selectedModelId).toBe("anthropic/claude-sonnet-4.6"))
-		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "cline", modelId: undefined })
+		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "cline", modelId: undefined, mode: "act" })
+	})
+
+	it("shows no model when the host says another provider's value is in the shared slot", async () => {
+		setApiConfiguration({ actModeApiProvider: "gemini", actModeApiModelId: "deepseek-reasoner" })
+		mockResolveModelInfo.mockResolvedValue({ providerId: "gemini", modelId: "", source: "unknown" })
+
+		const { result } = renderHook(() => useNormalizedApiConfiguration("act"))
+
+		await waitFor(() => expect(result.current.selectedModelId).toBe(""))
+		expect(result.current.selectedModelInfo.contextWindow).toBeUndefined()
 	})
 
 	it("resolves static SDK-backed providers through the model-info RPC", async () => {
@@ -126,6 +140,7 @@ describe("useNormalizedApiConfiguration", () => {
 		expect(mockResolveModelInfo).toHaveBeenCalledWith({
 			providerId: "anthropic",
 			modelId: "claude-sonnet-4-5-20250929",
+			mode: "act",
 		})
 		expect(mockResolveProviderModels).not.toHaveBeenCalled()
 	})
@@ -147,7 +162,7 @@ describe("useNormalizedApiConfiguration", () => {
 
 		await waitFor(() => expect(result.current.selectedModelId).toBe("my-custom-model"))
 		expect(result.current.selectedProvider).toBe("openai")
-		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "openai", modelId: "my-custom-model" })
+		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "openai", modelId: "my-custom-model", mode: "act" })
 	})
 
 	it("uses local provider-specific model fields instead of a stale generic id", async () => {
@@ -161,7 +176,7 @@ describe("useNormalizedApiConfiguration", () => {
 		const { result } = renderHook(() => useNormalizedApiConfiguration("act"))
 
 		await waitFor(() => expect(result.current.selectedModelId).toBe("llama3.1:8b"))
-		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "ollama", modelId: "llama3.1:8b" })
+		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "ollama", modelId: "llama3.1:8b", mode: "act" })
 	})
 
 	it("uses VS Code LM selector as the active model id", async () => {
@@ -175,7 +190,11 @@ describe("useNormalizedApiConfiguration", () => {
 		const { result } = renderHook(() => useNormalizedApiConfiguration("act"))
 
 		await waitFor(() => expect(result.current.selectedModelId).toBe("copilot/claude-sonnet"))
-		expect(mockResolveModelInfo).toHaveBeenCalledWith({ providerId: "vscode-lm", modelId: "copilot/claude-sonnet" })
+		expect(mockResolveModelInfo).toHaveBeenCalledWith({
+			providerId: "vscode-lm",
+			modelId: "copilot/claude-sonnet",
+			mode: "act",
+		})
 	})
 
 	it("ignores stale DeepSeek responses after provider/model changes", async () => {

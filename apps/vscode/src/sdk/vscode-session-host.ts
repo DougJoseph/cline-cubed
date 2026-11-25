@@ -1,3 +1,4 @@
+import type { ProviderConnectionChanges } from "./provider-connection-update"
 // VscodeSessionHost — wraps ClineCore with VSCode-specific customizations
 //
 // Uses ClineCore.create() so the SDK owns session input normalization,
@@ -110,6 +111,9 @@ export class VscodeSessionHost implements SdkSessionHost {
 	}
 	updateSessionModel?(sessionId: string, modelId: string): Promise<void> {
 		return this.inner.updateSessionModel(sessionId, modelId)
+	}
+	updateSessionConnection?(sessionId: string, changes: ProviderConnectionChanges): Promise<void> {
+		return this.inner.updateSessionConnection(sessionId, changes)
 	}
 
 	static async create(options: VscodeSessionHostOptions): Promise<VscodeSessionHost> {

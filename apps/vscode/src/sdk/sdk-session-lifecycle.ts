@@ -225,6 +225,11 @@ export class SdkSessionLifecycle {
 		}
 	}
 
+	/** Cline Cubed: every live session, the active one included. */
+	listSessions(): ActiveSession[] {
+		return [...this.sessions.values()]
+	}
+
 	async updateActiveSessionModel(modelId: string): Promise<boolean> {
 		const activeSession = this.activeSession
 		if (!activeSession?.sdkHost.updateSessionModel) {

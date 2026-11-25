@@ -14,6 +14,7 @@ import type {
 	ResolvedModelSelection,
 } from "@/sdk/model-catalog/contracts"
 import { parseProviderId } from "@/sdk/model-catalog/provider-id"
+import type { ProviderConnectionChanges } from "@/sdk/provider-connection-update"
 import {
 	AwsProviderConfig,
 	CatalogErrorInfo,
@@ -34,6 +35,11 @@ import type { GlobalStateAndSettings } from "@/shared/storage/state-keys"
 export interface ProviderCatalogController {
 	getProviderConfigStore(): ProviderConfigStore
 	getProviderCatalog(): ProviderCatalog
+	/**
+	 * Cline Cubed: applies a saved change to a provider's Base URL, key, or headers to the chats
+	 * already open on that provider, in place.
+	 */
+	applyProviderConnectionChange?(providerId: string, changes: ProviderConnectionChanges): Promise<void>
 }
 
 export interface ProviderCatalogStateController extends ProviderCatalogController {

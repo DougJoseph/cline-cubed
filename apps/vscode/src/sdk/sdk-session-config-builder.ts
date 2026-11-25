@@ -2,12 +2,14 @@ import { dirname, resolve as resolvePath } from "node:path"
 import { type CoreSessionConfig, resolveCompactionTriggerTokens } from "@cline/core"
 import type { StateManager } from "@/core/storage/StateManager"
 import type { ClineMessage } from "@/shared/ExtensionMessage"
-import { createAlwaysRememberedFilesExtension, isLocalEndpoint } from "./always-remembered-files"
+import { Logger } from "@/shared/services/Logger"
+import { createAlwaysRememberedFilesExtension, createEndpointLocalCheck } from "./always-remembered-files"
 import { buildSessionConfig, type SessionConfigInput } from "./cline-session-factory"
 import { buildAgentHooks, type HookMessageEmitter } from "./hooks-adapter"
 import { imageLimitsFromMegabytes } from "./image-descriptions"
 import { createImageDescriptionsExtension } from "./image-descriptions-extension"
 import type { ProviderConfigStore } from "./model-catalog/contracts"
+import { parseProviderId } from "./model-catalog/provider-id"
 import { NO_MODEL_SELECTED_ID, providerModelIsSetByProvider } from "./model-catalog/stored-mode-model"
 
 export interface SdkSessionConfigBuilderOptions {
@@ -29,6 +31,20 @@ export interface SdkSessionConfigBuilderOptions {
  */
 export class SdkSessionConfigBuilder {
 	constructor(private readonly options: SdkSessionConfigBuilderOptions) {}
+
+	/** The Base URL the provider record holds now, which open chats follow after a saved change. */
+	private currentBaseUrl(providerId: string | undefined): string | undefined {
+		const store = this.options.providerConfigStore
+		if (!store || !providerId) {
+			return undefined
+		}
+		try {
+			return store.read(parseProviderId(providerId)).baseUrl
+		} catch (error) {
+			Logger.warn(`[SdkSessionConfigBuilder] Could not read the ${providerId} provider record:`, error)
+			return undefined
+		}
+	}
 
 	async build(input: SessionConfigInput): Promise<Awaited<ReturnType<typeof buildSessionConfig>>> {
 		const config = await buildSessionConfig(input)
@@ -87,7 +103,12 @@ export class SdkSessionConfigBuilder {
 			...(config.extensions ?? []),
 			createAlwaysRememberedFilesExtension({
 				cwd: config.cwd,
-				endpointIsLocal: isLocalEndpoint(config.providerId, config.baseUrl),
+				// Cline Cubed: decided on each message from the chat's CURRENT address, which a saved
+				// Base URL change now reaches in open chats; the answer is remembered per address.
+				isEndpointLocal: createEndpointLocalCheck(() => ({
+					providerId: config.providerId,
+					baseUrl: this.currentBaseUrl(config.providerId) ?? config.baseUrl,
+				})),
 				compactionTriggerTokens: modelInfo ? resolveCompactionTriggerTokens(modelInfo) : undefined,
 				emitWarning: (text, sessionId) => {
 					const message: ClineMessage = { ts: Date.now(), type: "say", say: "error", text, partial: false }

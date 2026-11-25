@@ -68,6 +68,7 @@ import type { Disposable, ProviderCatalog, ProviderConfigChange, ProviderConfigS
 import { parseProviderId } from "./model-catalog/provider-id"
 import { createProviderConfigStore } from "./model-catalog/store"
 import { MissingModelError } from "./model-catalog/stored-mode-model"
+import { applyProviderConnectionChange, type ProviderConnectionChanges } from "./provider-connection-update"
 import {
 	PROVIDER_FAILURE_ERROR_TYPE,
 	PROVIDER_FAILURE_PHASE,
@@ -813,6 +814,36 @@ export class Controller {
 
 	handleApiConfigurationChanged(previous: ApiConfiguration, next: ApiConfiguration): void {
 		this.providerChanges.handleApiConfigurationChanged(previous, next)
+	}
+
+	/**
+	 * Cline Cubed: a saved Base URL, key, or headers reaches every chat already open on that
+	 * provider, in place, so the next message uses it without a window reload.
+	 */
+	async applyProviderConnectionChange(providerId: string, changes: ProviderConnectionChanges): Promise<void> {
+		const sessions = (this.sessions?.listSessions() ?? []).map((session) => ({
+			sessionId: session.sessionId,
+			providerId: session.startConfig?.providerId,
+			update: async (update: ProviderConnectionChanges) => {
+				if (!session.sdkHost.updateSessionConnection) {
+					throw new Error("This chat's engine cannot change its connection while open.")
+				}
+				await session.sdkHost.updateSessionConnection(session.sessionId, update)
+			},
+		}))
+		await applyProviderConnectionChange(sessions, providerId, changes, (sessionId, error) => {
+			Logger.error(`[SdkController] Could not apply the new ${providerId} connection to chat ${sessionId}:`, error)
+			this.messages.emitHookMessage(
+				{
+					ts: Date.now(),
+					type: "say",
+					say: "error",
+					text: "The new Base URL, key, or headers from Settings could not be applied to this chat. Reload the window to use them here.",
+					partial: false,
+				},
+				sessionId,
+			)
+		})
 	}
 
 	handleTerminalExecutionModeChanged(previous: VscodeTerminalExecutionMode, next: VscodeTerminalExecutionMode): void {

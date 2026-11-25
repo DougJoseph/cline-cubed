@@ -8,6 +8,7 @@ import {
 	describeAlwaysRememberedIssues,
 	groupAutomaticRuleLocations,
 	isLocalEndpoint,
+	isLocalEndpointResolved,
 	isRefusedSecretsFile,
 	loadAlwaysRememberedFiles,
 	moveAlwaysRememberedEntry,
@@ -216,6 +217,53 @@ describe("isRefusedSecretsFile", () => {
 
 	it.each(["env.md", "my.env.md", "README.md", ".environment"])("allows %s", (name) => {
 		expect(isRefusedSecretsFile(name)).toBe(false)
+	})
+})
+
+// Cline Cubed: a Tailscale address is a private one, and a name counts as private only when every
+// address it resolves to is private.
+describe("Tailscale and resolved names", () => {
+	it.each([
+		"http://100.64.0.1:8080/v1",
+		"http://100.101.102.103:8080/v1",
+		"http://100.127.255.254/v1",
+	])("treats the Tailscale address %s as local", (url) => {
+		expect(isLocalEndpoint("openai", url)).toBe(true)
+	})
+
+	it.each(["http://100.63.255.255/v1", "http://100.128.0.1/v1"])("treats %s, outside Tailscale's range, as remote", (url) => {
+		expect(isLocalEndpoint("openai", url)).toBe(false)
+	})
+
+	it("treats a name resolving only to private addresses as local", async () => {
+		const lookup = async () => [{ address: "100.101.102.103", family: 4 }]
+		expect(await isLocalEndpointResolved("openai", "http://model-box.example.ts.net:8080/v1", lookup)).toBe(true)
+	})
+
+	it("treats a name resolving to any public address as remote", async () => {
+		const lookup = async () => [
+			{ address: "100.101.102.103", family: 4 },
+			{ address: "203.0.113.9", family: 4 },
+		]
+		expect(await isLocalEndpointResolved("openai", "https://funnel.example.ts.net/v1", lookup)).toBe(false)
+	})
+
+	it("keeps the warning when the lookup fails", async () => {
+		const lookup = async () => {
+			throw new Error("ENOTFOUND")
+		}
+		expect(await isLocalEndpointResolved("openai", "http://nowhere.example.ts.net/v1", lookup)).toBe(false)
+	})
+
+	it("does not trust a .ts.net name by itself", () => {
+		expect(isLocalEndpoint("openai", "http://model-box.example.ts.net:8080/v1")).toBe(false)
+	})
+
+	it("still answers local for a local name without a lookup", async () => {
+		const lookup = async () => {
+			throw new Error("should not be called")
+		}
+		expect(await isLocalEndpointResolved("openai", "http://localhost:8080/v1", lookup)).toBe(true)
 	})
 })
 

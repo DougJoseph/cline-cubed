@@ -21,6 +21,7 @@ import type {
 	StartSessionResult,
 } from "@cline/core"
 import type { AgentResult } from "@cline/shared"
+import type { ProviderConnectionChanges } from "./provider-connection-update"
 
 export interface SdkSessionHost {
 	readonly runtimeAddress: string | undefined
@@ -64,6 +65,8 @@ export interface SdkSessionHost {
 	pendingPrompts(action: "delete", input: PendingPromptsDeleteInput): Promise<PendingPromptMutationResult>
 	subscribe(listener: (event: CoreSessionEvent) => void): () => void
 	updateSessionModel?(sessionId: string, modelId: string): Promise<void>
+	/** Cline Cubed: changes an open session's Base URL, key, or headers in place. */
+	updateSessionConnection?(sessionId: string, changes: ProviderConnectionChanges): Promise<void>
 }
 
 export type SdkInitialMessages = NonNullable<StartSessionInput["initialMessages"]>

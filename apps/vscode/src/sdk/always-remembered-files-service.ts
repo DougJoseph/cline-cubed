@@ -12,7 +12,7 @@ import { Logger } from "@/shared/services/Logger"
 import {
 	addAlwaysRememberedEntry,
 	groupAutomaticRuleLocations,
-	isLocalEndpoint,
+	isLocalEndpointResolved,
 	loadAlwaysRememberedFiles,
 	moveAlwaysRememberedEntry,
 	removeAlwaysRememberedEntry,
@@ -64,7 +64,7 @@ export async function getAlwaysRememberedFilesState(addError?: string): Promise<
 		})),
 		totalEstimatedTokens,
 		contextWindow,
-		endpointIsLocal: isLocalEndpoint(providerId, baseUrl),
+		endpointIsLocal: await isLocalEndpointResolved(providerId, baseUrl),
 		addError,
 		reachesCompactionTrigger: triggerTokens !== undefined && totalEstimatedTokens >= triggerTokens,
 	})

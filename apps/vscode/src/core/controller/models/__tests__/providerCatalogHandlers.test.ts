@@ -254,6 +254,34 @@ describe("provider model catalog handlers", () => {
 		expect(store.write).toHaveBeenCalledWith(providerId, { headers: {} })
 	})
 
+	// Cline Cubed: a saved Base URL, key, or headers reaches the chats already open on that provider.
+	it("writeProviderConfig hands a connection change to the open chats, with its stored values", async () => {
+		const { writeProviderConfig } = await import("../writeProviderConfig")
+		const providerId = parseProviderId("openai")
+		const store = makeStore({ providerId, baseUrl: "http://new-host:8080/v1", apiKey: "k" })
+		const applyProviderConnectionChange = vi.fn(async () => undefined)
+		const controller = { ...makeController(store, makeCatalog()), applyProviderConnectionChange }
+
+		await writeProviderConfig(controller, {
+			providerId: "openai",
+			patch: { baseUrl: "http://new-host:8080/v1", headers: {} },
+		})
+
+		expect(applyProviderConnectionChange).toHaveBeenCalledWith(providerId, { baseUrl: "http://new-host:8080/v1" })
+	})
+
+	it("writeProviderConfig tells no chat about a write that changes no connection field", async () => {
+		const { writeProviderConfig } = await import("../writeProviderConfig")
+		const providerId = parseProviderId("bedrock")
+		const store = makeStore({ providerId })
+		const applyProviderConnectionChange = vi.fn(async () => undefined)
+		const controller = { ...makeController(store, makeCatalog()), applyProviderConnectionChange }
+
+		await writeProviderConfig(controller, { providerId: "bedrock", patch: { region: "us-east-1", headers: {} } })
+
+		expect(applyProviderConnectionChange).not.toHaveBeenCalled()
+	})
+
 	it("commitModelSelection validates mode and commits model settings", async () => {
 		const { commitModelSelection } = await import("../commitModelSelection")
 		const providerId = parseProviderId("deepseek")

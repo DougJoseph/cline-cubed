@@ -1,4 +1,6 @@
+import { lookup as dnsLookup } from "node:dns/promises"
 import { readFile, realpath, stat } from "node:fs/promises"
+import { isIP } from "node:net"
 import { homedir } from "node:os"
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { type CoreSessionConfig, readAlwaysRememberedFilesGlobally, resolveRulesConfigSearchPaths } from "@cline/core"
@@ -178,9 +180,34 @@ function isPrivateIpv4(host: string): boolean {
 		first === 10 ||
 		(first === 192 && second === 168) ||
 		(first === 172 && second >= 16 && second <= 31) ||
-		(first === 169 && second === 254)
+		(first === 169 && second === 254) ||
+		// Cline Cubed: the shared address range Tailscale assigns machines on a private network.
+		(first === 100 && second >= 64 && second <= 127)
 	)
 }
+
+/** Loopback, private, or Tailscale, for a bare IPv4 or IPv6 address. */
+function isPrivateAddress(address: string): boolean {
+	const lower = address.toLowerCase().replace(/^\[|\]$/g, "")
+	const mappedIpv4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(lower)
+	if (mappedIpv4) {
+		return isPrivateIpv4(mappedIpv4[1])
+	}
+	return lower === "::1" || /^f[cd]/.test(lower) || /^fe[89ab]/.test(lower) || isPrivateIpv4(lower)
+}
+
+/** Resolves a host name to its addresses; replaceable in tests. */
+export type HostLookup = (host: string) => Promise<ReadonlyArray<{ address: string; family: number }>>
+
+const LOOKUP_LIMIT_MS = 2_000
+
+const defaultHostLookup: HostLookup = (host) =>
+	Promise.race([
+		dnsLookup(host, { all: true }),
+		new Promise<never>((_, reject) =>
+			setTimeout(() => reject(new Error(`Looking up ${host} took longer than ${LOOKUP_LIMIT_MS} ms`)), LOOKUP_LIMIT_MS),
+		),
+	])
 
 export function isLocalEndpoint(providerId: string | undefined, baseUrl: string | undefined): boolean {
 	if (!baseUrl?.trim()) {
@@ -201,6 +228,73 @@ export function isLocalEndpoint(providerId: string | undefined, baseUrl: string 
 		/^f[cd]/.test(unbracketed) ||
 		isPrivateIpv4(unbracketed)
 	)
+}
+
+/**
+ * Cline Cubed: `isLocalEndpoint`, and for a host NAME it does not recognize, a lookup of that name:
+ * local only when every address the name resolves to is loopback, private, or Tailscale. A failed
+ * or slow lookup answers remote, so the warning about sending files to a remote endpoint stays.
+ * A `.ts.net` name is never trusted by itself, because Tailscale Funnel publishes services to the
+ * public internet under such names.
+ */
+export async function isLocalEndpointResolved(
+	providerId: string | undefined,
+	baseUrl: string | undefined,
+	lookup: HostLookup = defaultHostLookup,
+): Promise<boolean> {
+	return (await decideEndpointLocality(providerId, baseUrl, lookup)).local
+}
+
+/** Whether an endpoint is local, and whether that answer is settled (a failed lookup is not). */
+async function decideEndpointLocality(
+	providerId: string | undefined,
+	baseUrl: string | undefined,
+	lookup: HostLookup,
+): Promise<{ local: boolean; settled: boolean }> {
+	if (isLocalEndpoint(providerId, baseUrl)) {
+		return { local: true, settled: true }
+	}
+	let host: string
+	try {
+		host = new URL(baseUrl ?? "").hostname.toLowerCase().replace(/^\[|\]$/g, "")
+	} catch {
+		return { local: false, settled: true }
+	}
+	if (!host || isIP(host) !== 0) {
+		return { local: false, settled: true }
+	}
+	try {
+		const addresses = await lookup(host)
+		return { local: addresses.length > 0 && addresses.every((entry) => isPrivateAddress(entry.address)), settled: true }
+	} catch (error) {
+		Logger.warn(`[AlwaysRememberedFiles] Could not look up ${host}; treating it as a remote endpoint.`, error)
+		return { local: false, settled: false }
+	}
+}
+
+/**
+ * Cline Cubed: a per-chat check of whether the chat's CURRENT endpoint is local, for the warning on
+ * each message. The answer is remembered per address, so only a change of address costs a lookup;
+ * a failed lookup answers remote and is tried again on the next message.
+ */
+export function createEndpointLocalCheck(
+	currentEndpoint: () => { providerId?: string; baseUrl?: string },
+	lookup: HostLookup = defaultHostLookup,
+): () => Promise<boolean> {
+	const known = new Map<string, boolean>()
+	return async () => {
+		const { providerId, baseUrl } = currentEndpoint()
+		const key = `${providerId ?? ""}\u0000${baseUrl ?? ""}`
+		const remembered = known.get(key)
+		if (remembered !== undefined) {
+			return remembered
+		}
+		const decision = await decideEndpointLocality(providerId, baseUrl, lookup)
+		if (decision.settled) {
+			known.set(key, decision.local)
+		}
+		return decision.local
+	}
 }
 
 export function shareOfContextWindow(tokens: number, contextWindow: number | undefined): number | undefined {
@@ -280,7 +374,8 @@ export function moveAlwaysRememberedEntry(entries: readonly string[], entry: str
 
 export interface AlwaysRememberedExtensionOptions {
 	cwd: string
-	endpointIsLocal: boolean
+	/** Whether the chat's current endpoint is local; asked on each message (`createEndpointLocalCheck`). */
+	isEndpointLocal: () => Promise<boolean>
 	compactionTriggerTokens?: number
 	emitWarning: (text: string, sessionId: string | undefined) => void
 }
@@ -318,7 +413,10 @@ export function createAlwaysRememberedFilesExtension(
 							workspaceRoot: options.cwd,
 							ruleSearchPaths: resolveRulesConfigSearchPaths(options.cwd),
 						})
-						const issues = describeAlwaysRememberedIssues(files, options)
+						const issues = describeAlwaysRememberedIssues(files, {
+							endpointIsLocal: await options.isEndpointLocal(),
+							compactionTriggerTokens: options.compactionTriggerTokens,
+						})
 						for (const issue of issues) {
 							Logger.warn(`[AlwaysRememberedFiles] ${issue}`)
 						}

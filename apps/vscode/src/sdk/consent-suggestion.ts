@@ -2,44 +2,17 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import type { CoreSessionConfig } from "@cline/core"
 import { resolveSessionDataDir } from "@cline/shared/storage"
-import type { StateManager } from "@/core/storage/StateManager"
 import type { ClineMessage } from "@/shared/ExtensionMessage"
 import { Logger } from "@/shared/services/Logger"
-import { buildApiHandler } from "./sdk-api-handler"
+import { CONSENT_SUGGESTION_RULE, extractConsentSuggestion } from "./consent-marker"
 
 /**
  * Cline Cubed: when the agent's reply asks for consent or proposes an action, a one-line reply
- * granting it is suggested in the chat input, and Tab puts it in the box. The suggestion is written
- * after a finished turn by a short request to the chat's main model, held per chat in a file beside
- * the chat so a reopened chat still shows it, and forgotten when the next message is sent.
+ * granting it is suggested in the chat input, and Tab puts it in the box. The model writes the
+ * suggestion itself, in a `<consent_suggestion>` line at the end of its reply (`consent-marker.ts`),
+ * so no request of its own is sent for it. The suggestion is held per chat in a file beside the
+ * chat so a reopened chat still shows it, and forgotten when the next message is sent.
  */
-
-/** The system prompt for the suggestion request. */
-export const CONSENT_SUGGESTION_PROMPT = `You write one short reply for a user to send to an AI coding assistant.
-
-Read the assistant's last reply. If it asks the user for consent, approval, or a go-ahead, or proposes an action and asks whether to do it, write the user's reply granting it: one line, under 15 words, starting "yes, ", naming the action in summary form, for example "yes, write the plan doc and TODO lines".
-
-If the reply asks for no consent and proposes no action, write exactly NONE.
-
-Output only the reply or NONE, with no quotes and no explanation.`
-
-const MAX_SUGGESTION_CHARS = 160
-/** How much of the reply and the user's message the request carries. */
-const MAX_CONTEXT_CHARS = 4_000
-
-/** The model's answer as a suggestion, or undefined when there is none to show. */
-export function cleanConsentSuggestion(raw: string): string | undefined {
-	const firstLine =
-		raw
-			.split("\n")
-			.map((line) => line.trim())
-			.find((line) => line.length > 0) ?? ""
-	const unquoted = firstLine.replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim()
-	if (!unquoted || /^none\.?$/i.test(unquoted) || unquoted.length > MAX_SUGGESTION_CHARS) {
-		return undefined
-	}
-	return unquoted
-}
 
 export function consentSuggestionPath(sessionId: string, dataDir: string = resolveSessionDataDir()): string {
 	return join(dataDir, sessionId, `${sessionId}.consent-suggestion.json`)
@@ -94,43 +67,21 @@ function textOf(message: { content?: unknown } | undefined): string {
 		.trim()
 }
 
-function lastUserText(messages: readonly { role: string; content?: unknown }[]): string {
+/** The text the model wrote in its latest message, before any tool call in it. */
+function lastAssistantText(messages: readonly { role: string; content?: unknown }[]): string {
 	for (let index = messages.length - 1; index >= 0; index--) {
-		if (messages[index].role === "user") {
-			const text = textOf(messages[index])
-			if (text) {
-				return text
-			}
+		if (messages[index].role === "assistant") {
+			return textOf(messages[index])
 		}
 	}
 	return ""
 }
 
-/** The question tool's question and its answer options, as the suggestion request reads them. */
-function questionText(input: unknown): string {
-	const fields = input as { question?: unknown; options?: unknown } | undefined
-	const question = typeof fields?.question === "string" ? fields.question.trim() : ""
-	if (!question) {
-		return ""
-	}
-	const choices = Array.isArray(fields?.options)
-		? fields.options.filter((option): option is string => typeof option === "string")
-		: []
-	return choices.length > 0 ? `${question}\n\nAnswer options:\n${choices.map((option) => `- ${option}`).join("\n")}` : question
-}
-
 const QUESTION_TOOLS = new Set(["ask_question", "ask_followup_question"])
 
-/** The end of a long text, where a closing question sits. */
-function tail(text: string): string {
-	return text.length > MAX_CONTEXT_CHARS ? `…${text.slice(-MAX_CONTEXT_CHARS)}` : text
-}
-
 export interface ConsentSuggestionExtensionOptions {
-	/** Whether the Settings switch is on; read at the end of each turn. */
+	/** Whether the Settings switch is on; read on every message. */
 	enabled: () => boolean
-	/** Sends one request to the chat's main model and returns its text. */
-	ask: (systemPrompt: string, userText: string) => Promise<string>
 	/** Delivers the suggestion to the chat with this session id. */
 	emit: (suggestion: string, sessionId: string) => void
 	/** Where chats keep their files; replaceable in tests. */
@@ -141,102 +92,66 @@ export function createConsentSuggestionExtension(
 	options: ConsentSuggestionExtensionOptions,
 ): NonNullable<CoreSessionConfig["extensions"]>[number] {
 	let sessionId: string | undefined
-	// Counts runs and answered questions, so a suggestion still being written when the next message
-	// is sent, or when its question is answered, is dropped.
-	let runCount = 0
 	const dataDir = () => options.dataDir?.()
 
-	/** Asks for a suggestion for this reply, then stores and shows it unless the chat moved on meanwhile. */
-	const suggest = async (id: string, userText: string, reply: string): Promise<void> => {
-		const runAtStart = runCount
+	/** Stores and shows the suggestion found in this text, if it holds one. */
+	const suggestFrom = (id: string, text: string): void => {
+		const suggestion = extractConsentSuggestion(text)
+		if (!suggestion) {
+			return
+		}
 		try {
-			const answer = await options.ask(
-				CONSENT_SUGGESTION_PROMPT,
-				`The user's last message:\n${tail(userText) || "(none)"}\n\nThe assistant's last reply:\n${tail(reply)}`,
-			)
-			const suggestion = cleanConsentSuggestion(answer)
-			if (!suggestion || runCount !== runAtStart) {
-				return
-			}
 			writeConsentSuggestion(id, suggestion, dataDir())
 			options.emit(suggestion, id)
 		} catch (error) {
-			Logger.error(`[ConsentSuggestion] Could not write a suggestion for chat ${id}:`, error)
+			Logger.error(`[ConsentSuggestion] Could not keep the suggestion for chat ${id}:`, error)
 		}
 	}
 
 	return {
 		name: "cline-consent-suggestion",
-		manifest: { capabilities: ["hooks"] },
+		manifest: { capabilities: ["hooks", "rules"] },
 		hooks: {
 			beforeRun: () => {
-				runCount++
 				if (sessionId) {
 					clearConsentSuggestion(sessionId, dataDir())
 				}
 				return undefined
 			},
-			afterRun: async ({ result }) => {
+			afterRun: ({ result }) => {
 				const id = sessionId
 				if (!id || result.status !== "completed" || !options.enabled()) {
 					return
 				}
-				const reply = result.outputText?.trim()
-				if (!reply) {
-					return
-				}
-				await suggest(id, lastUserText(result.messages), reply)
+				suggestFrom(id, result.outputText ?? "")
 			},
 			// The question box waits for its answer inside the running turn, so the turn's end never
-			// comes while it is open: the suggestion is requested as the question is posted, without
-			// holding the question up.
-			beforeTool: ({ toolCall, input, snapshot }) => {
+			// comes while it is open: the suggestion is read as the question is posted, from the text
+			// the model wrote before the question.
+			beforeTool: ({ toolCall, snapshot }) => {
 				const id = sessionId
 				if (!id || !QUESTION_TOOLS.has(toolCall.toolName) || !options.enabled()) {
 					return undefined
 				}
-				const reply = questionText(input ?? toolCall.input)
-				if (reply) {
-					void suggest(id, lastUserText(snapshot?.messages ?? []), reply)
-				}
+				suggestFrom(id, lastAssistantText(snapshot?.messages ?? []))
 				return undefined
 			},
 			// Once the question is answered, its suggestion is stale.
 			afterTool: ({ toolCall }) => {
-				if (QUESTION_TOOLS.has(toolCall.toolName)) {
-					runCount++
-					if (sessionId) {
-						clearConsentSuggestion(sessionId, dataDir())
-					}
+				if (QUESTION_TOOLS.has(toolCall.toolName) && sessionId) {
+					clearConsentSuggestion(sessionId, dataDir())
 				}
 				return undefined
 			},
 		},
-		setup(_api, context) {
+		setup(api, context) {
 			sessionId = context.session?.sessionId
+			// The system prompt is rebuilt on every message, so the switch applies from the next one.
+			api.registerRule({
+				id: "cline-consent-suggestion:rule",
+				source: "consent-suggestion",
+				content: () => (options.enabled() ? CONSENT_SUGGESTION_RULE : ""),
+			})
 		},
 	}
-}
-
-/** One request to the chat's main model, with no tools and no reasoning, answering its text. */
-export async function askMainModel(stateManager: StateManager, systemPrompt: string, userText: string): Promise<string> {
-	const mode = stateManager.getGlobalSettingsKey("mode") === "plan" ? "plan" : "act"
-	// No token limit: a model that reasons before answering would spend a small limit before any
-	// answer came back. The prompt's word limit sets the length.
-	const handler = buildApiHandler(stateManager.getApiConfiguration(), mode, { disableReasoning: true })
-	let answer = ""
-	let failure: string | undefined
-	for await (const chunk of handler.createMessage(systemPrompt, [
-		{ role: "user", content: [{ type: "text", text: userText }] },
-	])) {
-		if (chunk.type === "text") {
-			answer += chunk.text
-		} else if (chunk.type === "done" && chunk.success === false) {
-			failure = chunk.error
-		}
-	}
-	if (failure) {
-		throw new Error(failure)
-	}
-	return answer
 }

@@ -19,13 +19,12 @@
  *   STUB_ERROR    HTTP 500 with a provider-shaped error body
  *   STUB_BADTOOL  a tool call naming a tool that does not exist, to drive the mistake limit
  *   STUB_TOOL     a `run_commands` tool call, to reach the approval path
- *   STUB_CONSENT  a plain reply that ends by asking for a go (`STUB_CONSENT_REPLY`)
+ *   STUB_CONSENT  a reply that asks for a go and ends with its `<consent_suggestion>` line
  *
- * THE SUGGESTED CONSENT REPLY. After a finished turn the extension sends one more request, asking
- * for a one-line reply granting what the assistant asked for. The stub recognizes it by its opening
- * words and answers it before looking for markers, because it quotes the user's last message and so
- * carries that message's marker too: `STUB_SUGGESTION` when a line of the quoted reply ends in a
- * question mark (a question box quotes its question, then its answer options), otherwise `NONE`.
+ * THE SUGGESTED CONSENT REPLY. The extension reads the suggestion from a `<consent_suggestion>`
+ * line at the end of the model's own reply and never shows that line in the chat. A `STUB_CONSENT`
+ * probe gets `STUB_CONSENT_REPLY` followed by that line holding `STUB_SUGGESTION`. No other reply
+ * carries the line, so no other reply produces a suggestion.
  *
  * TOOL NAMES COME FROM THE SDK, NOT FROM PROSE: `ask_question` and `run_commands` are the
  * registered names (`sdk/packages/core/src/extensions/tools/definitions.ts`). A name that is not
@@ -63,12 +62,11 @@ export const MARKERS = {
 	consent: "STUB_CONSENT",
 } as const
 
-/** The reply a `STUB_CONSENT` probe gets, and the suggestion the stub writes for it. */
+/** What the chat shows for a `STUB_CONSENT` probe, and the suggestion carried in the reply's last line. */
 export const STUB_CONSENT_REPLY = "Plan written. Should I write the plan doc and TODO lines?"
 export const STUB_SUGGESTION = "yes, write the plan doc and TODO lines"
-/** The opening words of the extension's suggestion request (`apps/vscode/src/sdk/consent-suggestion.ts`). */
-const SUGGESTION_REQUEST_START = "The user's last message:"
-const QUOTED_REPLY_HEADING = "The assistant's last reply:"
+/** The whole reply as the stub sends it: the visible text, then the `<consent_suggestion>` line. */
+export const STUB_CONSENT_REPLY_AS_SENT = `${STUB_CONSENT_REPLY}\n<consent_suggestion>${STUB_SUGGESTION}</consent_suggestion>`
 
 export const STUB_QUESTION = "Stub question: which way?"
 export const STUB_OPTIONS = ["Option A", "Option B"]
@@ -80,6 +78,10 @@ export type StubRequestLog = {
 	marker: string | null
 	stream: boolean
 	lastUserText: string
+	/** Whether the request's system prompt carried the suggested-consent-reply instruction. */
+	hasConsentInstruction: boolean
+	/** Whether the request's last user message carried the short reminder of that instruction. */
+	hasConsentReminder: boolean
 }
 
 export class StubProvider {
@@ -192,12 +194,14 @@ export class StubProvider {
 		const lastUserText = this.lastUserText(messages)
 		const marker = this.markerIn(lastUserText)
 		const stream = body?.stream === true
-		this.requests.push({ at: Date.now(), marker, stream, lastUserText: lastUserText.slice(0, 500) })
-
-		if (lastUserText.trimStart().startsWith(SUGGESTION_REQUEST_START)) {
-			const quotedReply = lastUserText.split(QUOTED_REPLY_HEADING).at(-1)?.trim() ?? ""
-			return this.respondText(res, stream, /\?\s*$/m.test(quotedReply) ? STUB_SUGGESTION : "NONE")
-		}
+		this.requests.push({
+			at: Date.now(),
+			marker,
+			stream,
+			lastUserText: lastUserText.slice(0, 500),
+			hasConsentInstruction: this.systemText(messages).includes("<consent_suggestion>"),
+			hasConsentReminder: lastUserText.includes("<consent_reminder>"),
+		})
 
 		if (marker === MARKERS.error) {
 			// Shaped like a provider failure rather than a transport one, so the extension's own
@@ -231,7 +235,7 @@ export class StubProvider {
 		}
 
 		if (marker === MARKERS.consent) {
-			return this.respondText(res, stream, STUB_CONSENT_REPLY)
+			return this.respondText(res, stream, STUB_CONSENT_REPLY_AS_SENT)
 		}
 
 		return this.respondText(res, stream, "Stub reply.")
@@ -356,6 +360,26 @@ export class StubProvider {
 		} catch {
 			return {}
 		}
+	}
+
+	/** The text of every system message in the request. */
+	private systemText(messages: ChatMessage[]): string {
+		return messages
+			.filter((m) => m?.role === "system" || m?.role === "developer")
+			.map((m) => {
+				const c = m.content
+				if (typeof c === "string") {
+					return c
+				}
+				return Array.isArray(c)
+					? c
+							.map((part: any) =>
+								typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "",
+							)
+							.join(" ")
+					: ""
+			})
+			.join("\n")
 	}
 
 	/** The text of the last user message, flattening the array-of-parts content shape. */

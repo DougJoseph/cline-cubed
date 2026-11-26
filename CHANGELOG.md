@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.29]
+
+### Changed
+
+- **The new suggested reply feature that debuted in the previous version now works faster and more
+  efficiently, by having your model bundle the suggestion text into its main response in the turn.**
+
 ## [4.1.28]
 
 ### Added

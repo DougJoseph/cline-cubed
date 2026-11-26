@@ -221,7 +221,7 @@ first line going up, or the last line coming down.
 
 When the agent ends a reply by asking for consent ("Should I write the tests?") or proposing an action, or asks you a question with answer buttons, the empty message box shows a suggested reply granting it, in summary form: "yes, write the tests". Press **Tab**, or click the **Tab** label, to put it in the box as text you can edit or send. Nothing is sent until you send it.
 
-The suggestion belongs to its chat and stays through a window reload until you send a message there or answer the question. It shows only while the box is empty and the chat is waiting for you. Writing it takes one short extra request to your model after each reply, and Settings → Features → **Suggest a consent reply** turns it off.
+The suggestion belongs to its chat and stays through a window reload until you send a message there or answer the question. It shows only while the box is empty and the chat is waiting for you. Your model bundles the suggestion into its main response in the turn, and Settings → Features → **Suggest a consent reply** turns it off.
 
 ## Chats that keep their context
 

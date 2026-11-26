@@ -99,6 +99,22 @@ describe("prompt format helpers", () => {
 		);
 	});
 
+	it("removes a consent reminder, alone or beside a mode notice", () => {
+		const reminder =
+			"<consent_reminder>If your reply asks for my go, end it with one line: <consent_suggestion>yes, …</consent_suggestion></consent_reminder>";
+		expect(stripModeNotices(`please plan it\n${reminder}`)).toBe(
+			"please plan it",
+		);
+		expect(
+			stripModeNotices(`<mode_notice>a</mode_notice>\nhello\n${reminder}`),
+		).toBe("hello");
+		expect(
+			formatDisplayUserInput(
+				`<user_input mode="act">please plan it\n${reminder}</user_input>`,
+			),
+		).toBe("please plan it");
+	});
+
 	it("strips adversarial repeated open tags in linear time", () => {
 		// Regression guard for CodeQL js/polynomial-redos: many unmatched
 		// opening tags must not trigger quadratic rescanning.

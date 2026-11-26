@@ -19,7 +19,7 @@ import {
 	setTelemetryOptOutGlobally,
 	type UserInstructionConfigService,
 } from "@cline/core"
-import { formatDisplayUserInput, type RemoteConfig, type RemoteConfigBundle } from "@cline/shared"
+import { formatDisplayUserInput, type RemoteConfig, type RemoteConfigBundle, stripModeNotices } from "@cline/shared"
 import {
 	bindChatSurfaceToSession,
 	chatSurfaceForSession,
@@ -464,6 +464,8 @@ export class Controller {
 			// this.mode is assigned later in this constructor; the closure only
 			// runs at send time, long after construction completes.
 			consumeModeSwitchNotice: (sessionId) => this.mode.consumeModeSwitchNotice(sessionId),
+			// Cline Cubed: the same switch as the suggested consent reply itself.
+			consentReminderEnabled: () => this.stateManager.getGlobalSettingsKey("consentSuggestionEnabled") !== false,
 			onSendComplete: async () => {
 				// Normal flows close their diff sessions inline; anything left here is orphaned.
 				void this.diffEdits.discardAllPreviews("turn complete")
@@ -2722,7 +2724,11 @@ export class Controller {
 			const promptSession = sessionId ? this.sessions.getLiveSession(sessionId) : this.sessions.getActiveSession()
 			if (promptSession) {
 				try {
-					queuedPrompts = await promptSession.sdkHost.pendingPrompts("list", { sessionId: promptSession.sessionId })
+					// Cline Cubed: a queued message is listed as the user typed it, without the
+					// reminder and mode notice added for the model.
+					queuedPrompts = (
+						await promptSession.sdkHost.pendingPrompts("list", { sessionId: promptSession.sessionId })
+					).map((queued) => ({ ...queued, prompt: stripModeNotices(queued.prompt) }))
 				} catch (error) {
 					Logger.error("[SdkController] Failed to list pending prompts for webview state:", error)
 				}

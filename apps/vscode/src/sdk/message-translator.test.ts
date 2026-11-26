@@ -1,6 +1,7 @@
 import type { CoreSessionEvent } from "@cline/core"
 import type { Message as SdkMessage } from "@cline/llms"
 import type { AgentEvent, MessageWithMetadata } from "@cline/shared"
+import { formatDisplayUserInput } from "@cline/shared"
 import type { ClineAskUseMcpServer, ClineSayTool } from "@shared/ExtensionMessage"
 import { describe, expect, it, vi } from "vitest"
 import { Logger } from "@/shared/services/Logger"
@@ -202,6 +203,30 @@ describe("translateSessionEvent — pending prompts", () => {
 				partial: false,
 			}),
 		])
+	})
+
+	it("never shows the consent reminder as the user's text, live or reopened", () => {
+		const reminder =
+			"<consent_reminder>If your reply asks for my go, end it with one line: <consent_suggestion>yes, …</consent_suggestion></consent_reminder>"
+		const state = new MessageTranslatorState()
+		const event: CoreSessionEvent = {
+			type: "pending_prompt_submitted",
+			payload: {
+				sessionId: "session-1",
+				id: "pending-1",
+				prompt: `please plan it\n${reminder}`,
+				delivery: "queue",
+				attachmentCount: 0,
+			},
+		}
+
+		const live = translateSessionEvent(event, state)
+		// A reopened chat cleans each saved user message with this same function before it is
+		// turned into rows (`sdk-task-history.ts`, `sanitizeSdkUserMessagesForDisplay`).
+		const reopened = formatDisplayUserInput(`<user_input mode="act">please plan it\n${reminder}</user_input>`)
+
+		expect(live.messages).toEqual([expect.objectContaining({ say: "user_feedback", text: "please plan it" })])
+		expect(reopened).toBe("please plan it")
 	})
 
 	it("strips runtime-generated mode notices from the queued prompt echo", () => {
@@ -4269,5 +4294,60 @@ describe("a reopened chat shows its images", () => {
 
 		expect(rows).toHaveLength(1)
 		expect(rows[0].images).toBeUndefined()
+	})
+})
+
+// Cline Cubed: the model ends a reply that asks for a go with a hidden consent-suggestion line.
+describe("the consent-suggestion marker is never shown", () => {
+	const agentEvent = (event: Partial<AgentEvent> & { type: string }): CoreSessionEvent =>
+		({
+			type: "agent_event",
+			payload: { sessionId: "session-1", event: event as AgentEvent },
+		}) as CoreSessionEvent
+	const MARKER = "<consent_suggestion>yes, commit them</consent_suggestion>"
+
+	it("hides a marker while the reply streams, including one only partly arrived", () => {
+		const state = new MessageTranslatorState()
+		const partial = translateSessionEvent(
+			agentEvent({
+				type: "content_start",
+				contentType: "text",
+				text: "<consent_sug",
+				accumulated: "Should I commit?\n<consent_sug",
+			}),
+			state,
+		)
+		const whole = translateSessionEvent(
+			agentEvent({ type: "content_start", contentType: "text", text: "x", accumulated: `Should I commit?\n${MARKER}` }),
+			state,
+		)
+
+		expect(partial.messages[0].text).not.toContain("<consent")
+		expect(whole.messages[0].text).not.toContain("consent_suggestion")
+		expect(whole.messages[0].text).toContain("Should I commit?")
+	})
+
+	it("hides the marker in the finished row and in the turn-final completion", () => {
+		const state = new MessageTranslatorState()
+		const end = translateSessionEvent(
+			agentEvent({ type: "content_end", contentType: "text", text: `Should I commit?\n${MARKER}` }),
+			state,
+		)
+		const done = translateSessionEvent(agentEvent({ type: "done", reason: "completed", text: "", iterations: 1 }), state)
+
+		expect(end.messages[0].text).toBe("Should I commit?")
+		expect(done.messages[0]).toMatchObject({ say: "completion_result", text: "Should I commit?" })
+	})
+
+	it("hides the marker when a saved chat is reopened", () => {
+		const messages: SdkMessage[] = [
+			{ role: "user", content: [{ type: "text", text: "commit please" }] } as SdkMessage,
+			{ role: "assistant", content: [{ type: "text", text: `Should I commit?\n${MARKER}` }] } as SdkMessage,
+		]
+
+		const clineMessages = sdkMessagesToClineMessages(messages)
+
+		expect(clineMessages.some((m) => m.text?.includes("consent_suggestion"))).toBe(false)
+		expect(clineMessages.some((m) => m.text === "Should I commit?")).toBe(true)
 	})
 })

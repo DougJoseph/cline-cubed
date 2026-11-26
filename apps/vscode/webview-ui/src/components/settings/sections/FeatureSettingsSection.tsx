@@ -215,7 +215,7 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 							{/* Cline Cubed: a suggested consent reply in the chat input. On by default. */}
 							<FeatureRow
 								checked={consentSuggestionEnabled !== false}
-								description="When a reply asks for your go, the message box suggests a one-line reply granting it, such as “yes, write the plan doc”. Press Tab to put it in the box; nothing is sent until you send it. One short request to your model after each reply."
+								description="When a reply asks for your go, the message box suggests a one-line reply granting it, such as “yes, write the plan doc”. Press Tab to put it in the box; nothing is sent until you send it. The model writes the suggestion at the end of its own reply, so no extra request is sent. Changing this setting changes the instructions the model gets, so a server that keeps the chat cached reads it in full once more."
 								label="Suggest a consent reply"
 								onChange={(checked) => updateSetting("consentSuggestionEnabled", checked)}
 							/>

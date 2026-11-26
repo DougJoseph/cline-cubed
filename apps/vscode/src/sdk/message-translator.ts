@@ -47,6 +47,7 @@ import { Logger } from "@shared/services/Logger"
 import * as path from "path"
 import { arePathsEqual, getDesktopDir } from "@/utils/path"
 import { CLINE_FREE_PROMOTION_ENDED_ERROR_CODE, isClineFreePromotionEndedMessage } from "../services/error/ClineError"
+import { stripConsentMarker } from "./consent-marker"
 import { MessageIdMinter } from "./message-id-minter"
 import { describeMissingCredentialError } from "./provider-credential-error"
 import { extractPersistedHookContextChips, isSyntheticSdkUserMessage, isSyntheticUserPrompt } from "./sdk-user-message-mapping"
@@ -1310,7 +1311,8 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 						createdAt: state.getStreamingTextCreatedAt(),
 						type: "say",
 						say: "text",
-						text: event.accumulated ?? event.text ?? "",
+						// Cline Cubed: the consent_suggestion line is never shown, even half arrived.
+						text: stripConsentMarker(event.accumulated ?? event.text ?? "", { streaming: true }),
 						partial: true,
 					})
 					break
@@ -1512,7 +1514,8 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 			switch (event.contentType) {
 				case "text": {
 					const ts = state.clearStreamingText()
-					const finalText = event.text ?? ""
+					// Cline Cubed: the consent_suggestion line is never shown.
+					const finalText = stripConsentMarker(event.text ?? "")
 					messages.push({
 						ts,
 						type: "say",

@@ -526,9 +526,9 @@ the first one found decides the response:
 | `STUB_ERROR` | HTTP 500 with a provider-shaped error body |
 | `STUB_BADTOOL` | a tool call naming a tool that does not exist, to drive the consecutive-mistake limit |
 | `STUB_TOOL` | a `run_commands` tool call, to reach the approval path |
-| `STUB_CONSENT` | a plain reply that ends by asking for a go |
+| `STUB_CONSENT` | a reply that asks for a go and ends with its `<consent_suggestion>` line |
 
-The extension's suggested-consent-reply request (sent after a finished turn, and when a question box opens) is recognized by its opening words and answered before any marker is looked for, since it quotes the user's message and its marker: `yes, write the plan doc and TODO lines` when a line of the reply it quotes ends in a question mark (a question box quotes its question and then its answer options), otherwise `NONE`.
+The extension reads its suggested consent reply from a `<consent_suggestion>` line at the end of the model's own reply, and never shows that line in the chat. A `STUB_CONSENT` reply ends with that line, holding `yes, write the plan doc and TODO lines`; no other reply carries it. Each request the stub logs records whether its system prompt carried the suggestion instruction (`hasConsentInstruction`) and whether its last user message carried the short reminder of it (`hasConsentReminder`).
 
 | Method | Description |
 |--------|-------------|

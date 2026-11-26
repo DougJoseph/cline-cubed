@@ -665,6 +665,51 @@ describe("SdkSessionLifecycle", () => {
 	})
 })
 
+describe("the consent reminder on a sent message", () => {
+	const REMINDER =
+		"<consent_reminder>If your reply asks for my go, end it with one line: <consent_suggestion>yes, …</consent_suggestion></consent_reminder>"
+
+	it("is added after the user's text while the setting is on, for a plain and a queued send", async () => {
+		const send = vi.fn().mockResolvedValue(undefined)
+		const sdkHost = makeSdkHost({ send })
+		const lifecycle = makeLifecycle({ consentReminderEnabled: () => true })
+
+		lifecycle.fireAndForgetSend(sdkHost as unknown as SendHost, "session-123", "please plan it")
+		lifecycle.fireAndForgetSend(sdkHost as unknown as SendHost, "session-123", "and then this", undefined, undefined, "queue")
+		await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+
+		expect(send.mock.calls[0][0].prompt).toBe(`please plan it\n${REMINDER}`)
+		expect(send.mock.calls[1][0].prompt).toBe(`and then this\n${REMINDER}`)
+	})
+
+	it("comes after a mode notice and the user's text", async () => {
+		const send = vi.fn().mockResolvedValue(undefined)
+		const sdkHost = makeSdkHost({ send })
+		const lifecycle = makeLifecycle({
+			consentReminderEnabled: () => true,
+			consumeModeSwitchNotice: () => ({ from: "plan", to: "act" }),
+		})
+
+		lifecycle.fireAndForgetSend(sdkHost as unknown as SendHost, "session-123", "go")
+		await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+
+		const prompt = send.mock.calls[0][0].prompt as string
+		expect(prompt.startsWith("<mode_notice>")).toBe(true)
+		expect(prompt.endsWith(`\ngo\n${REMINDER}`)).toBe(true)
+	})
+
+	it("is left off while the setting is off", async () => {
+		const send = vi.fn().mockResolvedValue(undefined)
+		const sdkHost = makeSdkHost({ send })
+		const lifecycle = makeLifecycle({ consentReminderEnabled: () => false })
+
+		lifecycle.fireAndForgetSend(sdkHost as unknown as SendHost, "session-123", "please plan it")
+		await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+
+		expect(send.mock.calls[0][0].prompt).toBe("please plan it")
+	})
+})
+
 function makeLifecycle(overrides: Partial<ConstructorParameters<typeof SdkSessionLifecycle>[0]> = {}) {
 	return new SdkSessionLifecycle({
 		// biome-ignore lint/suspicious/noExplicitAny: focused fake for lifecycle unit test

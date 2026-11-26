@@ -215,6 +215,12 @@ draft back before the final one returns you to an empty box, and **↑** from em
 up again. Multi-line editing keeps its arrows — the cycle only engages when the caret is on the
 first line going up, or the last line coming down.
 
+## A suggested reply when the agent asks for your go
+
+When the agent ends a reply by asking for consent ("Should I write the tests?") or proposing an action, the empty message box shows a suggested reply granting it, in summary form: "yes, write the tests". Press **Tab** to put it in the box as text you can edit or send. Nothing is sent until you send it.
+
+The suggestion belongs to its chat and stays through a window reload until you send a message there. It shows only while the box is empty and the chat is waiting for you. Writing it takes one short extra request to your model after each reply, and Settings → Features → **Suggest a consent reply** turns it off.
+
 ## Chats that keep their context
 
 When a long conversation fills the context window, older messages get summarized. That is

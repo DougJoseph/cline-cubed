@@ -1,5 +1,31 @@
 # Changelog
 
+## [4.1.28]
+
+### Added
+
+- **Suggested reply when the agent asks for your go.** When a reply asks for consent or proposes an
+  action, the empty message box suggests a one-line reply granting it, such as "yes, write the plan
+  doc and TODO lines". Press **Tab**, or click the **Tab** label, to put it in the box, then edit it or
+  send it; nothing is sent on its own. Each chat keeps its own suggestion, and it stays through a
+  window reload until you send a message. Writing it takes one short extra request to your model after
+  each reply. Turn it off in Settings → Features → Suggest a consent reply.
+
+### Fixed
+
+- **Changing a provider's address in Settings now reaches your open chats.** If you change a
+  provider's Base URL, API key, or headers in Settings, for example because your model moved to
+  another server, the chats you already have open start using the new settings right away. Before,
+  chats that were already open went on using the old settings until you reloaded the window.
+
+- **No false alert for a model on your own private network through Tailscale.** The new "Always
+  Remembered Files" feature alerts you whenever your files are about to be sent to a model on a remote
+  server, and stays quiet when the model runs on your own machine or your local network. If you
+  reached a model on one of your own computers through Tailscale (a service that links your own
+  devices into one private network), it was wrongly treated as remote, and you got the alert anyway.
+  Now it's treated like your local network, whether the Base URL uses its Tailscale address or a name
+  that leads only to your own devices.
+
 ## [4.1.27]
 
 ### Added

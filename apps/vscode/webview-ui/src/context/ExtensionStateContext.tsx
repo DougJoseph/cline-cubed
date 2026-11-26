@@ -11,7 +11,8 @@ import { convertProtoToClineMessage } from "@shared/proto-conversions/cline-mess
 import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mcp/mcp-server-conversion"
 import { fromProtobufModels } from "@shared/proto-conversions/models/typeConversion"
 import type React from "react"
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { splitConsentSuggestion } from "@/components/chat/chat-view/utils/consentSuggestion"
 import { PLATFORM_CONFIG, persistSurfaceSessionForRevive } from "@/config/platform.config"
 import {
 	type ModelInfo,
@@ -52,6 +53,8 @@ interface ProviderModelsState {
 }
 
 export interface ExtensionStateContextType extends ExtensionState {
+	/** Cline Cubed: the chat's suggested consent reply, taken out of `clineMessages`; see consentSuggestion.ts. */
+	consentSuggestion: string | undefined
 	didHydrateState: boolean
 	showWelcome: boolean
 	onboardingModels: OnboardingModelGroup | undefined
@@ -1081,8 +1084,12 @@ export const ExtensionStateContextProvider: React.FC<{
 		return () => window.removeEventListener("message", onHostMessage)
 	}, [showNewChatHomeLocally, setSurfaceBoundTaskId])
 
+	const splitMessages = useMemo(() => splitConsentSuggestion(state.clineMessages), [state.clineMessages])
+
 	const contextValue: ExtensionStateContextType = {
 		...state,
+		clineMessages: splitMessages.messages,
+		consentSuggestion: splitMessages.consentSuggestion,
 		// Cline Cubed: Get Started is targeted at ONE surface, so ONLY this surface's own flag
 		// decides. The global state key is never consulted: global state reaches every chat and
 		// persists across reinstalls, so reading it here is what once sent every open chat to the

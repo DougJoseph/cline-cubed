@@ -315,6 +315,8 @@ const USER_SETTINGS_FIELDS = {
 	// about is a setting nobody turns on. Turned off in Settings -> General by anyone paying per
 	// token who would rather not.
 	autoNameChats: { default: true as boolean },
+	// Cline Cubed: suggest a one-line consent reply in the chat input after a reply that asks for one.
+	consentSuggestionEnabled: { default: true as boolean },
 
 	// Cline Cubed: limits on the images sent to the model as pictures in one request, in megabytes
 	// as sent (base64). The defaults match the engine's built-in limits. Images over a limit are sent

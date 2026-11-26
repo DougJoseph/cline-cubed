@@ -19,6 +19,13 @@
  *   STUB_ERROR    HTTP 500 with a provider-shaped error body
  *   STUB_BADTOOL  a tool call naming a tool that does not exist, to drive the mistake limit
  *   STUB_TOOL     a `run_commands` tool call, to reach the approval path
+ *   STUB_CONSENT  a plain reply that ends by asking for a go (`STUB_CONSENT_REPLY`)
+ *
+ * THE SUGGESTED CONSENT REPLY. After a finished turn the extension sends one more request, asking
+ * for a one-line reply granting what the assistant asked for. The stub recognizes it by its opening
+ * words and answers it before looking for markers, because it quotes the user's last message and so
+ * carries that message's marker too: `STUB_SUGGESTION` when a line of the quoted reply ends in a
+ * question mark (a question box quotes its question, then its answer options), otherwise `NONE`.
  *
  * TOOL NAMES COME FROM THE SDK, NOT FROM PROSE: `ask_question` and `run_commands` are the
  * registered names (`sdk/packages/core/src/extensions/tools/definitions.ts`). A name that is not
@@ -53,7 +60,15 @@ export const MARKERS = {
 	error: "STUB_ERROR",
 	badTool: "STUB_BADTOOL",
 	tool: "STUB_TOOL",
+	consent: "STUB_CONSENT",
 } as const
+
+/** The reply a `STUB_CONSENT` probe gets, and the suggestion the stub writes for it. */
+export const STUB_CONSENT_REPLY = "Plan written. Should I write the plan doc and TODO lines?"
+export const STUB_SUGGESTION = "yes, write the plan doc and TODO lines"
+/** The opening words of the extension's suggestion request (`apps/vscode/src/sdk/consent-suggestion.ts`). */
+const SUGGESTION_REQUEST_START = "The user's last message:"
+const QUOTED_REPLY_HEADING = "The assistant's last reply:"
 
 export const STUB_QUESTION = "Stub question: which way?"
 export const STUB_OPTIONS = ["Option A", "Option B"]
@@ -179,6 +194,11 @@ export class StubProvider {
 		const stream = body?.stream === true
 		this.requests.push({ at: Date.now(), marker, stream, lastUserText: lastUserText.slice(0, 500) })
 
+		if (lastUserText.trimStart().startsWith(SUGGESTION_REQUEST_START)) {
+			const quotedReply = lastUserText.split(QUOTED_REPLY_HEADING).at(-1)?.trim() ?? ""
+			return this.respondText(res, stream, /\?\s*$/m.test(quotedReply) ? STUB_SUGGESTION : "NONE")
+		}
+
 		if (marker === MARKERS.error) {
 			// Shaped like a provider failure rather than a transport one, so the extension's own
 			// error handling runs instead of a socket error.
@@ -208,6 +228,10 @@ export class StubProvider {
 
 		if (marker === MARKERS.slow) {
 			return this.respondHeldStream(res)
+		}
+
+		if (marker === MARKERS.consent) {
+			return this.respondText(res, stream, STUB_CONSENT_REPLY)
 		}
 
 		return this.respondText(res, stream, "Stub reply.")
@@ -355,7 +379,7 @@ export class StubProvider {
 
 	/** The first marker present, in a fixed precedence so a probe carrying two is not ambiguous. */
 	private markerIn(text: string): string | null {
-		for (const marker of [MARKERS.error, MARKERS.ask, MARKERS.tool, MARKERS.badTool, MARKERS.slow]) {
+		for (const marker of [MARKERS.error, MARKERS.ask, MARKERS.tool, MARKERS.badTool, MARKERS.slow, MARKERS.consent]) {
 			if (text.includes(marker)) {
 				return marker
 			}

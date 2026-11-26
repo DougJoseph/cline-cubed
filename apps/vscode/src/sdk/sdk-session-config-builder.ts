@@ -4,6 +4,7 @@ import type { StateManager } from "@/core/storage/StateManager"
 import type { ClineMessage } from "@/shared/ExtensionMessage"
 import { createAlwaysRememberedFilesExtension, isLocalEndpoint } from "./always-remembered-files"
 import { buildSessionConfig, type SessionConfigInput } from "./cline-session-factory"
+import { askMainModel, consentSuggestionMessage, createConsentSuggestionExtension } from "./consent-suggestion"
 import { buildAgentHooks, type HookMessageEmitter } from "./hooks-adapter"
 import { imageLimitsFromMegabytes } from "./image-descriptions"
 import { createImageDescriptionsExtension } from "./image-descriptions-extension"
@@ -102,6 +103,19 @@ export class SdkSessionConfigBuilder {
 				stateManager: this.options.stateManager,
 				providerConfigStore: this.options.providerConfigStore,
 				emitNotice,
+			}),
+			// Cline Cubed: a suggested consent reply for the chat input after a reply that asks for one.
+			createConsentSuggestionExtension({
+				enabled: () => this.options.stateManager.getGlobalSettingsKey("consentSuggestionEnabled") !== false,
+				ask: (systemPrompt, userText) => askMainModel(this.options.stateManager, systemPrompt, userText),
+				emit: (suggestion, sessionId) => {
+					const message = consentSuggestionMessage(suggestion)
+					if (this.options.emitSessionMessage) {
+						this.options.emitSessionMessage(message, sessionId)
+					} else {
+						this.options.emitHookMessage(message)
+					}
+				},
 			}),
 		]
 

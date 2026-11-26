@@ -2,7 +2,7 @@
 	"name": "cline-cubed",
 	"displayName": "Cline Cubed",
 	"description": "A Cline fork running multiple coding chats at once, each keeping far more of its context, plus image understanding for text-only models — with your permission every step of the way.",
-	"version": "4.1.27",
+	"version": "4.1.28",
 	"icon": "assets/icons/icon.png",
 	"engines": {
 		"vscode": "^1.106.0"

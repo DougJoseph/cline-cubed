@@ -302,6 +302,7 @@ message Settings {
   optional int32 images_per_image_decoded_limit_mb = 200;
   optional string image_describer = 201;
   optional string earlier_images = 202;
+  optional bool consent_suggestion_enabled = 203;
 }
 
 message State {
@@ -456,6 +457,8 @@ message UpdateSettingsRequest {
   optional double images_per_image_decoded_limit_mb = 52;
   optional string image_describer = 53;
   optional string earlier_images = 54;
+  // Cline Cubed: suggest a one-line consent reply in the chat input, accepted with Tab.
+  optional bool consent_suggestion_enabled = 55;
 }
 
 message UpdateTerminalConnectionTimeoutRequest {

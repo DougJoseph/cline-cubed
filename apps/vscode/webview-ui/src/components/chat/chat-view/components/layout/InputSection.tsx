@@ -4,6 +4,7 @@ import ChatTextArea from "@/components/chat/ChatTextArea"
 import QuotedMessagePreview from "@/components/chat/QuotedMessagePreview"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { ChatState, MessageHandlers, ScrollBehavior } from "../../types/chatTypes"
+import { shownConsentSuggestion } from "../../utils/consentSuggestion"
 
 interface InputSectionProps {
 	chatState: ChatState
@@ -39,10 +40,11 @@ export const InputSection: React.FC<InputSectionProps> = ({
 		textAreaRef,
 		handleFocusChange,
 		lastMessage,
+		pendingUserMessage,
 	} = chatState
 
 	const { isAtBottom, scrollToBottomAuto } = scrollBehavior
-	const { turnState, clineMessages } = useExtensionState()
+	const { turnState, clineMessages, consentSuggestion, consentSuggestionEnabled } = useExtensionState()
 
 	// Cline Cubed: THIS chat's previous prompts for up-arrow history cycling, newest first —
 	// derived from the surface's own transcript, so it is per chat by construction and works
@@ -66,6 +68,13 @@ export const InputSection: React.FC<InputSectionProps> = ({
 		(lastMessage?.partial === true || (lastMessage?.type === "say" && lastMessage.say === "api_req_started"))
 	const allowQueuedSubmit = turnState?.phase === "streaming" || turnState?.phase === "awaiting_approval" || legacyTaskRunning
 	const submitDisabled = sendingDisabled && !allowQueuedSubmit
+	// Cline Cubed: the suggested consent reply, shown only in an empty box while the chat waits for a message.
+	const suggestedReply = shownConsentSuggestion({
+		consentSuggestion,
+		enabled: consentSuggestionEnabled !== false,
+		inputEmpty: inputValue === "" && selectedImages.length === 0 && selectedFiles.length === 0,
+		busy: sendingDisabled || allowQueuedSubmit || !!pendingUserMessage,
+	})
 
 	return (
 		<>
@@ -81,6 +90,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
 
 			<ChatTextArea
 				activeQuote={activeQuote}
+				consentSuggestion={suggestedReply}
 				inputValue={inputValue}
 				onFocusChange={handleFocusChange}
 				onHeightChange={() => {

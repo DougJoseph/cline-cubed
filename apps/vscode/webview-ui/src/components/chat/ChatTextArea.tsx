@@ -46,6 +46,7 @@ import {
 } from "@/utils/slash-commands"
 import ClineRulesToggleModal from "../cline-rules/ClineRulesToggleModal"
 import { getModeToggleDraftAction } from "./chat-textarea-mode-toggle"
+import { shouldFillConsentSuggestion } from "./chat-view/utils/consentSuggestion"
 import { ImageIntakeNotices } from "./ImageIntakeNotices"
 import ServersToggleModal from "./ServersToggleModal"
 
@@ -75,6 +76,11 @@ interface ChatTextAreaProps {
 	 * `Docs/2026-08-30_7.05pm_up-arrow-prompt-history-in-the-chat-box.md`.
 	 */
 	promptHistory?: string[]
+	/**
+	 * Cline Cubed: a suggested consent reply to show in place of the placeholder; Tab puts it in the
+	 * box. Set only while the box is empty and the chat waits for a message.
+	 */
+	consentSuggestion?: string
 }
 
 interface GitCommit {
@@ -203,6 +209,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			onHeightChange,
 			onFocusChange,
 			promptHistory = [],
+			consentSuggestion,
 		},
 		ref,
 	) => {
@@ -583,6 +590,23 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				// Safari does not support InputEvent.isComposing (always false), so we need to fallback to keyCode === 229 for it
 				const isComposing = isSafari ? event.nativeEvent.keyCode === 229 : (event.nativeEvent?.isComposing ?? false)
 
+				// Cline Cubed: Tab puts the suggested consent reply in the box, as text to edit or send.
+				if (
+					consentSuggestion &&
+					shouldFillConsentSuggestion(event, {
+						suggestion: consentSuggestion,
+						inputValue,
+						menuOpen: showContextMenu || showSlashCommandsMenu,
+						isComposing,
+					})
+				) {
+					event.preventDefault()
+					setInputValue(consentSuggestion)
+					setCursorPosition(consentSuggestion.length)
+					setIntendedCursorPosition(consentSuggestion.length)
+					return
+				}
+
 				// Cline Cubed: up-arrow prompt-history cycling (per chat; Doug's rulings
 				// 2026-08-30 — plan doc
 				// `Docs/2026-08-30_7.05pm_up-arrow-prompt-history-in-the-chat-box.md`). Runs only
@@ -761,6 +785,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 				promptHistory,
 				historyPos,
 				savedDraft,
+				consentSuggestion,
 			],
 		)
 
@@ -1495,7 +1520,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 						onPaste={handlePaste}
 						onScroll={() => updateHighlights()}
 						onSelect={updateCursorPosition}
-						placeholder={showUnsupportedFileError ? "" : placeholderText}
+						placeholder={showUnsupportedFileError ? "" : (consentSuggestion ?? placeholderText)}
 						ref={(el) => {
 							if (typeof ref === "function") {
 								ref(el)
@@ -1543,6 +1568,22 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 						}}
 						value={inputValue}
 					/>
+					{consentSuggestion && !showUnsupportedFileError && (
+						<button
+							aria-label="Use the suggested reply"
+							className="absolute right-9 top-2.5 z-2 cursor-pointer rounded-xs border border-(--vscode-input-placeholderForeground)/40 bg-transparent px-1 py-0 text-xs text-(--vscode-input-placeholderForeground) opacity-70 hover:opacity-100"
+							data-testid="consent-suggestion-tab"
+							onClick={() => {
+								setInputValue(consentSuggestion)
+								setCursorPosition(consentSuggestion.length)
+								setIntendedCursorPosition(consentSuggestion.length)
+								textAreaRef.current?.focus()
+							}}
+							title="Press Tab to put the suggested reply in the box"
+							type="button">
+							Tab
+						</button>
+					)}
 					{!inputValue && selectedImages.length === 0 && selectedFiles.length === 0 && (
 						<div className="text-xs absolute bottom-5 left-6.5 right-16 text-(--vscode-input-placeholderForeground)/50 whitespace-nowrap overflow-hidden text-ellipsis pointer-events-none z-1">
 							Type @ for context, / for slash commands & workflows, hold shift to drag in files/images

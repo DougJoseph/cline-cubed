@@ -202,6 +202,9 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 		}
 
 		// Cline Cubed: name a new chat from its first prompt.
+		if (request.consentSuggestionEnabled !== undefined) {
+			controller.stateManager.setGlobalState("consentSuggestionEnabled", !!request.consentSuggestionEnabled)
+		}
 		if (request.autoNameChats !== undefined) {
 			controller.stateManager.setGlobalState("autoNameChats", !!request.autoNameChats)
 		}

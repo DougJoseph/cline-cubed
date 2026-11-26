@@ -150,6 +150,7 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 		worktreesEnabled,
 		backgroundEditEnabled,
 		showFeatureTips,
+		consentSuggestionEnabled,
 	} = useExtensionState()
 
 	// State lookup for mapped features
@@ -210,6 +211,13 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 								description="Let the model search the web when the selected provider and model support it. Applies to new tasks."
 								label="Web Search"
 								onChange={(checked) => updateSetting("webSearchEnabled", checked)}
+							/>
+							{/* Cline Cubed: a suggested consent reply in the chat input. On by default. */}
+							<FeatureRow
+								checked={consentSuggestionEnabled !== false}
+								description="When a reply asks for your go, the message box suggests a one-line reply granting it, such as “yes, write the plan doc”. Press Tab to put it in the box; nothing is sent until you send it. One short request to your model after each reply."
+								label="Suggest a consent reply"
+								onChange={(checked) => updateSetting("consentSuggestionEnabled", checked)}
 							/>
 							<AlwaysRememberedFilesSection />
 							<ImagesSentToModelSection />

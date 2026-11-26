@@ -122,6 +122,8 @@ export interface ExtensionState {
 	debugLoggingEnabled?: boolean
 	/** Cline Cubed: name a new chat from its first prompt. Default on; absent means on. */
 	autoNameChats?: boolean
+	/** Cline Cubed: suggest a one-line consent reply in the chat input, accepted with Tab. */
+	consentSuggestionEnabled?: boolean
 	/**
 	 * Cline Cubed: image limits in megabytes, which model describes images first, and whether
 	 * earlier images go as pictures or as descriptions.
@@ -344,6 +346,7 @@ export type ClineSay =
 	| "subagent_usage"
 	| "conditional_rules_applied"
 	| "compaction" // context compaction progress/result divider
+	| "consent_suggestion" // Cline Cubed: a suggested consent reply for the chat input; never shown as a row
 
 export interface ClineSayTool {
 	tool:

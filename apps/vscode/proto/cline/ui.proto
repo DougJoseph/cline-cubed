@@ -76,6 +76,8 @@ enum ClineSay {
   SUBAGENT_USAGE = 36;
   COMPACTION = 37;
   PLAN_COMPLETION_RESULT = 38;
+  // Cline Cubed: a suggested consent reply for the chat input; never shown as a row.
+  CONSENT_SUGGESTION = 39;
 }
 
 // Enum for ClineSayTool tool types

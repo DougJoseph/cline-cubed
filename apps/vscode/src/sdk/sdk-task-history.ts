@@ -11,6 +11,7 @@ import getFolderSize from "get-folder-size"
 import type { McpHub } from "@/services/mcp/McpHub"
 import type { TelemetryService } from "@/services/telemetry/TelemetryService"
 import { Logger } from "@/shared/services/Logger"
+import { appendStoredConsentSuggestion } from "./consent-suggestion"
 import { deleteLegacyTask, readApiConversationHistory, readTaskHistory, readUiMessages, taskDirPath } from "./legacy-state-reader"
 import {
 	appendLegacyResumeWarning,
@@ -494,7 +495,8 @@ export class SdkTaskHistory {
 		if (sdkRecord && legacyTask) {
 			return mergeLegacyUiMessagesWithResumedSdkMessages(readUiMessages(taskId, legacyTask.dataDir), clineMessages)
 		}
-		return clineMessages
+		// Cline Cubed: a reopened chat gets back the consent reply it was last suggesting.
+		return appendStoredConsentSuggestion(clineMessages, taskId)
 	}
 
 	/**

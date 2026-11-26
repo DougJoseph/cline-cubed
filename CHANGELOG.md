@@ -5,11 +5,12 @@
 ### Added
 
 - **Suggested reply when the agent asks for your go.** When a reply asks for consent or proposes an
-  action, the empty message box suggests a one-line reply granting it, such as "yes, write the plan
-  doc and TODO lines". Press **Tab**, or click the **Tab** label, to put it in the box, then edit it or
-  send it; nothing is sent on its own. Each chat keeps its own suggestion, and it stays through a
-  window reload until you send a message. Writing it takes one short extra request to your model after
-  each reply. Turn it off in Settings → Features → Suggest a consent reply.
+  action, or the agent asks you a question with answer buttons, the empty message box suggests a
+  one-line reply granting it, such as "yes, write the plan doc and TODO lines". Press **Tab**, or click
+  the **Tab** label, to put it in the box, then edit it or send it; nothing is sent on its own. Each chat
+  keeps its own suggestion, and it stays through a window reload until you send a message or answer
+  the question. Writing it takes one short extra request to your model after each reply. Turn it off
+  in Settings → Features → Suggest a consent reply.
 
 ### Fixed
 

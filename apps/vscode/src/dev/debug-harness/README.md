@@ -528,7 +528,7 @@ the first one found decides the response:
 | `STUB_TOOL` | a `run_commands` tool call, to reach the approval path |
 | `STUB_CONSENT` | a plain reply that ends by asking for a go |
 
-The extension's suggested-consent-reply request (sent after a finished turn) is recognized by its opening words and answered before any marker is looked for, since it quotes the user's message and its marker: `yes, write the plan doc and TODO lines` when a line of the reply it quotes ends in a question mark (a question box quotes its question and then its answer options), otherwise `NONE`.
+The extension's suggested-consent-reply request (sent after a finished turn, and when a question box opens) is recognized by its opening words and answered before any marker is looked for, since it quotes the user's message and its marker: `yes, write the plan doc and TODO lines` when a line of the reply it quotes ends in a question mark (a question box quotes its question and then its answer options), otherwise `NONE`.
 
 | Method | Description |
 |--------|-------------|

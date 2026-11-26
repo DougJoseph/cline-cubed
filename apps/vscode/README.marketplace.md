@@ -49,6 +49,8 @@ receives raw image bytes.
   and in every copy-and-paste.
 - **Prompt history in the chat box** — `↑` and `↓` walk back through what you typed,
   per chat.
+- **A suggested reply when the agent asks for your go** — the empty box offers a one-line "yes, …"
+  reply; Tab puts it in the box, and nothing is sent on its own.
 - **Chats that keep their context** — compaction goes by the token count your model's server
   really reports, so it happens far less often and keeps far more; and with **Always Remembered
   Files**, the files your agent must never forget go with every request, where no compaction can
@@ -217,9 +219,9 @@ first line going up, or the last line coming down.
 
 ## A suggested reply when the agent asks for your go
 
-When the agent ends a reply by asking for consent ("Should I write the tests?") or proposing an action, the empty message box shows a suggested reply granting it, in summary form: "yes, write the tests". Press **Tab** to put it in the box as text you can edit or send. Nothing is sent until you send it.
+When the agent ends a reply by asking for consent ("Should I write the tests?") or proposing an action, or asks you a question with answer buttons, the empty message box shows a suggested reply granting it, in summary form: "yes, write the tests". Press **Tab**, or click the **Tab** label, to put it in the box as text you can edit or send. Nothing is sent until you send it.
 
-The suggestion belongs to its chat and stays through a window reload until you send a message there. It shows only while the box is empty and the chat is waiting for you. Writing it takes one short extra request to your model after each reply, and Settings → Features → **Suggest a consent reply** turns it off.
+The suggestion belongs to its chat and stays through a window reload until you send a message there or answer the question. It shows only while the box is empty and the chat is waiting for you. Writing it takes one short extra request to your model after each reply, and Settings → Features → **Suggest a consent reply** turns it off.
 
 ## Chats that keep their context
 

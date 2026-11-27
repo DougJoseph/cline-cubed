@@ -9,6 +9,7 @@ const askResponse = vi.fn().mockResolvedValue(undefined)
 const clearTask = vi.fn().mockResolvedValue(undefined)
 const condense = vi.fn().mockResolvedValue(undefined)
 const trackIntent = vi.fn().mockResolvedValue(undefined)
+const toggleRemoteControl = vi.fn().mockResolvedValue(undefined)
 
 vi.mock("@/services/grpc-client", () => ({
 	TaskServiceClient: {
@@ -22,6 +23,9 @@ vi.mock("@/services/grpc-client", () => ({
 	},
 	UiServiceClient: {
 		trackIntent: (req: unknown) => trackIntent(req),
+	},
+	RemoteControlServiceClient: {
+		toggleRemoteControl: (req: unknown) => toggleRemoteControl(req),
 	},
 }))
 
@@ -117,6 +121,8 @@ describe("useMessageHandlers — send routing", () => {
 		condense.mockResolvedValue(undefined)
 		trackIntent.mockReset()
 		trackIntent.mockResolvedValue(undefined)
+		toggleRemoteControl.mockReset()
+		toggleRemoteControl.mockResolvedValue(undefined)
 		mockTurnState = undefined
 		mockSurfaceBoundTaskId = undefined
 	})
@@ -160,6 +166,35 @@ describe("useMessageHandlers — send routing", () => {
 
 		expect(condense).toHaveBeenCalledTimes(1)
 		expect(condense).toHaveBeenCalledWith(expect.objectContaining({ value: "compact" }))
+		expect(newTask).not.toHaveBeenCalled()
+		expect(askResponse).not.toHaveBeenCalled()
+		expect(trackIntent).not.toHaveBeenCalled()
+	})
+
+	it("routes /remote-control to the toggle RPC instead of sending it as a message", async () => {
+		mockTurnState = { phase: "completed", seq: 7 }
+		const { result } = renderHook(() => useMessageHandlers(completedConversation, makeChatState(completedConversation)))
+
+		await act(async () => {
+			await result.current.handleSendMessage("/remote-control", [], [])
+		})
+
+		expect(toggleRemoteControl).toHaveBeenCalledTimes(1)
+		expect(condense).not.toHaveBeenCalled()
+		expect(newTask).not.toHaveBeenCalled()
+		expect(askResponse).not.toHaveBeenCalled()
+		expect(trackIntent).not.toHaveBeenCalled()
+	})
+
+	it("routes /remote-control with no active task — the mode is the machine's, not the chat's", async () => {
+		mockTurnState = { phase: "idle", seq: 1 }
+		const { result } = renderHook(() => useMessageHandlers([], makeChatState([])))
+
+		await act(async () => {
+			await result.current.handleSendMessage("/remote-control", [], [])
+		})
+
+		expect(toggleRemoteControl).toHaveBeenCalledTimes(1)
 		expect(newTask).not.toHaveBeenCalled()
 		expect(askResponse).not.toHaveBeenCalled()
 		expect(trackIntent).not.toHaveBeenCalled()

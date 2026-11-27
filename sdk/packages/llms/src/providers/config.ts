@@ -138,6 +138,11 @@ export interface ReasoningConfig {
 	thinkingBudgetTokens?: number;
 	/** Enable thinking with provider/model defaults when supported */
 	thinking?: boolean;
+	/**
+	 * Cline Cubed: with `thinking: false`, also send the provider's documented
+	 * field that tells its model not to reason.
+	 */
+	reasoningOffSwitch?: boolean;
 }
 
 /**

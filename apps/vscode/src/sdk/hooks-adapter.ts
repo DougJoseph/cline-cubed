@@ -24,6 +24,7 @@ import { HookFactory } from "@/core/hooks/hook-factory"
 import { getHooksEnabledSafe } from "@/core/hooks/hooks-utils"
 import type { StateManager } from "@/core/storage/StateManager"
 import { stripConsentMarker, stripConsentReminder } from "./consent-marker"
+import { stripImageDescriptionLines, stripImageDescriptionReminder } from "./image-description-marker"
 
 export type HookMessageEmitter = (message: ClineMessage) => void
 
@@ -71,7 +72,7 @@ function latestUserPrompt(ctx: AgentRunLifecycleContext): string {
 		const message = ctx.snapshot.messages[index]
 		if (message?.role === "user") {
 			// Cline Cubed: a hook gets what the user sent, without the reminder added for the model.
-			return stripConsentReminder(textFromMessageContent(message.content))
+			return stripImageDescriptionReminder(stripConsentReminder(textFromMessageContent(message.content)))
 		}
 	}
 	return ""
@@ -275,7 +276,7 @@ export function buildAgentHooks(
 								ulid: "",
 								initialTask: "",
 								// Cline Cubed: the hook gets the reply as the chat shows it.
-								result: stripConsentMarker(ctx.result.outputText ?? ""),
+								result: stripConsentMarker(stripImageDescriptionLines(ctx.result.outputText ?? "")),
 							},
 						},
 					})

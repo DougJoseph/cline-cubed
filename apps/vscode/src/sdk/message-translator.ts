@@ -48,6 +48,7 @@ import * as path from "path"
 import { arePathsEqual, getDesktopDir } from "@/utils/path"
 import { CLINE_FREE_PROMOTION_ENDED_ERROR_CODE, isClineFreePromotionEndedMessage } from "../services/error/ClineError"
 import { stripConsentMarker } from "./consent-marker"
+import { stripImageDescriptionLines } from "./image-description-marker"
 import { MessageIdMinter } from "./message-id-minter"
 import { describeMissingCredentialError } from "./provider-credential-error"
 import { extractPersistedHookContextChips, isSyntheticSdkUserMessage, isSyntheticUserPrompt } from "./sdk-user-message-mapping"
@@ -1311,8 +1312,11 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 						createdAt: state.getStreamingTextCreatedAt(),
 						type: "say",
 						say: "text",
-						// Cline Cubed: the consent_suggestion line is never shown, even half arrived.
-						text: stripConsentMarker(event.accumulated ?? event.text ?? "", { streaming: true }),
+						// Cline Cubed: the consent_suggestion and image description lines are never shown, even half arrived.
+						text: stripConsentMarker(
+							stripImageDescriptionLines(event.accumulated ?? event.text ?? "", { streaming: true }),
+							{ streaming: true },
+						),
 						partial: true,
 					})
 					break
@@ -1514,8 +1518,8 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 			switch (event.contentType) {
 				case "text": {
 					const ts = state.clearStreamingText()
-					// Cline Cubed: the consent_suggestion line is never shown.
-					const finalText = stripConsentMarker(event.text ?? "")
+					// Cline Cubed: the consent_suggestion and image description lines are never shown.
+					const finalText = stripConsentMarker(stripImageDescriptionLines(event.text ?? ""))
 					messages.push({
 						ts,
 						type: "say",

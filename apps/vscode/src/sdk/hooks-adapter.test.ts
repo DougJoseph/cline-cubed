@@ -52,3 +52,23 @@ describe("the User Prompt Submit hook", () => {
 		expect((submit?.[0] as { userPromptSubmit: { prompt: string } }).userPromptSubmit.prompt).toBe("please plan it")
 	})
 })
+
+describe("the User Prompt Submit hook and the image description reminder", () => {
+	it("receives the user's message without the image description reminder", async () => {
+		const reminder =
+			'<image_description_reminder>For each picture after an "Image N:" line, end your reply with: <image_description id="N">…</image_description></image_description_reminder>'
+		const stateManager = { getGlobalSettingsKey: () => true }
+		const hooks = buildAgentHooks(stateManager as never)
+
+		await hooks.beforeRun?.({
+			snapshot: {
+				runId: "r",
+				iteration: 0,
+				messages: [{ role: "user", content: [{ type: "text", text: `look at this\n${reminder}` }] }],
+			},
+		} as never)
+
+		const submit = [...hookFactory.run.mock.calls].reverse().find(([input]) => "userPromptSubmit" in (input as object))
+		expect((submit?.[0] as { userPromptSubmit: { prompt: string } }).userPromptSubmit.prompt).toBe("look at this")
+	})
+})

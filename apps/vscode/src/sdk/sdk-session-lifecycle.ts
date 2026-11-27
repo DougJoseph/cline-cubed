@@ -13,6 +13,7 @@ import { McpHub } from "@/services/mcp/McpHub"
 import { Logger } from "@/shared/services/Logger"
 import type { ActiveSession } from "./cline-session-factory"
 import { withConsentReminder } from "./consent-marker"
+import { withImageDescriptionReminder } from "./image-description-marker"
 import { MissingModelError, NO_MODEL_SELECTED_ID, readStoredModeModelId } from "./model-catalog/stored-mode-model"
 import type { SdkForegroundCommandCoordinator } from "./sdk-foreground-command-coordinator"
 import { buildToolPolicies } from "./sdk-tool-policies"
@@ -58,6 +59,8 @@ export interface SdkSessionLifecycleOptions {
 	consumeModeSwitchNotice?: (sessionId: string) => ModeSwitchNotice | null
 	/** Cline Cubed: whether "Suggest a consent reply" is on; asked on every send. */
 	consentReminderEnabled?: () => boolean
+	/** Cline Cubed: whether the main model describes the chat's pictures in its reply; asked on every send. */
+	imageDescriptionReminderEnabled?: () => boolean
 	/** Cline Cubed: called when a session is ended/stopped, so owners can drop
 	 *  per-session bookkeeping (task proxies, turn-state trackers). */
 	onSessionEnded?: (sessionId: string) => void
@@ -544,7 +547,13 @@ export class SdkSessionLifecycle {
 		const notice = this.options.consumeModeSwitchNotice?.(sessionId)
 		// Cline Cubed: while the suggested consent reply is on, a short reminder follows the user's
 		// text, so the instruction is the last thing the model reads however long the chat is.
-		const remindedPrompt = this.options.consentReminderEnabled?.() ? withConsentReminder(prompt) : prompt
+		// Cline Cubed: a message with pictures sent while the main model describes them also carries
+		// a short reminder of the description instruction, for the same reason.
+		const describedPrompt =
+			images && images.length > 0 && this.options.imageDescriptionReminderEnabled?.()
+				? withImageDescriptionReminder(prompt)
+				: prompt
+		const remindedPrompt = this.options.consentReminderEnabled?.() ? withConsentReminder(describedPrompt) : describedPrompt
 		const noticedPrompt = notice ? `${formatModeSwitchNotice(notice.from, notice.to)}\n${remindedPrompt}` : remindedPrompt
 		this.options.onSendStart?.(sessionId)
 		sdkHost

@@ -95,3 +95,43 @@ describe("bridgeImage — a 200 with no description says why", () => {
 		})
 	})
 })
+
+// Cline Cubed: an Image Mode reasoning setting of "none" also tells the model
+// not to think, in the way the Image Mode provider documents.
+describe("bridgeImage — Image Mode reasoning set to none", () => {
+	function sentBody(fetchMock: ReturnType<typeof vi.fn>) {
+		return JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+	}
+	function okFetch() {
+		return vi.fn(async (_url: unknown, _init?: RequestInit) => jsonResponse({ choices: [{ message: { content: "ok" } }] }))
+	}
+
+	it("sends the documented no-reasoning parameter for OpenAI Compatible", async () => {
+		const fetchMock = okFetch()
+		await mockFetchForTesting(fetchMock as never, () =>
+			callBridge({ provider: "openai", modelId: "local-vision", apiUri: "http://127.0.0.1:9/v1", reasoningEffort: "none" }),
+		)
+		const body = sentBody(fetchMock)
+		expect(body.reasoning_effort).toBe("none")
+		expect(body.chat_template_kwargs).toEqual({ enable_thinking: false })
+	})
+
+	it("sends no no-reasoning parameter when a reasoning level is chosen", async () => {
+		const fetchMock = okFetch()
+		await mockFetchForTesting(fetchMock as never, () =>
+			callBridge({ provider: "openai", modelId: "local-vision", apiUri: "http://127.0.0.1:9/v1", reasoningEffort: "high" }),
+		)
+		const body = sentBody(fetchMock)
+		expect(body.reasoning_effort).toBe("high")
+		expect(body).not.toHaveProperty("chat_template_kwargs")
+	})
+
+	it("sends nothing extra for a provider whose documentation names no parameter", async () => {
+		const fetchMock = okFetch()
+		await mockFetchForTesting(fetchMock as never, () => callBridge({ reasoningEffort: "none" }))
+		const body = sentBody(fetchMock)
+		expect(body.reasoning_effort).toBe("none")
+		expect(body).not.toHaveProperty("chat_template_kwargs")
+		expect(body).not.toHaveProperty("thinking")
+	})
+})

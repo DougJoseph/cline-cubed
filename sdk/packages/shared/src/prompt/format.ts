@@ -161,10 +161,14 @@ export function stripModeNotices(input?: string): string {
 	return shown.trim();
 }
 
-// Cline Cubed: a <consent_reminder> element rides on a user message the same
-// way a <mode_notice> does -- for the model, saved with the message, and never
-// rendered as user-typed text.
-const HIDDEN_NOTICE_TAGS = ["mode_notice", "consent_reminder"] as const;
+// Cline Cubed: a <consent_reminder> element, and an <image_description_reminder>
+// element, ride on a user message the same way a <mode_notice> does -- for the
+// model, saved with the message, and never rendered as user-typed text.
+const HIDDEN_NOTICE_TAGS = [
+	"mode_notice",
+	"consent_reminder",
+	"image_description_reminder",
+] as const;
 
 // indexOf-based rather than a regex: a lazy dot-all pattern re-scans to the
 // end of the string from every unmatched opening tag, which is polynomial on

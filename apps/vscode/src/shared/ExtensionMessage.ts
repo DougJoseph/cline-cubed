@@ -54,6 +54,35 @@ export type Platform = "aix" | "darwin" | "freebsd" | "linux" | "openbsd" | "sun
 export const DEFAULT_PLATFORM = "unknown"
 
 export const COMMAND_CANCEL_TOKEN = "__cline_command_cancel__"
+/** Cline Cubed: the remote-control mode as the host last confirmed it. Pushed with every state
+ *  snapshot so a surface's badge is the host's truth rather than whatever that surface last asked
+ *  for. `state` and `enabled` can legitimately differ: the mode can be on with the transport failed. */
+export interface RemoteControlSnapshot {
+	state: "disconnected" | "connecting" | "connected" | "failed"
+	enabled: boolean
+	url: string
+	error: string
+	relayState: string
+	relayError: string
+	relayHost: string
+	/** Session ids of the chats shared with paired devices. */
+	sharedChats: string[]
+	/** The relay's own address, where a paired device uses its chats; empty with no relay. */
+	relayPageUrl: string
+	/** Where the relay keeps its data on the server; empty when the relay is not connected. */
+	relayDataDir: string
+}
+
+/** Cline Cubed: where the user installed their relay. The credential itself is never included — the
+ *  webview gets a masked tail and a presence flag, and the value stays in the host's settings file. */
+export interface RelaySettingsSnapshot {
+	url: string
+	hasKey: boolean
+	keyMasked: string
+	pollIntervalMs: number
+	error: string
+}
+
 export interface ExtensionState {
 	isNewUser: boolean
 	welcomeViewCompleted: boolean
@@ -87,6 +116,10 @@ export interface ExtensionState {
 	 * Optional for classic/legacy (absent => webview falls back to legacy tail heuristics).
 	 */
 	turnState?: TurnState
+	/** Cline Cubed: the remote-control mode, present in every snapshot the extension posts. */
+	remoteControl?: RemoteControlSnapshot
+	/** Cline Cubed: the relay configuration, present in every snapshot the extension posts. */
+	relaySettings?: RelaySettingsSnapshot
 	/**
 	 * Follow-up prompts submitted while the active agent turn is still running.
 	 * These are owned by the SDK pending-prompt queue and are sent after the

@@ -3044,6 +3044,96 @@ describe("LocalRuntimeHost", () => {
 		});
 	});
 
+	it("runs every prompt queued while a turn is still being set up, in order", async () => {
+		const sessionId = "sess-queued-during-setup";
+		const manifest = createManifest(sessionId);
+		const sessionService = {
+			ensureSessionsDir: vi.fn().mockReturnValue("/tmp/sessions"),
+			createRootSessionWithArtifacts: vi.fn().mockResolvedValue({
+				manifestPath: "/tmp/manifest-queued-during-setup.json",
+				messagesPath: "/tmp/messages-queued-during-setup.json",
+				manifest,
+			}),
+			persistSessionMessages: vi.fn(),
+			updateSessionStatus: vi.fn().mockResolvedValue({ updated: true }),
+			writeSessionManifest: vi.fn(),
+			listSessions: vi.fn().mockResolvedValue([]),
+			deleteSession: vi.fn().mockResolvedValue({ deleted: true }),
+		};
+		const runtimeBuilder = {
+			build: vi.fn().mockReturnValue({
+				tools: [],
+				shutdown: vi.fn(),
+			}),
+		};
+		// As the real session runtime does: a run counts as started only once the agent's own run
+		// begins, after the host has set the turn up, and ends when that run settles.
+		let activeRun = false;
+		const ran: string[] = [];
+		const turn = async (prompt: string) => {
+			// The real session runtime refuses a second run while one is in flight.
+			if (activeRun) {
+				throw new Error('SessionRuntime state is "running"; call canStartRun() first');
+			}
+			activeRun = true;
+			ran.push(prompt);
+			return await new Promise<AgentResult>((resolve) =>
+				setTimeout(() => {
+					activeRun = false;
+					resolve(createResult({ text: "done" }));
+				}, 30),
+			);
+		};
+		const agent = {
+			run: vi.fn().mockImplementation(turn),
+			continue: vi.fn().mockImplementation(turn),
+			abort: vi.fn(),
+			subscribeEvents: vi.fn().mockReturnValue(() => {}),
+			getAgentId: vi.fn().mockReturnValue("agent-root-1"),
+			getConversationId: vi.fn().mockReturnValue("conv-root-1"),
+			shutdown: vi.fn().mockResolvedValue(undefined),
+			getMessages: vi.fn().mockReturnValue([]),
+			canStartRun: vi.fn(() => !activeRun),
+		};
+		const manager = new RuntimeHostUnderTest({
+			distinctId,
+			sessionService: sessionService as never,
+			runtimeBuilder,
+			createAgent: () => agent as never,
+		});
+		await manager.startSession(
+			normalizeStartInput({
+				config: createConfig({ sessionId }),
+				interactive: true,
+			}),
+		);
+
+		// The first message starts a turn; two more are queued in the same moment, before its run begins.
+		const firstTurn = manager.runTurn({ sessionId, prompt: "first" });
+		const second = manager.runTurn({ sessionId, prompt: "second", delivery: "queue" });
+		const third = manager.runTurn({ sessionId, prompt: "third", delivery: "queue" });
+		await Promise.allSettled([firstTurn, second, third]);
+		let stranded: string[] = [];
+		await vi
+			.waitFor(
+				async () => {
+					stranded = (await manager.pendingPrompts.list({ sessionId })).map((prompt) => prompt.prompt);
+					expect(ran.length).toBe(3);
+					expect(stranded).toEqual([]);
+				},
+				{ timeout: 1500 },
+			)
+			.catch(() => undefined);
+		expect({ ran, stranded }).toEqual({
+			ran: [
+				'<user_input mode="act">first</user_input>',
+				'<user_input mode="act">second</user_input>',
+				'<user_input mode="act">third</user_input>',
+			],
+			stranded: [],
+		});
+	});
+
 	it("drains queued prompts after a turn that self-aborts (loop detector / mistake limit)", async () => {
 		const sessionId = "sess-self-abort-drains-prompts";
 		const manifest = createManifest(sessionId);

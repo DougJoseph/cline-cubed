@@ -245,6 +245,11 @@ export class SdkInteractionCoordinator {
 		}
 		const pending = this.pendingToolApprovals.get(key)
 		if (!pending) {
+			if (responseType === "yesButtonClicked" || responseType === "noButtonClicked") {
+				Logger.debug(
+					`[SdkController] ${responseType} for session ${key} found no tool approval waiting${this.pendingAskResolves.has(key) ? " (a question is waiting)" : ""}`,
+				)
+			}
 			return false
 		}
 

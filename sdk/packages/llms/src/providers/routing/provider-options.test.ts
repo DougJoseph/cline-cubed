@@ -2555,3 +2555,72 @@ describe("composeAiSdkProviderOptions: ClinePass bucket normalization", () => {
 		expect(result).not.toHaveProperty("clinePass");
 	});
 });
+
+// Cline Cubed: chat naming and commit messages ask for reasoning off with
+// `offSwitch`, and each provider with a documented off field receives it.
+describe("composeAiSdkProviderOptions: the documented reasoning off switch", () => {
+	const off = { enabled: false, offSwitch: true };
+	runCases([
+		{
+			name: "OpenAI Compatible gets chat_template_kwargs.enable_thinking=false",
+			request: { providerId: "openai-compatible", modelId: "local-model", reasoning: off },
+			expect: [{ bucket: "openai-compatible", has: { chat_template_kwargs: { enable_thinking: false } } }],
+		},
+		{
+			name: "W&B gets chat_template_kwargs.enable_thinking=false",
+			request: { providerId: "wandb", modelId: "Qwen/Qwen3-235B", reasoning: off },
+			expect: [{ bucket: "wandb", has: { chat_template_kwargs: { enable_thinking: false } } }],
+		},
+		{
+			name: "Huawei Cloud MaaS gets chat_template_kwargs.thinking=false",
+			request: { providerId: "huawei-cloud-maas", modelId: "qwen3-32b", reasoning: off },
+			expect: [{ bucket: "huawei-cloud-maas", has: { chat_template_kwargs: { thinking: false } } }],
+		},
+		{
+			name: "Qwen gets enable_thinking=false",
+			request: { providerId: "qwen", modelId: "qwen-plus", reasoning: off },
+			expect: [{ bucket: "qwen", has: { enable_thinking: false } }],
+		},
+		{
+			name: "Qwen Code gets enable_thinking=false",
+			request: { providerId: "qwen-code", modelId: "qwen3-coder-plus", reasoning: off },
+			expect: [{ bucket: "qwen-code", has: { enable_thinking: false } }],
+		},
+		{
+			name: "Doubao gets thinking.type=disabled",
+			request: { providerId: "doubao", modelId: "doubao-seed-1-6", reasoning: off },
+			expect: [{ bucket: "doubao", has: { thinking: { type: "disabled" } } }],
+		},
+		{
+			name: "Xiaomi gets thinking.type=disabled",
+			request: { providerId: "xiaomi", modelId: "mimo-v2.5", reasoning: off },
+			expect: [{ bucket: "xiaomi", has: { thinking: { type: "disabled" } } }],
+		},
+		{
+			name: "Tencent TokenHub gets thinking.type=disabled",
+			request: { providerId: "tencent-tokenhub", modelId: "hy3", reasoning: off },
+			expect: [{ bucket: "tencent-tokenhub", has: { thinking: { type: "disabled" } } }],
+		},
+		{
+			name: "Tencent TokenHub sends nothing for a Kimi model, which rejects the field",
+			request: { providerId: "tencent-tokenhub", modelId: "kimi-k2.8-preview", reasoning: off },
+			expect: [{ bucket: "tencent-tokenhub", lacks: ["thinking"] }],
+		},
+		{
+			name: "Kilo gets reasoning.effort=none",
+			request: { providerId: "kilo", modelId: "z-ai/glm-4.6", reasoning: off },
+			expect: [{ bucket: "kilo", has: { reasoning: { effort: "none" } } }],
+		},
+		{
+			name: "reasoning off without the off switch sends no off field",
+			request: { providerId: "openai-compatible", modelId: "local-model", reasoning: { enabled: false } },
+			expect: [{ bucket: "openai-compatible", lacks: ["chat_template_kwargs"] }],
+		},
+		{
+			name: "a provider with no documented off field gets none",
+			request: { providerId: "lmstudio", modelId: "local-model", reasoning: off },
+			expect: [{ bucket: "lmstudio", lacks: ["chat_template_kwargs", "enable_thinking"] }],
+		},
+	]);
+});
+

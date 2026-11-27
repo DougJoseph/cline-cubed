@@ -110,7 +110,10 @@ export async function autoNameChat(input: AutoNameChatInput): Promise<string | u
 	// A name is a fast one-shot transform that does not need extended thinking; disabling
 	// reasoning also avoids sending both reasoning.effort and reasoning.max_tokens, which some
 	// providers reject (the same reason the commit-message generator disables it).
-	const handler = buildApiHandler(input.apiConfiguration, input.mode, { disableReasoning: true })
+	const handler = buildApiHandler(input.apiConfiguration, input.mode, {
+		disableReasoning: true,
+		reasoningOffSwitch: true,
+	})
 
 	let answer = ""
 	let streamError: string | undefined

@@ -27,6 +27,8 @@ export default defineConfig({
 			"src/core/controller/remoteConfig/**/*.test.ts",
 			"src/core/controller/state/**/*.test.ts",
 			"src/core/controller/slash/**/*.test.ts",
+			"src/core/controller/remoteControl/**/*.test.ts",
+			"src/core/relay/**/*.test.ts",
 			"src/core/controller/task/askResponse.test.ts",
 			"src/services/mcp/__tests__/settingsLock.test.ts",
 			"src/shared/model-catalog/provider-helpers.test.ts",
@@ -54,6 +56,10 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: {
+			// "@cline/core/hub" must be aliased before the bare "@cline/core" stub: Vite's fallback Node
+			// resolution does not read the package `exports` map here, so a subpath import fails with
+			// "Cannot find package" unless it is mapped explicitly.
+			"@cline/core/hub": path.resolve(__dirname, "node_modules/@cline/core/dist/hub/index.js"),
 			"@cline/core": path.resolve(__dirname, "src/test/cline-core-vitest-stub.ts"),
 			"@cline/llms": path.resolve(__dirname, "node_modules/@cline/llms/dist/index.js"),
 			// Map @cline/shared subpath exports explicitly. The bare "@cline/shared"

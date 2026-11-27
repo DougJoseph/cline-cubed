@@ -7,6 +7,8 @@
  * images (e.g. DeepSeek Reasoner). This module is the vision-leg client.
  */
 
+import { documentedNoReasoningParameter } from "@cline/llms"
+import { toSdkProviderId } from "@/sdk/model-catalog/sdk-provider-id"
 import { fetch } from "@/shared/net"
 
 export const IMAGE_BRIDGE_PROMPT = `You are the image bridge — the eyes for a text-only AI model that cannot see this image. That model's spatial and visual reasoning depends entirely on your description, so be exhaustive, precise, and structured.
@@ -141,11 +143,14 @@ export async function bridgeImage(params: ImageBridgeParams): Promise<string> {
 	if (params.maxTokens) {
 		body.max_tokens = params.maxTokens
 	}
-	// Only forward reasoning effort when the caller knows the model supports it
-	// (resolved from catalog metadata); unknown/unset effort stays omitted so
-	// non-reasoning vision models never receive an unsupported parameter.
+	// Cline Cubed: the Image Mode reasoning setting is sent whenever it is set. Set to "none",
+	// the request also carries the no-reasoning parameter the provider documents, because a
+	// provider that does not read `reasoning_effort` would otherwise never hear the choice.
 	if (params.reasoningEffort) {
 		body.reasoning_effort = params.reasoningEffort
+		if (params.reasoningEffort === "none") {
+			Object.assign(body, documentedNoReasoningParameter(toSdkProviderId(provider), effectiveModelId) ?? {})
+		}
 	}
 
 	const headers: Record<string, string> = { "Content-Type": "application/json" }

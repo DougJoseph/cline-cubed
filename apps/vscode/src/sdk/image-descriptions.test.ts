@@ -83,6 +83,7 @@ function setup(
 		limits?: ImageLimits
 		describe?: (payload: string) => DescribeResult | undefined
 		earlierImages?: EarlierImagesMode
+		describesInReply?: boolean
 	} = {},
 ) {
 	const calls: string[] = []
@@ -91,6 +92,7 @@ function setup(
 		filePath: file,
 		limits: () => options.limits ?? roomy,
 		earlierImages: () => options.earlierImages ?? "descriptions",
+		describesInReply: () => options.describesInReply ?? false,
 		describe: async (img) => {
 			calls.push(img.data)
 			return options.describe
@@ -497,5 +499,68 @@ describe("imageLimitsFromMegabytes", () => {
 			maxImageEncodedBytes: 5 * 1024 * 1024,
 			maxImageDecodedBytes: 6 * 1024 * 1024,
 		})
+	})
+})
+
+// Cline Cubed: when the main model is the describer, it writes the descriptions inside its own
+// reply, so no separate describing request is sent for a picture it saw.
+describe("ImageDescriptions with the main model describing inside its reply", () => {
+	it("sends no describing request after the turn", async () => {
+		const fresh = data(40, "C")
+		const { descriptions, calls } = setup({ describesInReply: true })
+		await descriptions.buildRequest([prompt("look", fresh)])
+
+		await descriptions.describePending()
+
+		expect(calls).toHaveLength(0)
+	})
+
+	it("keeps sending an undescribed earlier image as a picture, with no describing request", async () => {
+		const old = data(40, "B")
+		const fresh = data(40, "C")
+		const { descriptions, calls } = setup({ describesInReply: true })
+
+		const out = await descriptions.buildRequest([prompt("first", old), reply("seen"), prompt("second", fresh)])
+
+		expect(imagesIn(out)).toEqual([old, fresh])
+		expect(textIn(out)).toContain("Image 1:")
+		expect(calls).toHaveLength(0)
+	})
+
+	it("saves the descriptions from the reply, and later requests carry them instead of the picture", async () => {
+		const old = data(40, "B")
+		const { descriptions, calls } = setup({ describesInReply: true })
+		await descriptions.buildRequest([prompt("first", old)])
+
+		descriptions.applyReplyDescriptions(new Map([[1, "A blue chart."]]), "the main model (local-model)")
+		const out = await descriptions.buildRequest([prompt("first", old), reply("seen"), prompt("second")])
+
+		expect(imagesIn(out)).toEqual([])
+		expect(textIn(out)).toContain("described by the main model (local-model): A blue chart.")
+		expect(calls).toHaveLength(0)
+		const saved = JSON.parse(readFileSync(file, "utf8")) as { images: Record<string, { description?: string }> }
+		expect(Object.values(saved.images).map((entry) => entry.description)).toEqual(["A blue chart."])
+	})
+
+	it("ignores a reply description for an image number the chat does not have", async () => {
+		const { descriptions } = setup({ describesInReply: true })
+		await descriptions.buildRequest([prompt("look", data(40, "C"))])
+
+		descriptions.applyReplyDescriptions(new Map([[9, "Nothing."]]), "the main model (local-model)")
+
+		const saved = JSON.parse(readFileSync(file, "utf8")) as { images: Record<string, { description?: string }> }
+		expect(Object.values(saved.images).map((entry) => entry.description)).toEqual([undefined])
+	})
+
+	it("still describes before sending an image over the per-image limit", async () => {
+		const big = data(80, "D")
+		const { descriptions, calls } = setup({
+			describesInReply: true,
+			limits: { maxTotalBytes: 1_000, maxImageEncodedBytes: 50, maxImageDecodedBytes: 1_000 },
+		})
+
+		await descriptions.buildRequest([prompt("look", big)])
+
+		expect(calls).toEqual([big])
 	})
 })

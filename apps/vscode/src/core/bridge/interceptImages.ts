@@ -67,10 +67,8 @@ export function resolveImageModeBridge(
 	const provider = (apiConfiguration.imageModeApiProvider ?? "openai") as string
 	let apiKey = apiConfiguration.imageModeApiKey
 	let apiUri = apiConfiguration.imageModeApiUri
-	// Reasoning effort is forwarded only when the image model is KNOWN to support reasoning
-	// (catalog metadata); unknown/custom models get no reasoning param so the request is never
-	// rejected for it.
-	let reasoningEffort: string | undefined
+	// Cline Cubed: the Image Mode reasoning setting is sent whenever it is set, for any image model.
+	const reasoningEffort: string | undefined = apiConfiguration.imageModeReasoningEffort
 	let maxTokens: number | undefined
 	if (providerConfigStore) {
 		try {
@@ -79,9 +77,6 @@ export function resolveImageModeBridge(
 			apiUri = apiUri ?? effective.baseUrl
 			const imageSelection = providerConfigStore.readSelection(parseProviderId(provider), "image")
 			maxTokens = imageSelection?.modelInfo.maxTokens
-			if (imageSelection?.modelInfo.supportsReasoning === true) {
-				reasoningEffort = apiConfiguration.imageModeReasoningEffort
-			}
 		} catch (error) {
 			Logger.warn("Image bridge credential resolution failed; using imageModeApi* slots:", error)
 		}

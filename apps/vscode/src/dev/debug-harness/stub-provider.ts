@@ -18,7 +18,8 @@
  *   STUB_SLOW     a request accepted and held, with no content, until `POST /control/release`
  *   STUB_ERROR    HTTP 500 with a provider-shaped error body
  *   STUB_BADTOOL  a tool call naming a tool that does not exist, to drive the mistake limit
- *   STUB_TOOL     a `run_commands` tool call, to reach the approval path
+ *   STUB_TOOL     a `run_commands` tool call, to reach the approval path; once the command's
+ *                 result comes back, a plain "Stub reply."
  *   STUB_CONSENT  a reply that asks for a go and ends with its `<consent_suggestion>` line
  *
  * THE SUGGESTED CONSENT REPLY. The extension reads the suggestion from a `<consent_suggestion>`
@@ -77,7 +78,10 @@ export type StubRequestLog = {
 	at: number
 	marker: string | null
 	stream: boolean
+	/** The request's last user message, in full: a message can sit far past its start. */
 	lastUserText: string
+	/** The role of the request's latest message: `tool` when it carries a tool's result. */
+	lastRole: string
 	/** Whether the request's system prompt carried the suggested-consent-reply instruction. */
 	hasConsentInstruction: boolean
 	/** Whether the request's last user message carried the short reminder of that instruction. */
@@ -198,7 +202,8 @@ export class StubProvider {
 			at: Date.now(),
 			marker,
 			stream,
-			lastUserText: lastUserText.slice(0, 500),
+			lastUserText,
+			lastRole: String(messages[messages.length - 1]?.role ?? ""),
 			hasConsentInstruction: this.systemText(messages).includes("<consent_suggestion>"),
 			hasConsentReminder: lastUserText.includes("<consent_reminder>"),
 		})
@@ -216,6 +221,11 @@ export class StubProvider {
 		}
 
 		if (marker === MARKERS.tool) {
+			// Once the command's result comes back, the turn ends with a plain reply rather than
+			// asking to run the same command again.
+			if (messages[messages.length - 1]?.role === "tool") {
+				return this.respondText(res, stream, "Stub reply.")
+			}
 			return this.respondToolCall(res, stream, "run_commands", { commands: ["echo cline-cubed-stub"] })
 		}
 

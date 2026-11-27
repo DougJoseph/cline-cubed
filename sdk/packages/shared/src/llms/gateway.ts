@@ -249,6 +249,12 @@ export interface GatewayStreamRequest {
 		enabled?: boolean;
 		effort?: ReasoningEffort;
 		budgetTokens?: number;
+		/**
+		 * Cline Cubed: with `enabled: false`, also send the provider's documented
+		 * field that tells its model not to reason. Set by chat naming and commit
+		 * messages, which never reason.
+		 */
+		offSwitch?: boolean;
 	};
 	signal?: AbortSignal;
 	/**

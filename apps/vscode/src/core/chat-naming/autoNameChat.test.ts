@@ -91,7 +91,10 @@ describe("autoNameChat", () => {
 
 		await expect(autoNameChat(input)).resolves.toBe("Kill a pumpkin")
 
-		expect(buildApiHandler).toHaveBeenCalledWith(input.apiConfiguration, "plan", { disableReasoning: true })
+		expect(buildApiHandler).toHaveBeenCalledWith(input.apiConfiguration, "plan", {
+			disableReasoning: true,
+			reasoningOffSwitch: true,
+		})
 		expect(createMessage).toHaveBeenCalledWith(CHAT_NAME_INSTRUCTION, [{ role: "user", content: input.prompt }])
 		expect(input.applyName).toHaveBeenCalledWith("session-1", "Kill a pumpkin")
 	})

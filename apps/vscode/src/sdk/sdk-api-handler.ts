@@ -31,6 +31,12 @@ export interface BuildApiHandlerOptions {
 	 * OpenRouter don't receive a reasoning config at all.
 	 */
 	disableReasoning?: boolean
+	/**
+	 * Cline Cubed: with `disableReasoning`, also send the provider's documented
+	 * field that tells its model not to reason. Chat naming and commit messages
+	 * set it, because they never reason.
+	 */
+	reasoningOffSwitch?: boolean
 }
 
 /**
@@ -86,7 +92,7 @@ export function buildSdkProviderConfig(
 
 	if (options?.disableReasoning) {
 		// Explicitly turn reasoning off; do not send effort or budget.
-		return { ...base, thinking: false }
+		return { ...base, thinking: false, ...(options.reasoningOffSwitch ? { reasoningOffSwitch: true } : {}) }
 	}
 
 	if (reasoningEffort === "low" || reasoningEffort === "medium" || reasoningEffort === "high" || reasoningEffort === "xhigh") {

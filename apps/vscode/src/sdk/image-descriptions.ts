@@ -188,6 +188,12 @@ export interface ImageDescriptionsOptions {
 	earlierImages: () => EarlierImagesMode
 	/** Describes one image, or answers undefined when no model that can see images is available. */
 	describe: (image: ImageBlock) => Promise<DescribeResult | undefined>
+	/**
+	 * Cline Cubed: true while the main model is the describer, read on every request. Its reply then
+	 * carries each picture's description (`image-description-marker.ts`), so no describing request
+	 * is sent for a picture it saw, and a picture stays a picture until a reply describes it.
+	 */
+	describesInReply?: () => boolean
 	/** Shows a notice in this chat. */
 	notify: (text: string) => void
 }
@@ -210,6 +216,7 @@ export class ImageDescriptions {
 	async buildRequest(messages: Message[]): Promise<Message[]> {
 		const limits = this.options.limits()
 		const earlierAsPictures = this.options.earlierImages() === "pictures"
+		const undescribedAsPictures = !earlierAsPictures && (this.options.describesInReply?.() ?? false)
 		const promptIndex = currentPromptIndex(messages)
 		// Numbers every image in the order it appears, so ids follow the chat's order.
 		for (const image of this.allImages(messages)) {
@@ -219,11 +226,14 @@ export class ImageDescriptions {
 		}
 		const overflow: Array<{ hash: string; reason: OverflowReason }> = []
 		this.sentRawThisTurn.clear()
-		const rawThisTurn = this.chooseRaw(messages, promptIndex, limits, earlierAsPictures)
+		const rawThisTurn = this.chooseRaw(messages, promptIndex, limits, earlierAsPictures, undescribedAsPictures)
 		// Describe every image that goes as a description and still lacks one at once, rather than one by one below.
 		const toDescribe = earlierAsPictures
 			? [...rawThisTurn.reasons.keys()]
-			: [...this.earlierImages(messages, promptIndex), ...rawThisTurn.reasons.keys()]
+			: [
+					...this.earlierImages(messages, promptIndex).filter((image) => !rawThisTurn.raw.has(image)),
+					...rawThisTurn.reasons.keys(),
+				]
 		await Promise.all(toDescribe.map((image) => this.ensureDescribed(hashImage(image.data))))
 
 		const out: Message[] = []
@@ -271,11 +281,31 @@ export class ImageDescriptions {
 	 * has to go as a description.
 	 */
 	async describePending(): Promise<void> {
-		if (this.options.earlierImages() === "pictures") {
+		if (this.options.earlierImages() === "pictures" || this.options.describesInReply?.()) {
 			return
 		}
 		const pending = [...this.sentRawThisTurn]
 		await Promise.all(pending.map((hash) => this.ensureDescribed(hash)))
+	}
+
+	/**
+	 * Cline Cubed: saves the descriptions the main model wrote in its reply, by image number. A number
+	 * the chat does not have, or an image that already has its description, is left as it is.
+	 */
+	applyReplyDescriptions(found: Map<number, string>, describedBy: string): void {
+		let changed = false
+		for (const entry of Object.values(this.cache.images)) {
+			const description = found.get(entry.id)
+			if (description && !(entry.description && entry.style === "short")) {
+				entry.description = description
+				entry.describedBy = describedBy
+				entry.style = "short"
+				changed = true
+			}
+		}
+		if (changed) {
+			this.save()
+		}
 	}
 
 	/** The `view_earlier_image` tool's result: an earlier image, raw, by its id. */
@@ -324,13 +354,19 @@ export class ImageDescriptions {
 	 * oldest images are the ones left out; within one message, images keep their order.
 	 * Each image left out is given the reason it was left out.
 	 */
-	private chooseRaw(messages: Message[], promptIndex: number, limits: ImageLimits, earlierAsPictures: boolean): RawChoice {
+	private chooseRaw(
+		messages: Message[],
+		promptIndex: number,
+		limits: ImageLimits,
+		earlierAsPictures: boolean,
+		undescribedAsPictures = false,
+	): RawChoice {
 		const raw = new Set<ImageBlock>()
 		const reasons = new Map<ImageBlock, OverflowReason>()
 		let laterToolImages = 0
 		if (promptIndex < 0) return { raw, reasons, laterToolImages }
 		let used = 0
-		const firstIndex = earlierAsPictures ? 0 : promptIndex
+		const firstIndex = earlierAsPictures || undescribedAsPictures ? 0 : promptIndex
 		for (let index = messages.length - 1; index >= firstIndex; index--) {
 			const message = messages[index]
 			if (!Array.isArray(message.content)) continue
@@ -345,6 +381,8 @@ export class ImageDescriptions {
 			}
 			const usedByLaterMessages = used
 			for (const image of images) {
+				// Cline Cubed: with undescribed earlier images going as pictures, one already described goes as its description.
+				if (index < promptIndex && !earlierAsPictures && this.hasDescription(image)) continue
 				const size = image.data.length
 				if (size > limits.maxImageEncodedBytes) {
 					reasons.set(image, "overPerImage")
@@ -403,6 +441,11 @@ export class ImageDescriptions {
 			? "seen as a picture in an earlier request; this request has only this description"
 			: "seen as a picture in an earlier request"
 		return [{ type: "text", text: this.describedText(entry, how) }]
+	}
+
+	private hasDescription(image: ImageBlock): boolean {
+		const entry = this.cache.images[hashImage(image.data)]
+		return Boolean(entry?.description && entry.style === "short")
 	}
 
 	private describedText(entry: CacheEntry, how: string): string {

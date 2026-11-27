@@ -432,6 +432,38 @@ describe("createGatewayApiHandler.createMessage", () => {
 		);
 	});
 
+	it("carries the reasoning off switch into the provider request", async () => {
+		streamTextSpy.mockReturnValue({
+			fullStream: (async function* () {
+				yield { type: "finish", finishReason: "stop" };
+			})(),
+			usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
+		});
+
+		const handler = createGatewayApiHandler({
+			providerId: "openai-compatible",
+			clientType: "openai-compatible",
+			modelId: "local-model",
+			apiKey: "test-key",
+			baseUrl: "http://localhost:8000/v1",
+			thinking: false,
+			reasoningOffSwitch: true,
+		});
+
+		for await (const _chunk of handler.createMessage("", [
+			{ role: "user", content: "Hello" },
+		])) {
+			// Drain the stream so the provider request is executed.
+		}
+
+		const call = streamTextSpy.mock.calls.at(-1)?.[0] as {
+			providerOptions?: Record<string, Record<string, unknown>>;
+		};
+		expect(JSON.stringify(call?.providerOptions)).toContain(
+			'"chat_template_kwargs":{"enable_thinking":false}',
+		);
+	});
+
 	it("sends configured OpenAI-compatible maxOutputTokens to the provider request", async () => {
 		streamTextSpy.mockReturnValue({
 			fullStream: (async function* () {

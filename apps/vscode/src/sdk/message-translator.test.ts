@@ -4351,3 +4351,39 @@ describe("the consent-suggestion marker is never shown", () => {
 		expect(clineMessages.some((m) => m.text === "Should I commit?")).toBe(true)
 	})
 })
+
+// Cline Cubed: the main model's image description lines are never shown in the chat.
+describe("image description lines are never shown", () => {
+	const agentEvent = (event: Partial<AgentEvent> & { type: string }): CoreSessionEvent =>
+		({
+			type: "agent_event",
+			payload: { sessionId: "session-1", event: event as AgentEvent },
+		}) as CoreSessionEvent
+	const LINE = '<image_description id="1">A blue chart.</image_description>'
+
+	it("hides a line while the reply streams, and in the finished row", () => {
+		const state = new MessageTranslatorState()
+		const streaming = translateSessionEvent(
+			agentEvent({ type: "content_start", contentType: "text", text: "x", accumulated: "It is a chart.\n<image_desc" }),
+			state,
+		)
+		const end = translateSessionEvent(
+			agentEvent({ type: "content_end", contentType: "text", text: `It is a chart.\n${LINE}` }),
+			state,
+		)
+
+		expect(streaming.messages[0].text).toBe("It is a chart.")
+		expect(end.messages[0].text).toBe("It is a chart.")
+	})
+
+	it("hides a line when a saved chat is reopened", () => {
+		const messages: SdkMessage[] = [
+			{ role: "user", content: [{ type: "text", text: "look" }] } as SdkMessage,
+			{ role: "assistant", content: [{ type: "text", text: `It is a chart.\n${LINE}` }] } as SdkMessage,
+		]
+
+		const clineMessages = sdkMessagesToClineMessages(messages)
+
+		expect(clineMessages.some((m) => m.text?.includes("image_description"))).toBe(false)
+	})
+})

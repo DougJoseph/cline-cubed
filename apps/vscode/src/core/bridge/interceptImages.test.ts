@@ -358,7 +358,7 @@ describe("interceptImagesForNonVisionModel — provider-scoped credentials", () 
 		expect(bridgeCall()?.apiKey).toBe("explicit-key")
 	})
 
-	it("sends reasoning effort only for an image model KNOWN to support reasoning", async () => {
+	it("sends the Image Mode reasoning setting whenever it is set, for any image model", async () => {
 		const { interceptImagesForNonVisionModel } = await import("./interceptImages")
 		const gate = { modelId: "text-only-model", supportsImages: false }
 
@@ -385,7 +385,7 @@ describe("interceptImagesForNonVisionModel — provider-scoped credentials", () 
 			}),
 			mode: "act",
 		})
-		expect(bridgeCall()?.reasoningEffort).toBeUndefined()
+		expect(bridgeCall()?.reasoningEffort).toBe("high")
 	})
 
 	it("keeps the image in the conversation when the bridge call fails", async () => {

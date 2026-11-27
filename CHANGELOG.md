@@ -1,5 +1,49 @@
 # Changelog
 
+## [4.1.30]
+
+### Added
+
+- **Remote Control.** Keep a chat going from your phone (or anything with a browser) while it keeps
+  running on your own machine. Turn it on with the smartphone icon in the composer's icon row, or type
+  `/remote-control`. The icon shows where things stand — Off, Connecting, Active, Failed — and opens a
+  popover holding the relay's settings, your paired devices, and the switch. The choice survives a
+  window reload.
+- **A relay you host yourself.** The **Get installer** button writes `index.php` and `INSTALL.txt` into
+  a folder you choose. Upload `index.php` to any web host that runs PHP, open its address, paste the
+  install token, and the page gives you the credential for **Relay key**. Your machine reaches the relay
+  over HTTPS, and nothing on your machine accepts an incoming connection. A plain `http://` relay is
+  refused anywhere but your own machine, the key is shown only by its last four characters, and the
+  extension refuses a relay whose data can be read over the web. The relay keeps its data outside the
+  web folder when the host allows it, and if not, protection is by a rule it adds to the web root's
+  `.htaccess` refusing every request for that folder (or, if it cannot add one, the exact line for you
+  to add), and holds a chat's recent messages for up to an hour. It's free. It's your relay. It's hosted
+  on your server, and if you don't have one, Oracle Cloud's Always Free tier offers a free server you
+  could use for this purpose.
+- **Pair your phone.** Only a chat with **Share this chat with my devices** checked is visible to your
+  devices. **Pair a device** opens a popover with a pairing code in both QR code and written format. The
+  code works once, for ten minutes. A paired device stays paired for 30 days from its last use, and
+  **Remove** ends it at once.
+- **Your chat on your phone.** The relay's own page lists your shared chats and opens each one with its
+  messages in order. Send a message, approve or deny a waiting command, switch Auto-approve choices,
+  rename the chat, monitor context levels, and compact it, provided it's a chat open in VS Code. Light
+  and dark, dark by default.
+
+### Fixed
+
+- **Your choices about your model's degree of reasoning power now reach models on more providers.** A
+  chat set to no reasoning tells the model not to think so much, on OpenAI Compatible and the other
+  providers whose documentation names a way to do it. Chat naming and commit messages are always set to
+  none (no extra effort, as it would just waste tokens). Image Mode now sends its reasoning setting for
+  every model, and at "none" also tells the model not to waste tokens overthinking it. When the main
+  model describes your images, it now writes the descriptions inside its own reply instead of answering a
+  separate request after it, which saves wasted tokens and helps with speed, especially on locally hosted
+  AI that's tight on memory space.
+- **A message sent the moment a chat starts working no longer ends the chat.** In stock Cline, a second
+  message that arrives while a reply is just starting can stop the chat, and the messages waiting behind
+  it are never answered. In Cline Cubed it now waits its turn and is answered after the reply in
+  progress.
+
 ## [4.1.29]
 
 ### Changed

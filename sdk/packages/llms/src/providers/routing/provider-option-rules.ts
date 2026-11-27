@@ -503,6 +503,66 @@ const routedGlmReasoningRule: ProviderOptionRule = {
 };
 
 /**
+ * Cline Cubed: the field each provider's own documentation names for turning
+ * reasoning off. Sent only when a request asks for it (`reasoning.offSwitch`),
+ * which chat naming and commit messages do. A provider not listed here
+ * documents no such field, and gets none.
+ */
+const DOCUMENTED_REASONING_OFF_FIELDS: Readonly<
+	Record<string, Record<string, unknown>>
+> = {
+	"openai-compatible": { chat_template_kwargs: { enable_thinking: false } },
+	wandb: { chat_template_kwargs: { enable_thinking: false } },
+	"huawei-cloud-maas": { chat_template_kwargs: { thinking: false } },
+	qwen: { enable_thinking: false },
+	"qwen-code": { enable_thinking: false },
+	doubao: { thinking: { type: "disabled" } },
+	xiaomi: { thinking: { type: "disabled" } },
+	"tencent-tokenhub": { thinking: { type: "disabled" } },
+	kilo: { reasoning: { effort: "none" } },
+};
+
+/**
+ * Cline Cubed: the no-reasoning parameter a provider's documentation names, for
+ * requests built outside this pipeline (the Image Mode request). Undefined when
+ * the provider documents none, or when the model rejects it.
+ */
+export function documentedNoReasoningParameter(
+	providerId: string,
+	modelId: string,
+): Record<string, unknown> | undefined {
+	if (
+		providerId === "tencent-tokenhub" &&
+		modelId.toLowerCase().includes("kimi")
+	) {
+		return undefined;
+	}
+	return DOCUMENTED_REASONING_OFF_FIELDS[providerId];
+}
+
+const documentedReasoningOffRule: ProviderOptionRule = {
+	id: "provider.documented-reasoning-off",
+	phase: "provider-reasoning",
+	description:
+		"A request that asks for the off switch gets the off field its provider documents.",
+	applies: (input) =>
+		input.request.reasoning?.enabled === false &&
+		input.request.reasoning.offSwitch === true &&
+		DOCUMENTED_REASONING_OFF_FIELDS[input.request.providerId] !== undefined &&
+		// Tencent TokenHub's docs: Kimi models reject the thinking field.
+		!(
+			input.request.providerId === "tencent-tokenhub" &&
+			input.request.modelId.toLowerCase().includes("kimi")
+		),
+	build: (input) =>
+		buildProviderAndAliasPatch({
+			providerId: input.request.providerId,
+			providerOptionsKey: input.providerOptionsKey,
+			bucketOptions: DOCUMENTED_REASONING_OFF_FIELDS[input.request.providerId],
+		}),
+};
+
+/**
  * The table is the provider/family behavior matrix. Adding a new exception
  * should mean adding a named rule here, not adding a branch in the composer.
  * Keep model/provider fact detection in `providers/model-facts.ts`; see
@@ -530,6 +590,7 @@ export const PROVIDER_OPTION_RULES: ReadonlyArray<ProviderOptionRule> = [
 	miniMaxThinkingRule,
 	routedGlmReasoningRule,
 	togetherReasoningToggleRule,
+	documentedReasoningOffRule,
 ];
 
 export function matchProviderOptionRules(

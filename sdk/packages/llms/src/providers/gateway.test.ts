@@ -6302,6 +6302,57 @@ describe("sdk-gateway", () => {
 		);
 	});
 
+	// Cline Cubed: a chat whose reasoning is set to "none" tells the model not to
+	// think, in the way its provider documents.
+	it("sends the documented no-reasoning parameter when the chat's reasoning is off", async () => {
+		streamTextSpy.mockReturnValue({
+			fullStream: makeStreamParts([
+				{ type: "finish", usage: { inputTokens: 1, outputTokens: 1 } },
+			]),
+		});
+		const gateway = createGateway({
+			providerConfigs: [
+				{
+					providerId: "openai-compatible",
+					apiKey: "local-key",
+					baseUrl: "http://127.0.0.1:9/v1",
+				},
+			],
+		});
+		const model = gateway.createAgentModel({
+			providerId: "openai-compatible",
+			modelId: "local-model",
+		});
+
+		await collect(
+			await model.stream({
+				messages: baseMessages,
+				tools: [],
+				options: { thinking: false },
+			}),
+		);
+		const offCall = streamTextSpy.mock.calls.at(-1)?.[0] as {
+			providerOptions?: unknown;
+		};
+		expect(JSON.stringify(offCall.providerOptions)).toContain(
+			'"chat_template_kwargs":{"enable_thinking":false}',
+		);
+
+		await collect(
+			await model.stream({
+				messages: baseMessages,
+				tools: [],
+				options: { reasoningEffort: "high" },
+			}),
+		);
+		const onCall = streamTextSpy.mock.calls.at(-1)?.[0] as {
+			providerOptions?: unknown;
+		};
+		expect(JSON.stringify(onCall.providerOptions ?? {})).not.toContain(
+			"chat_template_kwargs",
+		);
+	});
+
 	it.each([
 		{
 			name: "drops an unsupported legacy effort",

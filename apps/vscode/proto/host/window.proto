@@ -26,6 +26,9 @@ service WindowService {
   // Opens a file in the IDE.
   rpc openFile(OpenFileRequest) returns (OpenFileResponse);
 
+  // Cline Cubed: shows a file in the operating system's file manager (Finder on macOS).
+  rpc revealFileInOs(RevealFileInOsRequest) returns (RevealFileInOsResponse);
+
   // Opens the host settings UI, optionally focusing a specific query/section.
   rpc openSettings(OpenSettingsRequest) returns (OpenSettingsResponse);
 
@@ -61,6 +64,10 @@ message ShowOpenDialogueRequest {
   optional bool can_select_many = 2;
   optional string open_label = 3;
   optional ShowOpenDialogueFilterOption filters = 4;
+  // Cline Cubed: folder picking, and the folder the dialog opens at.
+  optional bool can_select_folders = 5;
+  optional bool can_select_files = 6;
+  optional string default_path = 7;
 }
 
 message ShowOpenDialogueFilterOption {
@@ -129,6 +136,12 @@ message OpenFileRequest {
 }
 
 message OpenFileResponse {}
+
+message RevealFileInOsRequest {
+  string file_path = 1;
+}
+
+message RevealFileInOsResponse {}
 
 message OpenSettingsRequest {
   // Optional query to focus a particular settings section/key.

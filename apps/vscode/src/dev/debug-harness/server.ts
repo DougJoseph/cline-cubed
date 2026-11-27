@@ -1528,7 +1528,7 @@ class DebugHarness {
 		text?: string
 		selector?: string
 		frame?: string
-		action?: "click" | "fill" | "text" | "value" | "visible" | "count"
+		action?: "click" | "fill" | "text" | "value" | "visible" | "count" | "box"
 		value?: string
 	}): Promise<any> {
 		// Retry with frame re-discovery on failure for sidebar targets
@@ -1572,6 +1572,17 @@ class DebugHarness {
 						return { visible: await locator.isVisible() }
 					case "count":
 						return { count: await locator.count() }
+					case "box": {
+						// Where the element sits, and the window it is seen through, in the same
+						// coordinates: for an element in a webview, that window is the webview's own
+						// frame on the page, so a box past its edge is cut off on screen.
+						const box = await locator.first().boundingBox()
+						const frameElement = "frameElement" in target ? await target.frameElement() : null
+						const window = frameElement
+							? await frameElement.boundingBox()
+							: { x: 0, y: 0, ...(this.page?.viewportSize() ?? { width: 0, height: 0 }) }
+						return { box, window }
+					}
 					default:
 						return { visible: await locator.isVisible(), count: await locator.count() }
 				}

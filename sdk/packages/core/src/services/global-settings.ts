@@ -71,6 +71,17 @@ export const GlobalSettingsSchema = z
 		tools: ModelToolSettingsSchema,
 		disabledPlugins: GlobalSettingsStringListSchema.optional(),
 		alwaysRememberedFiles: GlobalSettingsStringListSchema.optional(),
+		remoteControlEnabled: z.boolean().optional().catch(undefined),
+		relayUrl: z.string().optional().catch(undefined),
+		relayKey: z.string().optional().catch(undefined),
+		remoteSharedChats: GlobalSettingsStringListSchema.optional(),
+		relayPollIntervalMs: z
+			.number()
+			.int()
+			.min(200)
+			.max(60_000)
+			.optional()
+			.catch(undefined),
 	})
 	.strip()
 	.transform((settings) => {
@@ -86,6 +97,11 @@ export const GlobalSettingsSchema = z
 			tools?: ModelToolSettings;
 			disabledPlugins?: string[];
 			alwaysRememberedFiles?: string[];
+			remoteControlEnabled?: boolean;
+			relayUrl?: string;
+			relayKey?: string;
+			remoteSharedChats?: string[];
+			relayPollIntervalMs?: number;
 		} = {
 			autoUpdateEnabled: settings.autoUpdateEnabled,
 			telemetryOptOut: settings.telemetryOptOut,
@@ -116,6 +132,21 @@ export const GlobalSettingsSchema = z
 		}
 		if (settings.alwaysRememberedFiles?.length) {
 			normalized.alwaysRememberedFiles = settings.alwaysRememberedFiles;
+		}
+		if (settings.remoteControlEnabled !== undefined) {
+			normalized.remoteControlEnabled = settings.remoteControlEnabled;
+		}
+		if (settings.relayUrl?.trim()) {
+			normalized.relayUrl = settings.relayUrl.trim();
+		}
+		if (settings.relayKey?.trim()) {
+			normalized.relayKey = settings.relayKey.trim();
+		}
+		if (settings.relayPollIntervalMs !== undefined) {
+			normalized.relayPollIntervalMs = settings.relayPollIntervalMs;
+		}
+		if (settings.remoteSharedChats?.length) {
+			normalized.remoteSharedChats = settings.remoteSharedChats;
 		}
 		return normalized;
 	});
@@ -262,6 +293,89 @@ export function setAlwaysRememberedFilesGlobally(
 		...readGlobalSettings(),
 		alwaysRememberedFiles: [...alwaysRememberedFiles],
 	});
+}
+
+/**
+ * Whether remote control is enabled on this machine. Stored here rather than in
+ * per-window editor state so the choice survives a VS Code window reload.
+ */
+export function readRemoteControlEnabledGlobally(): boolean {
+	return readGlobalSettings().remoteControlEnabled ?? false;
+}
+
+export function setRemoteControlEnabledGlobally(
+	remoteControlEnabled: boolean,
+	options: WriteGlobalSettingsOptions = {},
+): void {
+	writeGlobalSettings(
+		{ ...readGlobalSettings(), remoteControlEnabled },
+		options,
+	);
+}
+
+/**
+ * The chats offered to paired devices, by session id. A paired device sees only these. Stored
+ * machine-wide so a window reload keeps them shared.
+ */
+export function readRemoteSharedChatsGlobally(): string[] {
+	return [...(readGlobalSettings().remoteSharedChats ?? [])];
+}
+
+export function setRemoteChatSharedGlobally(
+	sessionId: string,
+	shared: boolean,
+	options: WriteGlobalSettingsOptions = {},
+): string[] {
+	const current = readRemoteSharedChatsGlobally().filter((id) => id !== sessionId);
+	const next = shared ? [...current, sessionId] : current;
+	writeGlobalSettings({ ...readGlobalSettings(), remoteSharedChats: next }, options);
+	return next;
+}
+
+/**
+ * Where the user installed their relay, and the credential that link uses. Stored machine-wide for the
+ * same reason the enabled choice is: a window reload must not lose it.
+ */
+export interface RelaySettings {
+	url: string
+	key: string
+	pollIntervalMs: number
+}
+
+export const DEFAULT_RELAY_POLL_INTERVAL_MS = 1500;
+
+export function readRelaySettingsGlobally(): RelaySettings {
+	const settings = readGlobalSettings();
+	return {
+		url: settings.relayUrl ?? "",
+		key: settings.relayKey ?? "",
+		pollIntervalMs: settings.relayPollIntervalMs ?? DEFAULT_RELAY_POLL_INTERVAL_MS,
+	};
+}
+
+export function setRelaySettingsGlobally(
+	settings: Partial<RelaySettings>,
+	options: WriteGlobalSettingsOptions = {},
+): RelaySettings {
+	const current = readGlobalSettings();
+	const next: RelaySettings = {
+		url: settings.url !== undefined ? settings.url.trim() : (current.relayUrl ?? ""),
+		key: settings.key !== undefined ? settings.key.trim() : (current.relayKey ?? ""),
+		pollIntervalMs:
+			settings.pollIntervalMs !== undefined
+				? settings.pollIntervalMs
+				: (current.relayPollIntervalMs ?? DEFAULT_RELAY_POLL_INTERVAL_MS),
+	};
+	writeGlobalSettings(
+		{
+			...current,
+			relayUrl: next.url || undefined,
+			relayKey: next.key || undefined,
+			relayPollIntervalMs: next.pollIntervalMs,
+		},
+		options,
+	);
+	return next;
 }
 
 export function readCompactionStrategyGlobally(): GlobalCompactionStrategy {

@@ -56,6 +56,16 @@ describe("buildSdkProviderConfig", () => {
 		expect(mocks.providerSettingsManager.getProviderSettings).toHaveBeenCalledWith("cline")
 	})
 
+	it("asks for the provider's reasoning off switch only when the caller asks for it", () => {
+		const configuration = { actModeApiProvider: "openai", actModeOpenAiModelId: "local-model" } as never
+
+		expect(buildSdkProviderConfig(configuration, "act", { disableReasoning: true, reasoningOffSwitch: true })).toMatchObject({
+			thinking: false,
+			reasoningOffSwitch: true,
+		})
+		expect(buildSdkProviderConfig(configuration, "act", { disableReasoning: true })).not.toHaveProperty("reasoningOffSwitch")
+	})
+
 	it("uses provider-specific settings for SDK-backed direct handlers", () => {
 		mocks.providerSettingsManager.getProviderSettings.mockImplementation((providerId: string) => {
 			if (providerId !== "v0") {

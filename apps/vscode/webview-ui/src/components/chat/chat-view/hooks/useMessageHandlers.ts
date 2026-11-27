@@ -4,7 +4,7 @@ import { AskResponseRequest, NewTaskRequest } from "@shared/proto/cline/task"
 import { IntentEvent } from "@shared/proto/cline/ui"
 import { useCallback, useRef } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { SlashServiceClient, TaskServiceClient, UiServiceClient } from "@/services/grpc-client"
+import { RemoteControlServiceClient, SlashServiceClient, TaskServiceClient, UiServiceClient } from "@/services/grpc-client"
 import type { ButtonActionType } from "../shared/buttonConfig"
 import type { ChatState, MessageHandlers } from "../types/chatTypes"
 
@@ -58,6 +58,19 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 				const formattedQuote = activeQuote
 				const suffix = "\n[/context] \n\n"
 				messageToSend = `${prefix} ${formattedQuote} ${suffix} ${messageToSend}`
+			}
+
+			// `/remote-control` flips the machine's remote-control mode. It must never reach the model as
+			// text: an unrecognized slash command arrives verbatim and the model improvises a reply in place
+			// of anything happening. The composer's remote-control icon is the feedback — it carries the
+			// confirmed state, including a named failure.
+			if (messageToSend === "/remote-control") {
+				setInputValue("")
+				setActiveQuote(null)
+				await RemoteControlServiceClient.toggleRemoteControl(EmptyRequest.create({})).catch((err) =>
+					console.error("Failed to toggle remote control:", err),
+				)
+				return
 			}
 
 			// Intercept the built-in compaction commands when an active task exists.

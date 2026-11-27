@@ -6,7 +6,7 @@
 
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { isModelToolEnabledGlobally, readCompactionStrategyGlobally } from "@cline/core"
+import { isModelToolEnabledGlobally, readCompactionStrategyGlobally, readRelaySettingsGlobally } from "@cline/core"
 import { getBridgeDebugRuns } from "@core/bridge/bridgeDebug"
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import type { ExtensionState, Platform } from "@shared/ExtensionMessage"
@@ -19,7 +19,9 @@ import { getDistinctId } from "@/services/logging/distinctId"
 import { getExtensionVariant } from "@/services/telemetry/rollout-metadata"
 import { Logger } from "@/shared/services/Logger"
 import { getLatestAnnouncementId } from "@/utils/announcements"
+import { describeRelaySettings } from "../../relay/relaySettingsView"
 import { getClineOnboardingModels } from "../models/getClineOnboardingModels"
+import { remoteControlManager } from "../remoteControl/remoteControlManager"
 
 /**
  * Cline Cubed: the What's New notes for the running version, read once from the package's
@@ -167,6 +169,8 @@ export async function getStateToPostToWebview(controller: {
 
 	return {
 		version,
+		remoteControl: await remoteControlManager.ensureRestored(),
+		relaySettings: describeRelaySettings(readRelaySettingsGlobally()),
 		extensionVariant: getExtensionVariant(),
 		apiConfiguration,
 		currentTaskItem,

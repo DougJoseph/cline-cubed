@@ -115,6 +115,18 @@ describe("prompt format helpers", () => {
 		).toBe("please plan it");
 	});
 
+	// Cline Cubed: the image description reminder is hidden the same way.
+	it("removes an image description reminder", () => {
+		const reminder =
+			'<image_description_reminder>For each picture after an "Image N:" line, end your reply with: <image_description id="N">…</image_description></image_description_reminder>';
+		expect(stripModeNotices(`look at this\n${reminder}`)).toBe("look at this");
+		expect(
+			formatDisplayUserInput(
+				`<user_input mode="act">look at this\n${reminder}</user_input>`,
+			),
+		).toBe("look at this");
+	});
+
 	it("strips adversarial repeated open tags in linear time", () => {
 		// Regression guard for CodeQL js/polynomial-redos: many unmatched
 		// opening tags must not trigger quadratic rescanning.

@@ -104,6 +104,8 @@ export {
 } from "./providers/billing";
 export type * from "./providers/gateway";
 export { createGateway, DefaultGateway } from "./providers/gateway";
+// Cline Cubed: the Image Mode request is built outside the provider pipeline.
+export { documentedNoReasoningParameter } from "./providers/routing/provider-option-rules";
 export {
 	BUILTIN_MODEL_OPERATION_CAPABILITIES,
 	builtinProviderSupportsModelOperation,

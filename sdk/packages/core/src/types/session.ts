@@ -34,6 +34,14 @@ export type ActiveSession = {
 	teamRunWaiters: Array<() => void>;
 	pendingPrompts: PendingPrompt[];
 	drainingPendingPrompts: boolean;
+	/**
+	 * LOCAL PATCH (2026-11-26): true from the moment `runTurn` starts a turn until that turn
+	 * settles. The agent counts a run as started only once its own run begins, after the host has
+	 * set the turn up, so `agent.canStartRun()` alone still answers yes during that setup; a
+	 * prompt queued then was drained into a second turn, the agent refused it, and the refusal
+	 * failed the whole session. Checked alongside `canStartRun()` wherever a run may start.
+	 */
+	turnInFlight?: boolean;
 	pluginSandboxShutdown?: () => Promise<void>;
 	turnUsageBaseline?: SessionAccumulatedUsage;
 	turnAggregateUsageBaseline?: SessionAccumulatedUsage;

@@ -294,6 +294,8 @@ export class PendingPromptsController {
 			session.pendingPrompts.length === 0 ||
 			session.aborting ||
 			session.drainingPendingPrompts ||
+			// LOCAL PATCH (2026-11-26): see `turnInFlight` in types/session.ts.
+			session.turnInFlight ||
 			!session.agent.canStartRun()
 		) {
 			return;
@@ -309,7 +311,8 @@ export class PendingPromptsController {
 		if (session.aborting || session.drainingPendingPrompts) {
 			return;
 		}
-		if (!session.agent.canStartRun()) {
+		// LOCAL PATCH (2026-11-26): see `turnInFlight` in types/session.ts.
+		if (session.turnInFlight || !session.agent.canStartRun()) {
 			return;
 		}
 		const { entry: next } = this.service.shiftNext(session);

@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package cline;
+
+import "cline/common.proto";
+
+option go_package = "github.com/cline/grpc-go/cline";
+option java_multiple_files = true;
+option java_package = "bot.cline.proto";
+
+// RemoteControlService drives the remote-control mode: the local hub that hosts
+// the session, the machine-wide choice of whether the mode is on, and the devices
+// currently able to steer it.
+service RemoteControlService {
+  // Current state, for the composer affordance and its popover.
+  rpc getRemoteControlStatus(EmptyRequest) returns (RemoteControlStatus);
+  // Turn the mode on or off. Persisted machine-wide so it survives a window reload.
+  rpc setRemoteControlEnabled(BooleanRequest) returns (RemoteControlStatus);
+  // Flip the mode from its current value — one call, so a toggle cannot race a read against a write.
+  rpc toggleRemoteControl(EmptyRequest) returns (RemoteControlStatus);
+  // Write the relay bundle the user uploads to their own hosting.
+  rpc exportRelayBundle(EmptyRequest) returns (RelayBundleExportResult);
+  // Cline Cubed: shows a saved installer file in the operating system's file manager.
+  rpc revealRelayInstaller(StringRequest) returns (Empty);
+  // Read where the user installed their relay.
+  rpc getRelaySettings(EmptyRequest) returns (RelaySettings);
+  // Change any part of it. Omitted fields keep their stored value.
+  rpc setRelaySettings(RelaySettingsRequest) returns (RelaySettings);
+  // Share one chat with paired devices, or stop sharing it. Persisted machine-wide.
+  rpc setChatShared(ChatShareRequest) returns (RemoteControlStatus);
+  // A single-use code, valid ten minutes, that a device enters to pair with the relay.
+  rpc createPairingCode(EmptyRequest) returns (PairingCode);
+  // The devices paired with the relay.
+  rpc listPairedDevices(EmptyRequest) returns (PairedDevices);
+  // Unpair one device by its id; answers with the devices still paired.
+  rpc removePairedDevice(StringRequest) returns (PairedDevices);
+}
+
+message ChatShareRequest {
+  string session_id = 1; // The chat's own session id
+  bool shared = 2;
+}
+
+message PairingCode {
+  string code = 1; // ABCD-EFGH; empty when it could not be made
+  int32 expires_in_seconds = 2;
+  string page_url = 3; // The relay's own address, where the device opens the chat page
+  string error = 4; // Named failure; empty when the code was made
+}
+
+message PairedDevice {
+  string id = 1;
+  string name = 2; // From the device's browser
+  int64 created_at = 3; // Seconds since the epoch
+  int64 last_used_at = 4; // Seconds since the epoch
+}
+
+message PairedDevices {
+  repeated PairedDevice devices = 1;
+  string error = 2; // Named failure; empty when the list was read
+}
+
+// What the webview may know about the relay. The credential itself is deliberately absent: only whether
+// one is stored, and its last four characters so a person can recognize which key is in force.
+message RelaySettings {
+  string url = 1;
+  bool has_key = 2;
+  string key_masked = 3;
+  int32 poll_interval_ms = 4;
+  string error = 5; // Named validation failure; empty when the settings are usable
+}
+
+message RelaySettingsRequest {
+  optional string url = 1;
+  optional string key = 2;
+  optional int32 poll_interval_ms = 3;
+}
+
+// The result of an export. The relay key is deliberately absent: it is written to the bundle's own
+// relay.key file and never travels over the RPC wire into the webview.
+// The result of an export. The credential the relay mints on install is never returned here; the
+// install token is, because it is the one value the user has to carry from this screen to the browser.
+message RelayBundleExportResult {
+  string path = 1; // The folder the user chose for the installer; empty when they cancelled or it failed
+  string version = 2; // The extension version stamped into the installer
+  string error = 3; // "cancelled", or a named failure; empty when the file was saved
+  string install_token = 4; // Typed into the relay's install page; works once, then it is burned
+  repeated string files = 5; // The files written into the chosen folder: index.php and INSTALL.txt
+}
+
+// The state the composer affordance renders. `state` is never ahead of the truth:
+// "connected" means the local transport is confirmed up, not that it was asked to start.
+message RemoteControlStatus {
+  string state = 1; // disconnected | connecting | connected | failed
+  bool enabled = 2; // The machine-wide choice, independent of whether it is working
+  string url = 3; // Local hub URL when running; empty otherwise
+  string error = 4; // Named failure reason; empty when there is none
+  string relay_state = 5; // Outbound link to the user's relay: empty, connecting, connected, or failed
+  string relay_error = 6; // Named failure on that link; empty when there is none
+  string relay_host = 7; // The relay's host; empty when no relay is configured
+  repeated string shared_chats = 8; // Session ids of the chats shared with paired devices
+  string relay_page_url = 9; // The relay's own address, where a paired device uses its chats
+  string relay_data_dir = 10; // Where the relay keeps its data on the server; empty when not connected
+}

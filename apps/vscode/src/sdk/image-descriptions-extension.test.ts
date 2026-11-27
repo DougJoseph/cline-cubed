@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { createImageDescriber } from "./image-descriptions-extension"
+import { createImageDescriber, mainModelDescribesInReply } from "./image-descriptions-extension"
 
 const image = { type: "image" as const, data: "AAAA", mediaType: "image/png" }
 
@@ -53,5 +53,33 @@ describe("createImageDescriber", () => {
 	it("does not use a main model that cannot see images, or whose capability is unknown", async () => {
 		expect(await describer({ imageModeSet: false, mainSees: "no" }).describe(image)).toBeUndefined()
 		expect(await describer({ imageModeSet: false, mainSees: "unknown" }).describe(image)).toBeUndefined()
+	})
+})
+
+// Cline Cubed: the main model describes inside its own reply only when earlier images go as
+// descriptions and the main model is the describer the user's order picks first.
+describe("mainModelDescribesInReply", () => {
+	const base = {
+		earlierImages: "descriptions" as const,
+		order: "mainModelFirst" as const,
+		imageModeSet: true,
+		mainModelSeesImages: "yes" as const,
+	}
+
+	it("is true when the main model is picked first", () => {
+		expect(mainModelDescribesInReply(base)).toBe(true)
+	})
+
+	it("is true when the Image Mode model comes first but none is set", () => {
+		expect(mainModelDescribesInReply({ ...base, order: "imageModeFirst", imageModeSet: false })).toBe(true)
+	})
+
+	it("is false when the Image Mode model describes", () => {
+		expect(mainModelDescribesInReply({ ...base, order: "imageModeFirst" })).toBe(false)
+	})
+
+	it("is false when earlier images go as pictures, or the main model cannot see images", () => {
+		expect(mainModelDescribesInReply({ ...base, earlierImages: "pictures" })).toBe(false)
+		expect(mainModelDescribesInReply({ ...base, mainModelSeesImages: "unknown" })).toBe(false)
 	})
 })

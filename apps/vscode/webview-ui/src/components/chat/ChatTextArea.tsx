@@ -48,6 +48,7 @@ import ClineRulesToggleModal from "../cline-rules/ClineRulesToggleModal"
 import { getModeToggleDraftAction } from "./chat-textarea-mode-toggle"
 import { shouldFillConsentSuggestion } from "./chat-view/utils/consentSuggestion"
 import { ImageIntakeNotices } from "./ImageIntakeNotices"
+import RemoteControlToggle from "./RemoteControlToggle"
 import ServersToggleModal from "./ServersToggleModal"
 
 const { MAX_IMAGES_AND_FILES_PER_MESSAGE } = CHAT_CONSTANTS
@@ -1667,6 +1668,8 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							<ServersToggleModal />
 
 							<ClineRulesToggleModal />
+
+							<RemoteControlToggle />
 
 							<Tooltip>
 								<TooltipContent>Settings</TooltipContent>

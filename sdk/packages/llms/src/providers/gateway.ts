@@ -77,7 +77,10 @@ function mergeReasoningOptions(
 	requested: GatewayStreamRequest["reasoning"],
 ): GatewayStreamRequest["reasoning"] {
 	if (legacy?.enabled === false || requested?.enabled === false) {
-		return { enabled: false };
+		// Cline Cubed: here reasoning is off only because the chat's own setting
+		// is "none", so the request also carries the no-reasoning parameter its
+		// provider documents.
+		return { enabled: false, offSwitch: true };
 	}
 
 	const merged = {

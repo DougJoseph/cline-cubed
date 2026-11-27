@@ -710,6 +710,38 @@ describe("the consent reminder on a sent message", () => {
 	})
 })
 
+// Cline Cubed: while the main model describes the chat's pictures, a message sent with pictures
+// carries a reminder of the description instruction after the user's text.
+describe("the image description reminder on a sent message", () => {
+	const REMINDER_TAG = "<image_description_reminder>"
+
+	it("is added to a message with pictures while the main model describes", async () => {
+		const send = vi.fn().mockResolvedValue(undefined)
+		const sdkHost = makeSdkHost({ send })
+		const lifecycle = makeLifecycle({ imageDescriptionReminderEnabled: () => true })
+
+		lifecycle.fireAndForgetSend(sdkHost as unknown as SendHost, "session-123", "look", ["data:image/png;base64,AAAA"])
+		await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+
+		const prompt = send.mock.calls[0][0].prompt as string
+		expect(prompt.startsWith("look\n")).toBe(true)
+		expect(prompt).toContain(REMINDER_TAG)
+	})
+
+	it("is left off a message with no pictures, and while the main model does not describe", async () => {
+		const send = vi.fn().mockResolvedValue(undefined)
+		const sdkHost = makeSdkHost({ send })
+		const on = makeLifecycle({ imageDescriptionReminderEnabled: () => true })
+		const off = makeLifecycle({ imageDescriptionReminderEnabled: () => false })
+
+		on.fireAndForgetSend(sdkHost as unknown as SendHost, "session-123", "no pictures")
+		off.fireAndForgetSend(sdkHost as unknown as SendHost, "session-124", "look", ["data:image/png;base64,AAAA"])
+		await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+
+		expect(send.mock.calls.map((call) => call[0].prompt)).toEqual(["no pictures", "look"])
+	})
+})
+
 function makeLifecycle(overrides: Partial<ConstructorParameters<typeof SdkSessionLifecycle>[0]> = {}) {
 	return new SdkSessionLifecycle({
 		// biome-ignore lint/suspicious/noExplicitAny: focused fake for lifecycle unit test

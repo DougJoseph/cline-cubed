@@ -1041,7 +1041,9 @@ export class LocalRuntimeHost implements RuntimeHost {
 
 	async runTurn(input: SendSessionInput): Promise<AgentResult | undefined> {
 		const session = this.getSessionOrThrow(input.sessionId);
-		const canStartRun = session.agent.canStartRun();
+		// LOCAL PATCH (2026-11-26): a turn still being set up counts as running; see `turnInFlight`
+		// in types/session.ts.
+		const canStartRun = !session.turnInFlight && session.agent.canStartRun();
 		const delivery =
 			input.delivery ??
 			(session.interactive && !canStartRun ? ("queue" as const) : undefined);
@@ -1065,6 +1067,9 @@ export class LocalRuntimeHost implements RuntimeHost {
 			});
 			return undefined;
 		}
+		// LOCAL PATCH (2026-11-26): marked before any setup, cleared when the turn settles, before
+		// the drain below runs (a microtask, so after this function's own `finally`).
+		session.turnInFlight = true;
 		try {
 			const result = await this.executeTurn(session, {
 				prompt: input.prompt,
@@ -1108,6 +1113,8 @@ export class LocalRuntimeHost implements RuntimeHost {
 			});
 			await this.failSession(session);
 			throw error;
+		} finally {
+			session.turnInFlight = false;
 		}
 	}
 
@@ -1863,6 +1870,9 @@ export class LocalRuntimeHost implements RuntimeHost {
 		// the user queued behind the stopped turn can run now. This mirrors
 		// the drain in runTurn() for turns that resolve with an "aborted"
 		// finish; this path handles turns that end by throwing instead.
+		// LOCAL PATCH (2026-11-26): the turn has settled, so it no longer counts as in flight; this
+		// drain runs before runTurn's own `finally` would clear the mark.
+		session.turnInFlight = false;
 		queueMicrotask(() => {
 			void this.pendingPromptsController.drain(session.sessionId);
 		});

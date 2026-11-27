@@ -33,6 +33,7 @@ import { CLINE_ACCOUNT_AUTH_ERROR_MESSAGE } from "@shared/ClineAccount"
 import { mentionRegexGlobal } from "@shared/context-mentions"
 import { applyConversationResidency } from "@shared/conversation-snapshot"
 import type { ClineApiReqInfo, ClineMessage, ExtensionState, TurnPhase } from "@shared/ExtensionMessage"
+import { getApiMetrics, getLastApiReqTotalTokens } from "@shared/getApiMetrics"
 import { chatDisplayTitle, type HistoryItem } from "@shared/HistoryItem"
 import { DeleteAllTaskHistoryCount, type GetTaskHistoryRequest, TaskHistoryArray, TaskResponse } from "@shared/proto/cline/task"
 import type { Settings } from "@shared/storage/state-keys"
@@ -62,6 +63,7 @@ import { ClineAccountService } from "./account-service"
 import { AuthService, LogoutReason } from "./auth-service"
 import { BUILTIN_SLASH_COMMANDS } from "./builtin-slash-commands"
 import { buildStartSessionInput, createHistoryItemFromSession } from "./cline-session-factory"
+import { describesInReplyNow } from "./image-descriptions-extension"
 import { MessageTranslatorState, reshapeErrorForWebview } from "./message-translator"
 import { createProviderCatalog } from "./model-catalog/catalog"
 import type { Disposable, ProviderCatalog, ProviderConfigChange, ProviderConfigStore } from "./model-catalog/contracts"
@@ -466,6 +468,8 @@ export class Controller {
 			consumeModeSwitchNotice: (sessionId) => this.mode.consumeModeSwitchNotice(sessionId),
 			// Cline Cubed: the same switch as the suggested consent reply itself.
 			consentReminderEnabled: () => this.stateManager.getGlobalSettingsKey("consentSuggestionEnabled") !== false,
+			// Cline Cubed: the same test the image descriptions extension uses for its instruction.
+			imageDescriptionReminderEnabled: () => describesInReplyNow(this.stateManager, this.providerConfigStore),
 			onSendComplete: async () => {
 				// Normal flows close their diff sessions inline; anything left here is orphaned.
 				void this.diffEdits.discardAllPreviews("turn complete")
@@ -1637,6 +1641,63 @@ export class Controller {
 
 	getTaskForSession(sessionId: string): TaskProxy | undefined {
 		return this.taskProxies.get(sessionId)
+	}
+
+	/** Cline Cubed: the total cost recorded across the chat history, for a paired device's usage view. */
+	async getAllChatsCost(): Promise<number> {
+		const items = await this.taskHistory.listHistory({ hydrate: false })
+		return items.reduce((sum, item) => sum + (sessionHistoryRecordToHistoryItem(item).totalCost || 0), 0)
+	}
+
+	/**
+	 * Cline Cubed: what a paired device is shown of one chat — the messages the chat panel holds, whether
+	 * the model is working, and the chat's name. A chat that is not loaded shows its name and no
+	 * messages; a message sent to it from the page loads it, as a reply typed in VS Code does.
+	 */
+	async getRemoteChatView(sessionId: string): Promise<
+		| {
+				messages: ClineMessage[]
+				working: boolean
+				title: string
+				workspace: string
+				contextUsed: number
+				usage: { tokensIn: number; tokensOut: number; cacheWrites: number; cacheReads: number; cost: number }
+				running: boolean
+				isActive: boolean
+		  }
+		| undefined
+	> {
+		const task = this.taskProxies.get(sessionId) ?? (this.task?.taskId === sessionId ? this.task : undefined)
+		const item = await this.taskHistory.findHistoryItem(sessionId).catch(() => undefined)
+		if (!task && !item) {
+			return undefined
+		}
+		const phase: TurnPhase = this.getTurnStateTrackerFor(sessionId).currentPhase
+		const messages = [...(task?.messageStateHandler?.getClineMessages?.() ?? [])]
+		const metrics = getApiMetrics(messages)
+		const isActive = this.task?.taskId === sessionId
+		return {
+			messages,
+			// The same figure VS Code's chat header shows as the context in use.
+			contextUsed: getLastApiReqTotalTokens(messages),
+			usage: {
+				tokensIn: metrics.totalTokensIn,
+				tokensOut: metrics.totalTokensOut,
+				cacheWrites: metrics.totalCacheWrites ?? 0,
+				cacheReads: metrics.totalCacheReads ?? 0,
+				cost: metrics.totalCost,
+			},
+			running:
+				(this.backgroundCommandRunning && this.backgroundCommandTaskId === sessionId) ||
+				(isActive && this.foregroundCommands.isRunning),
+			isActive,
+			working: phase === "streaming",
+			title: item ? chatDisplayTitle(item) : "",
+			// The folder's own name, for the page's header; the full path never leaves this machine.
+			workspace: item?.cwdOnTaskInitialization
+				? (item.cwdOnTaskInitialization.split(/[\\/]/).filter(Boolean).pop() ?? "")
+				: "",
+		}
 	}
 
 	async reinitExistingTaskFromId(taskId: string): Promise<void> {

@@ -40,4 +40,11 @@ export const BASE_SLASH_COMMANDS: SlashCommand[] = [
 ]
 
 // VS Code-only slash commands
-export const VSCODE_ONLY_COMMANDS: SlashCommand[] = []
+export const VSCODE_ONLY_COMMANDS: SlashCommand[] = [
+	{
+		name: "remote-control",
+		description: "Turns remote control of this chat on or off",
+		section: "default",
+		cliCompatible: false,
+	},
+]

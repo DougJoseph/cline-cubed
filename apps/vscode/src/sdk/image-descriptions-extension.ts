@@ -8,10 +8,12 @@ import { activeModelImageSupport, resolveImageModeBridge } from "@/core/bridge/i
 import { resolveActiveModelIdFromApiConfiguration } from "@/core/controller/models/taskApiModel"
 import type { StateManager } from "@/core/storage/StateManager"
 import { Logger } from "@/shared/services/Logger"
+import { extractImageDescriptions, IMAGE_DESCRIPTION_RULE } from "./image-description-marker"
 import {
 	CARRIED_IMAGE_DESCRIPTION_PROMPT,
 	chooseDescriberOrder,
 	type DescribeResult,
+	type EarlierImagesMode,
 	type ImageDescriberOrder,
 	ImageDescriptions,
 	imageLimitsFromMegabytes,
@@ -67,6 +69,40 @@ export function createImageDescriber(deps: ImageDescriberDeps): (image: ImageBlo
 	}
 }
 
+/**
+ * Cline Cubed: whether the main model writes the chat's image descriptions inside its own reply:
+ * earlier images go as descriptions, and the describer the user's order picks first is the main model.
+ */
+export function mainModelDescribesInReply(input: {
+	earlierImages: EarlierImagesMode
+	order: ImageDescriberOrder
+	imageModeSet: boolean
+	mainModelSeesImages: "yes" | "no" | "unknown"
+}): boolean {
+	if (input.earlierImages !== "descriptions") {
+		return false
+	}
+	const order = chooseDescriberOrder(input.order, {
+		imageMode: input.imageModeSet,
+		mainModel: input.mainModelSeesImages === "yes",
+	})
+	return order[0] === "mainModel"
+}
+
+/** Whether the main model describes the chat's pictures in its reply, from the current settings. */
+export function describesInReplyNow(stateManager: StateManager, providerConfigStore?: ProviderConfigStore): boolean {
+	return mainModelDescribesInReply({
+		earlierImages: stateManager.getGlobalSettingsKey("earlierImages") ?? "pictures",
+		order: stateManager.getGlobalSettingsKey("imageDescriber") ?? "imageModeFirst",
+		imageModeSet: resolveImageModeBridge(stateManager.getApiConfiguration(), providerConfigStore) !== undefined,
+		mainModelSeesImages: activeModelImageSupport(
+			stateManager.getApiConfiguration(),
+			providerConfigStore,
+			currentMode(stateManager),
+		),
+	})
+}
+
 export interface ImageDescriptionsExtensionOptions {
 	stateManager: StateManager
 	providerConfigStore?: ProviderConfigStore
@@ -78,8 +114,12 @@ function currentMode(stateManager: StateManager): Mode {
 	return stateManager.getGlobalSettingsKey("mode") === "plan" ? "plan" : "act"
 }
 
+/**
+ * The separate describing request to the main model, now used only for an image that cannot go to
+ * it as a picture (over the limits). Cline Cubed: it follows the main model's own reasoning setting.
+ */
 async function describeWithMainModel(stateManager: StateManager, image: ImageBlock): Promise<string> {
-	const handler = buildApiHandler(stateManager.getApiConfiguration(), currentMode(stateManager), { disableReasoning: true })
+	const handler = buildApiHandler(stateManager.getApiConfiguration(), currentMode(stateManager))
 	let answer = ""
 	let failure: string | undefined
 	for await (const chunk of handler.createMessage(CARRIED_IMAGE_DESCRIPTION_PROMPT, [
@@ -133,11 +173,25 @@ export function createImageDescriptionsExtension(
 		describeWithMainModel: (image) => describeWithMainModel(stateManager, image),
 	})
 
+	const describesInReply = (): boolean => describesInReplyNow(stateManager, providerConfigStore)
+
 	return {
 		name: "cline-image-descriptions",
-		manifest: { capabilities: ["messageBuilders", "tools", "hooks"] },
+		manifest: { capabilities: ["messageBuilders", "tools", "hooks", "rules"] },
 		hooks: {
-			afterRun: async () => {
+			afterRun: async ({ result }) => {
+				// Cline Cubed: the descriptions the main model wrote in its reply are saved first.
+				if (describesInReply()) {
+					const found = extractImageDescriptions(result.outputText ?? "")
+					if (found.size > 0) {
+						const name =
+							resolveActiveModelIdFromApiConfiguration(
+								stateManager.getApiConfiguration(),
+								currentMode(stateManager),
+							) ?? "unknown"
+						descriptions?.applyReplyDescriptions(found, `the main model (${name})`)
+					}
+				}
 				// Started, not awaited: the next message should not wait for the describing.
 				void descriptions?.describePending()
 			},
@@ -156,9 +210,16 @@ export function createImageDescriptionsExtension(
 					}),
 				earlierImages: () => stateManager.getGlobalSettingsKey("earlierImages") ?? "pictures",
 				describe,
+				describesInReply,
 				notify: (text) => options.emitNotice(text, sessionId),
 			})
 			descriptions = current
+			// The system prompt is rebuilt on every message, so a change of describer applies from the next one.
+			api.registerRule({
+				id: "cline-image-descriptions:rule",
+				source: "image-descriptions",
+				content: () => (describesInReply() ? IMAGE_DESCRIPTION_RULE : ""),
+			})
 			api.registerMessageBuilder({
 				name: "cline-image-descriptions",
 				build: (messages) => current.buildRequest(messages),

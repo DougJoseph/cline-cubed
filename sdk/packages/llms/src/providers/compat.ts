@@ -439,6 +439,9 @@ function buildGatewayRequest(
 						enabled: config.thinking,
 						effort: config.reasoningEffort,
 						budgetTokens: config.thinkingBudgetTokens,
+						...(config.reasoningOffSwitch && config.thinking === false
+							? { offSwitch: true }
+							: {}),
 					}
 				: undefined,
 		signal,

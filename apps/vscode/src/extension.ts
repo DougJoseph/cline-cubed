@@ -20,6 +20,10 @@ import { WebviewProvider } from "./core/webview"
 import { createClineAPI } from "./exports"
 import "./utils/path" // necessary to have access to String.prototype.toPosix
 import path from "node:path"
+import { resolveCompactionTriggerTokens } from "@cline/core"
+import { ResolveModelInfoRequest } from "@shared/proto/cline/models"
+import { AutoApprovalSettingsRequest } from "@shared/proto/cline/state"
+import { AskResponseRequest } from "@shared/proto/cline/task"
 import type { ExtensionContext } from "vscode"
 import { HostProvider } from "@/hosts/host-provider"
 import { vscodeHostBridgeClient } from "@/hosts/vscode/hostbridge/client/host-grpc-client"
@@ -31,7 +35,11 @@ import { addToCline } from "./core/controller/commands/addToCline"
 import { explainWithCline } from "./core/controller/commands/explainWithCline"
 import { fixWithCline } from "./core/controller/commands/fixWithCline"
 import { improveWithCline } from "./core/controller/commands/improveWithCline"
+import { resolveModelInfo } from "./core/controller/models/resolveModelInfo"
+import { remoteControlManager } from "./core/controller/remoteControl/remoteControlManager"
 import { hasWhatsNewNotes } from "./core/controller/state/getStateToPostToWebview"
+import { updateAutoApprovalSettings } from "./core/controller/state/updateAutoApprovalSettings"
+import { askResponse } from "./core/controller/task/askResponse"
 import { sendAddToInputEvent } from "./core/controller/ui/subscribeToAddToInput"
 import { sendShowWebviewEvent } from "./core/controller/ui/subscribeToShowWebview"
 import { HookDiscoveryCache } from "./core/hooks/HookDiscoveryCache"
@@ -78,6 +86,9 @@ import { LG_TASK_URI_PATH, SharedUriHandler, TASK_URI_PATH } from "./services/ur
 import { ShowMessageType } from "./shared/proto/host/window"
 import { fileExistsAtPath } from "./utils/fs"
 
+/** The auto-approve choices a paired device may change: the ones VS Code's own Auto-approve bar shows. */
+const REMOTE_AUTO_APPROVE_ACTIONS = ["readFiles", "editFiles", "executeSafeCommands", "useBrowser", "useMcp"] as const
+
 export async function reportRolloutActivation(input: RolloutBundleActivation): Promise<void> {
 	await telemetryService.captureRolloutBundleActivated(input)
 }
@@ -106,6 +117,75 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 4. Register services and perform common initialization
 	// IMPORTANT: Must be done after host provider is setup and migrations are complete
 	const webview = (await initialize(storageContext)) as VscodeWebviewProvider
+
+	// Cline Cubed: a relay link that drops or recovers mid-session pushes its new state to every
+	// surface, so the composer badge carries the host's truth rather than the last thing this window
+	// happened to ask for.
+	remoteControlManager.setStatusListener(() => void webview.controller.postStateToWebview())
+	// Cline Cubed: a shared chat is read and driven from a paired device through the same paths the chat
+	// panel uses: a message goes in as its Send button sends it, a decision as its Approve and Deny
+	// buttons send it, a rename as VS Code's own rename.
+	remoteControlManager.setChatAccess({
+		view: (chatId) => webview.controller.getRemoteChatView(chatId),
+		send: async (chatId, text) => {
+			await askResponse(
+				webview.controller,
+				AskResponseRequest.create({ sessionId: chatId, responseType: "messageResponse", text }),
+			)
+		},
+		// The manager has already checked that this exact request is the one still waiting.
+		decide: async (chatId, _ts, approve) => {
+			await askResponse(
+				webview.controller,
+				AskResponseRequest.create({ sessionId: chatId, responseType: approve ? "yesButtonClicked" : "noButtonClicked" }),
+			)
+		},
+		rename: (chatId, name) => webview.controller.setTaskTitle(chatId, name),
+		contextLimits: async () => {
+			// The model in use for the current mode, resolved the way VS Code's chat header resolves it.
+			const state = await webview.controller.getStateToPostToWebview()
+			const mode = state.mode === "plan" ? "plan" : "act"
+			const providerId =
+				(mode === "plan" ? state.apiConfiguration?.planModeApiProvider : state.apiConfiguration?.actModeApiProvider) ?? ""
+			const resolved = await resolveModelInfo(webview.controller, ResolveModelInfoRequest.create({ providerId, mode }))
+			const window = Number(resolved.modelInfo?.contextWindow ?? 0)
+			return { window, compactAt: window > 0 ? (resolveCompactionTriggerTokens({ contextWindow: window }) ?? 0) : 0 }
+		},
+		allChatsCost: () => webview.controller.getAllChatsCost(),
+		compact: async (chatId) => {
+			// VS Code's compaction works on the chat active in VS Code, so a phone may compact only that
+			// chat; it must never compact a different one.
+			const view = await webview.controller.getRemoteChatView(chatId)
+			if (!view?.isActive) {
+				return "Open this chat in VS Code to compact it."
+			}
+			if (view.working) {
+				return "This chat is working. Compact it once the reply has finished."
+			}
+			await webview.controller.compactTask()
+			return ""
+		},
+		getAutoApprove: async () => {
+			const actions = (await webview.controller.getStateToPostToWebview()).autoApprovalSettings.actions
+			return Object.fromEntries(REMOTE_AUTO_APPROVE_ACTIONS.map((action) => [action, Boolean(actions[action])]))
+		},
+		setAutoApprove: async (action, enabled) => {
+			if (!(REMOTE_AUTO_APPROVE_ACTIONS as readonly string[]).includes(action)) {
+				return
+			}
+			const current = (await webview.controller.getStateToPostToWebview()).autoApprovalSettings
+			// The same handler VS Code's own Auto-approve bar reaches; the whole settings object is sent
+			// so no other choice is reset by the change.
+			await updateAutoApprovalSettings(
+				webview.controller,
+				AutoApprovalSettingsRequest.create({
+					version: (current.version ?? 1) + 1,
+					enableNotifications: current.enableNotifications,
+					actions: { ...current.actions, [action]: enabled },
+				}),
+			)
+		},
+	})
 
 	// Cline Cubed: with VS Code's automatic extension updates off, offer the newer version by
 	// name and update in place on Yes. Not awaited — it asks the Marketplace over the network and
@@ -956,6 +1036,9 @@ export async function deactivate() {
 	recordLifecycleEvent("extension.deactivate", {})
 	// Dispose Non-VSCode-specific services
 	try {
+		// Stops the remote-control transport this process opened. The stored choice is left alone on
+		// purpose: the mode is expected to come back when the window reloads.
+		await remoteControlManager.dispose()
 		await tearDown()
 	} finally {
 		// VSCode-specific services

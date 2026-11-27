@@ -567,6 +567,9 @@ export {
 	readCompactionStrategyGlobally,
 	readGlobalSettings,
 	readPlanActModeGlobally,
+	readRemoteControlEnabledGlobally,
+	readRemoteSharedChatsGlobally,
+	readRelaySettingsGlobally,
 	readToolAutoApproveGlobally,
 	readTuiThemeGlobally,
 	resolveDisabledPluginPaths,
@@ -580,12 +583,17 @@ export {
 	setDisabledTools,
 	setModelToolEnabledGlobally,
 	setPlanActModeGlobally,
+	setRemoteChatSharedGlobally,
+	setRemoteControlEnabledGlobally,
+	setRelaySettingsGlobally,
 	setTelemetryOptOutGlobally,
 	setToolAutoApproveGlobally,
 	setTuiThemeGlobally,
 	toggleDisabledTool,
 	writeGlobalSettings,
 } from "./services/global-settings";
+export type { RelaySettings } from "./services/global-settings";
+export { DEFAULT_RELAY_POLL_INTERVAL_MS } from "./services/global-settings";
 export type {
 	MarketplaceActionResult,
 	MarketplaceEntryInput,

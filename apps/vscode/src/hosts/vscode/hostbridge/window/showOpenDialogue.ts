@@ -12,6 +12,18 @@ export async function showOpenDialogue(request: ShowOpenDialogueRequest): Promis
 		options.openLabel = request.openLabel
 	}
 
+	if (request.canSelectFolders !== undefined) {
+		options.canSelectFolders = request.canSelectFolders
+	}
+
+	if (request.canSelectFiles !== undefined) {
+		options.canSelectFiles = request.canSelectFiles
+	}
+
+	if (request.defaultPath) {
+		options.defaultUri = vscode.Uri.file(request.defaultPath)
+	}
+
 	if (request.filters?.files) {
 		options.filters = {
 			Files: request.filters.files,

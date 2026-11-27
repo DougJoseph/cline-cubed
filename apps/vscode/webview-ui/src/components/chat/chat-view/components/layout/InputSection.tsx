@@ -1,10 +1,10 @@
 import { splitImageBridgeBlock } from "@shared/bridge/constants"
+import { shownConsentSuggestion } from "@shared/consentSuggestion"
 import React, { useMemo } from "react"
 import ChatTextArea from "@/components/chat/ChatTextArea"
 import QuotedMessagePreview from "@/components/chat/QuotedMessagePreview"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { ChatState, MessageHandlers, ScrollBehavior } from "../../types/chatTypes"
-import { shownConsentSuggestion } from "../../utils/consentSuggestion"
 
 interface InputSectionProps {
 	chatState: ChatState

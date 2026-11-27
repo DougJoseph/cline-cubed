@@ -1,5 +1,22 @@
 # Changelog
 
+## [4.1.31]
+
+### Added
+
+- **The suggested reply on your phone.** When the model asks for your go, the reply that grants it now
+  shows in the Remote Control page's empty message box too, with a **Tab** button beside it, as it does
+  in VS Code. Tap **Tab** to put the reply in the box, then edit it or send it; nothing is sent until
+  you do. On a desktop browser, the Tab key works too. It shows only while **Suggest a consent reply** is
+  on in Settings, and steps aside while the model is working or once you start typing.
+
+### Fixed
+
+- In 4.1.30, remote control could come back Failed after installing an update, until it was turned off
+  and on; it now waits for the previous session to close and connects.
+- While the What's New window was showing after an update, it could keep taking focus from other
+  panels, such as another extension's chat; it no longer does.
+
 ## [4.1.30]
 
 ### Added

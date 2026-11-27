@@ -25,12 +25,21 @@ const WhatsNewModal: React.FC<WhatsNewModalProps> = ({ open, onClose, version, n
 		fontSize: "0.9em",
 	}
 
+	// The window opens on its own after an update, while the person may be working in another panel
+	// (another extension's chat, an editor). So it never takes focus: it does not trap focus as a
+	// modal dialog would — a trap pulled focus back into this chat each time the chat's state was
+	// redrawn — and it moves no focus when it opens or closes. It still shows over the chat, with its
+	// own dimmed backdrop (Radix draws its backdrop only for a modal dialog), and still closes with its
+	// X, Escape, or a click outside it.
 	return (
-		<Dialog onOpenChange={(isOpen) => !isOpen && onClose()} open={open}>
+		<Dialog modal={false} onOpenChange={(isOpen) => !isOpen && onClose()} open={open}>
+			{open && <div aria-hidden="true" className="fixed inset-0 z-50 bg-black/80" data-testid="whats-new-backdrop" />}
 			<DialogContent
 				aria-describedby="whats-new-description"
 				aria-labelledby="whats-new-title"
-				className="pt-5 px-5 pb-4 gap-0">
+				className="pt-5 px-5 pb-4 gap-0"
+				onCloseAutoFocus={(event) => event.preventDefault()}
+				onOpenAutoFocus={(event) => event.preventDefault()}>
 				<div id="whats-new-description">
 					<h2
 						className="text-lg font-semibold mb-3 pr-6"

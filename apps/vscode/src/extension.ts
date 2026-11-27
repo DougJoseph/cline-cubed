@@ -185,6 +185,9 @@ export async function activate(context: vscode.ExtensionContext) {
 				}),
 			)
 		},
+		// The same switch VS Code's chat box reads; on unless it was turned off.
+		consentSuggestionEnabled: async () =>
+			webview.controller.stateManager.getGlobalSettingsKey("consentSuggestionEnabled") !== false,
 	})
 
 	// Cline Cubed: with VS Code's automatic extension updates off, offer the newer version by

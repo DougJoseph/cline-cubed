@@ -1,3 +1,4 @@
+import { shouldFillConsentSuggestion } from "@shared/consentSuggestion"
 import { mentionRegex, mentionRegexGlobal } from "@shared/context-mentions"
 import { hasImageExtension } from "@shared/image-format"
 import { StringRequest } from "@shared/proto/cline/common"
@@ -46,7 +47,6 @@ import {
 } from "@/utils/slash-commands"
 import ClineRulesToggleModal from "../cline-rules/ClineRulesToggleModal"
 import { getModeToggleDraftAction } from "./chat-textarea-mode-toggle"
-import { shouldFillConsentSuggestion } from "./chat-view/utils/consentSuggestion"
 import { ImageIntakeNotices } from "./ImageIntakeNotices"
 import RemoteControlToggle from "./RemoteControlToggle"
 import ServersToggleModal from "./ServersToggleModal"

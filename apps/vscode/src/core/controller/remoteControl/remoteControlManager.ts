@@ -6,6 +6,7 @@ import {
 	setRemoteChatSharedGlobally,
 	setRemoteControlEnabledGlobally,
 } from "@cline/core"
+import { splitConsentSuggestion } from "@shared/consentSuggestion"
 import type { ClineMessage } from "@shared/ExtensionMessage"
 import type { RemoteControlStatus } from "@shared/proto/cline/remote_control"
 import { ExtensionRegistryInfo } from "@/registry"
@@ -19,6 +20,21 @@ const REMOTE_CONTROL_HOST = "127.0.0.1"
 
 /** How often a shared chat's changes are gathered and sent: at most twice a second per chat. */
 const CHAT_PUMP_INTERVAL_MS = 500
+
+/**
+ * After an update is installed, remote control can start while another Hub still holds its lock,
+ * which it keeps until its process exits. A start that finds the lock held waits this long for it,
+ * trying again at this interval, before naming another window as the holder.
+ */
+const HUB_LOCK_WAIT_MS = 30_000
+const HUB_LOCK_RETRY_MS = 2_000
+const HUB_LOCK_WAITING = "Waiting for the previous session to close"
+const HUB_LOCK_ELSEWHERE = "Remote control is already running in another VS Code window. Turn it off there, then turn it on here."
+
+/** The Hub's refusal to start beside a live Hub (`HubLockHeldError` in `@cline/core`). */
+function isHubLockHeld(error: unknown): boolean {
+	return error instanceof Error && error.name === "HubLockHeldError"
+}
 
 /** A page that opens a chat gets at most this many of its most recent messages. */
 const SNAPSHOT_MESSAGE_LIMIT = 300
@@ -55,6 +71,8 @@ export type RemoteChatAccess = {
 	getAutoApprove(): Promise<Record<string, boolean>>
 	/** Turn one auto-approve choice on or off, through the same path VS Code's bar uses. */
 	setAutoApprove(actionId: string, enabled: boolean): Promise<void>
+	/** Whether Settings' suggested reply is on, which applies to every chat. */
+	consentSuggestionEnabled(): Promise<boolean>
 }
 
 /** What a page is sent of one message. Images are never sent; the page shows "[image]" instead. */
@@ -93,12 +111,21 @@ function signature(message: RemoteMessage): string {
  * with the transport down — those are two different facts and the popover has to show both.
  */
 export class RemoteControlManager {
+	constructor(options: { lockWaitMs?: number; lockRetryMs?: number } = {}) {
+		this.lockWaitMs = options.lockWaitMs ?? HUB_LOCK_WAIT_MS
+		this.lockRetryMs = options.lockRetryMs ?? HUB_LOCK_RETRY_MS
+	}
+
 	private state: RemoteControlState = "disconnected"
 	private enabled = false
 	private server?: HubServer
 	private error = ""
 	private inFlight?: Promise<RemoteControlStatus>
 	private restored = false
+	/** Set while a start waits for another Hub's lock; Off or dispose clears it to end the wait. */
+	private waitingForLock = false
+	private readonly lockWaitMs: number
+	private readonly lockRetryMs: number
 	private relay?: RelayLink
 	private relayStatus?: RelayLinkStatus
 	private statusListener?: () => void
@@ -127,15 +154,27 @@ export class RemoteControlManager {
 	}
 
 	/** What the page shows about a chat beyond its messages: context, usage and running commands. */
-	private async meta(view: NonNullable<Awaited<ReturnType<RemoteChatAccess["view"]>>>) {
+	private async meta(view: NonNullable<Awaited<ReturnType<RemoteChatAccess["view"]>>>, suggestion: string) {
 		const figures = await this.sharedFigures()
 		return {
+			suggestion,
 			context: { used: view.contextUsed, window: figures.limits?.window ?? 0, compactAt: figures.limits?.compactAt ?? 0 },
 			usage: view.usage,
 			allChatsCost: figures.allCost ?? 0,
 			running: view.running,
 			isActive: view.isActive,
 		}
+	}
+
+	/**
+	 * A chat as a page is shown it: the messages without the hidden suggested reply, and the reply
+	 * that still counts, decided by the same rule VS Code's chat box uses; none while Settings has it
+	 * off.
+	 */
+	private async forPage(messages: ClineMessage[]): Promise<{ messages: ClineMessage[]; suggestion: string }> {
+		const split = splitConsentSuggestion(messages)
+		const enabled = await this.chatAccess?.consentSuggestionEnabled().catch(() => false)
+		return { messages: split.messages, suggestion: enabled ? (split.consentSuggestion ?? "") : "" }
 	}
 
 	/** The extension wires this once the controller exists. */
@@ -174,7 +213,12 @@ export class RemoteControlManager {
 			return this.status()
 		}
 		this.restored = true
-		return this.restore()
+		// Held as the request in flight, so a toggle during a restore that is waiting for the Hub's
+		// lock joins it or ends it, rather than starting a second Hub beside it.
+		this.inFlight = this.restore().finally(() => {
+			this.inFlight = undefined
+		})
+		return this.inFlight
 	}
 
 	async restore(): Promise<RemoteControlStatus> {
@@ -192,6 +236,14 @@ export class RemoteControlManager {
 	}
 
 	async setEnabled(enabled: boolean): Promise<RemoteControlStatus> {
+		// Off while a start waits for the Hub's lock ends the wait: the start sees the choice is off
+		// and settles as Off.
+		if (this.inFlight && this.waitingForLock && !enabled) {
+			this.enabled = false
+			setRemoteControlEnabledGlobally(false)
+			this.waitingForLock = false
+			return this.inFlight
+		}
 		// A toggle whose result has not landed is not issued twice: concurrent callers join the
 		// request already in flight rather than racing a start against a stop.
 		if (this.inFlight) {
@@ -218,10 +270,25 @@ export class RemoteControlManager {
 			// remote control is actually wanted, the same way the optional Claude Code provider is
 			// lazy-loaded (see `sdk/packages/llms/src/providers/vendors/community.ts`).
 			const { createLocalHubScheduleRuntimeHandlers, ensureHubServer } = await import("@cline/core")
-			const ensured = await ensureHubServer({
-				host: REMOTE_CONTROL_HOST,
-				runtimeHandlers: createLocalHubScheduleRuntimeHandlers(),
-			})
+			const ensure = () =>
+				ensureHubServer({
+					host: REMOTE_CONTROL_HOST,
+					runtimeHandlers: createLocalHubScheduleRuntimeHandlers(),
+				})
+			const ensured = await this.waitForHubLock(ensure)
+			if (!ensured) {
+				// Turned off, or disposed, while waiting.
+				this.state = "disconnected"
+				this.error = ""
+				return this.status()
+			}
+			if (!this.enabled && ensured.server) {
+				// Turned off as the lock came free: the Hub just started is closed again.
+				await ensured.server.close().catch(() => {})
+				this.state = "disconnected"
+				this.error = ""
+				return this.status()
+			}
 			this.server = ensured.server
 			if (ensured.server) {
 				this.state = "connected"
@@ -240,6 +307,46 @@ export class RemoteControlManager {
 			await this.startRelay()
 		}
 		return this.status()
+	}
+
+	/**
+	 * Starts the Hub, waiting while another Hub still holds its lock, as it can after an update is
+	 * installed; that Hub lets go when its process exits. Shows Connecting with a waiting
+	 * line meanwhile. Past the wait the holder is named as another window. Answers undefined when the
+	 * wait was ended by Off or dispose. Any other failure is thrown at once.
+	 */
+	private async waitForHubLock<T>(ensure: () => Promise<T>): Promise<T | undefined> {
+		const deadline = Date.now() + this.lockWaitMs
+		this.waitingForLock = true
+		try {
+			for (;;) {
+				try {
+					return await ensure()
+				} catch (error) {
+					if (!isHubLockHeld(error)) {
+						throw error
+					}
+					if (Date.now() >= deadline) {
+						Logger.error(
+							`Remote control could not start its Hub: ${error instanceof Error ? error.message : String(error)}`,
+						)
+						throw new Error(HUB_LOCK_ELSEWHERE)
+					}
+					if (this.error !== HUB_LOCK_WAITING) {
+						Logger.warn(`Remote control is waiting for another Hub to release its lock: ${(error as Error).message}`)
+						this.state = "connecting"
+						this.error = HUB_LOCK_WAITING
+						this.emit()
+					}
+				}
+				await new Promise((resolve) => setTimeout(resolve, this.lockRetryMs))
+				if (!this.waitingForLock || !this.enabled) {
+					return undefined
+				}
+			}
+		} finally {
+			this.waitingForLock = false
+		}
 	}
 
 	private async stop(): Promise<RemoteControlStatus> {
@@ -396,7 +503,8 @@ export class RemoteControlManager {
 					continue
 				}
 				const events: RelayEvent[] = []
-				const remote = view.messages.map(toRemoteMessage).slice(-SNAPSHOT_MESSAGE_LIMIT)
+				const page = await this.forPage(view.messages)
+				const remote = page.messages.map(toRemoteMessage).slice(-SNAPSHOT_MESSAGE_LIMIT)
 				const changed: RemoteMessage[] = []
 				const nextSignatures = new Map<number, string>()
 				for (const message of remote) {
@@ -410,7 +518,7 @@ export class RemoteControlManager {
 				// the page orders by this list and drops anything not in it, rather than merging by ts.
 				const order = remote.map((message) => message.ts)
 				const orderKey = order.join(",")
-				const meta = await this.meta(view)
+				const meta = await this.meta(view, page.suggestion)
 				const metaKey = JSON.stringify(meta)
 				const updateDue =
 					changed.length > 0 ||
@@ -456,9 +564,10 @@ export class RemoteControlManager {
 		if (!view || !this.relay) {
 			return
 		}
-		const messages = view.messages.map(toRemoteMessage).slice(-SNAPSHOT_MESSAGE_LIMIT)
+		const page = await this.forPage(view.messages)
+		const messages = page.messages.map(toRemoteMessage).slice(-SNAPSHOT_MESSAGE_LIMIT)
 		const autoApprove = await this.chatAccess?.getAutoApprove().catch(() => undefined)
-		const meta = await this.meta(view)
+		const meta = await this.meta(view, page.suggestion)
 		this.sent.set(chatId, {
 			signatures: new Map(messages.map((message) => [message.ts, signature(message)])),
 			working: view.working,
@@ -514,8 +623,9 @@ export class RemoteControlManager {
 				Logger.debug(
 					`Remote control received a ${payload.approve === true ? "Approve" : "Deny"} for chat ${chatId}, message ${payload.ts}`,
 				)
+				// The hidden suggested reply is not a message the page shows, so it is not the one waiting.
 				const view = await this.chatAccess.view(chatId)
-				const last = view?.messages[view.messages.length - 1]
+				const last = view ? splitConsentSuggestion(view.messages).messages.at(-1) : undefined
 				if (last && last.ts === payload.ts && last.type === "ask" && !last.partial) {
 					Logger.debug(`Remote control is applying the decision to chat ${chatId}, message ${payload.ts} (${last.ask})`)
 					await this.chatAccess.decide(chatId, payload.ts, payload.approve === true)
@@ -569,6 +679,7 @@ export class RemoteControlManager {
 	 * reload means.
 	 */
 	async dispose(): Promise<void> {
+		this.waitingForLock = false
 		await this.stop()
 	}
 }

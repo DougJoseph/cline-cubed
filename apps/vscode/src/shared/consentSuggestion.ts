@@ -1,4 +1,4 @@
-import type { ClineMessage } from "@shared/ExtensionMessage"
+import type { ClineMessage } from "./ExtensionMessage"
 
 /**
  * Cline Cubed: the suggested consent reply. The extension delivers it as a `consent_suggestion`

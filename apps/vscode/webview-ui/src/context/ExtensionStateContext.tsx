@@ -1,5 +1,6 @@
 import { DEFAULT_AUTO_APPROVAL_SETTINGS } from "@shared/AutoApprovalSettings"
 import { DEFAULT_BROWSER_SETTINGS } from "@shared/BrowserSettings"
+import { splitConsentSuggestion } from "@shared/consentSuggestion"
 import { conversationSnapshotKind } from "@shared/conversation-snapshot"
 import { DEFAULT_PLATFORM, type ExtensionState } from "@shared/ExtensionMessage"
 import { DEFAULT_MCP_DISPLAY_MODE } from "@shared/McpDisplayMode"
@@ -12,7 +13,6 @@ import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mc
 import { fromProtobufModels } from "@shared/proto-conversions/models/typeConversion"
 import type React from "react"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
-import { splitConsentSuggestion } from "@/components/chat/chat-view/utils/consentSuggestion"
 import { PLATFORM_CONFIG, persistSurfaceSessionForRevive } from "@/config/platform.config"
 import {
 	type ModelInfo,

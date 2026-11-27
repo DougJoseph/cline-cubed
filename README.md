@@ -22,6 +22,9 @@ Want your chats and your files to stop fighting over the same editor space?
 Want to use affordable text-only models for Plan and Act, yet still paste an image
 and have your chat understand it? **Get Cline Cubed!**
 
+Want to keep a chat going from your phone via Remote Control — read along, send a message, approve
+a command — while it keeps running on your own machine? **Get Cline Cubed!**
+
 If you love Cline but want more of it, get Cline Cubed.
 
 ---
@@ -61,6 +64,11 @@ receives raw image bytes.
   and in every copy-and-paste.
 - **Prompt history in the chat box** — `↑` and `↓` walk back through what you typed,
   per chat.
+- **A suggested reply when the agent asks for your go** — the empty box offers a one-line "yes, …"
+  reply; Tab puts it in the box, and nothing is sent on its own.
+- **Remote control from your phone** — share a chat, pair a phone or another browser with a QR
+  code, and read along, send messages, approve or deny commands, and change Auto-approve from
+  anywhere, through a relay you host yourself. The chat keeps running on your machine.
 - **Chats that keep their context** — compaction goes by the token count your model's server
   really reports, so it happens far less often and keeps far more; and with **Always Remembered
   Files**, the files your agent must never forget go with every request, where no compaction can
@@ -226,6 +234,48 @@ A draft you had already started is safe: coming back down, the second-to-last **
 draft back before the final one returns you to an empty box, and **↑** from empty picks the draft
 up again. Multi-line editing keeps its arrows — the cycle only engages when the caret is on the
 first line going up, or the last line coming down.
+
+## A suggested reply when the agent asks for your go
+
+When the agent ends a reply by asking for consent ("Should I write the tests?") or proposing an action, or asks you a question with answer buttons, the empty message box shows a suggested reply granting it, in summary form: "yes, write the tests". Press **Tab**, or click the **Tab** label, to put it in the box as text you can edit or send. Nothing is sent until you send it.
+
+The suggestion belongs to its chat and stays through a window reload until you send a message there or answer the question. It shows only while the box is empty and the chat is waiting for you. Your model bundles the suggestion into its main response in the turn, and Settings → Features → **Suggest a consent reply** turns it off.
+
+## Remote control from your phone
+
+Keep a chat going when you step away from your desk. Your machine keeps running the chat; your
+phone, or any browser you pair, follows it and answers it through a small relay you host on your own
+web space.
+
+**Turn it on** with the smartphone icon in the composer's icon row, or type `/remote-control`. The
+icon shows where things stand — Off, Connecting, Active, Failed — and opens a popover holding the
+relay's settings, your paired devices, and the switch.
+
+**Set up the relay once.** The relay is a single PHP file. **Get installer** writes `index.php` and
+`INSTALL.txt` into a folder you choose. Upload `index.php` to a folder on any web host that runs PHP,
+open its address in a browser, paste the install token the popover shows, and press Install. The
+page gives you a credential: paste it into **Relay key** and press **Save relay**. Your machine
+reaches the relay over HTTPS; nothing on your machine accepts an incoming connection. The relay keeps
+its data outside the web folder when the host allows it, and if not, protection is by a rule it adds
+to the web root's `.htaccess` refusing every request for that folder (or, if it cannot add one, the
+exact line for you to add); the extension also refuses to connect to a relay whose data can be read
+over the web. It holds a chat's recent messages for up to an hour, so a device can catch up, and
+nothing older. It's free. It's your relay. It's hosted on your server, and if you don't have one,
+Oracle Cloud's Always Free tier offers a free server you could use for this purpose.
+
+**Choose which chats to share.** Only a chat with **Share this chat with my devices** checked is
+visible to your devices.
+
+**Pair a device.** **Pair a device** shows a QR code and a code. Scan the code with your phone, or
+open the relay's address and type it in. Each code works once, for ten minutes. A paired device
+stays paired for 30 days from its last use, and **Remove** in the popover ends it at once.
+
+**On your phone**, the relay's own page lists your shared chats and opens each one with its messages
+in order. From there you can send a message, approve or deny a command that is waiting, switch
+Auto-approve choices, rename the chat, watch its context fill up, and compact it when it is the chat
+open in VS Code. When the model asks for your go, the page's empty message box offers the suggested
+reply too: tap **Tab**, or press the Tab key on a desktop browser, to put it in the box. The page
+comes in light and dark, dark by default.
 
 ## Chats that keep their context
 

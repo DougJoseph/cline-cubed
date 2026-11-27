@@ -92,6 +92,7 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 .composer{display:flex;gap:.5rem;align-items:flex-end;border:1px solid var(--border);border-radius:var(--radius);padding:.4rem .4rem .4rem .9rem;background:var(--input-bg)}
 .composer textarea{flex:1;min-height:2.2rem;max-height:10rem;resize:none;font:inherit;padding:.4rem 0;color:var(--fg);background:none;border:0;outline:none}
 .composer button{background:var(--accent);color:var(--accent-fg);border:0;font-weight:700}
+.composer .suggestion-tab{align-self:center;background:none;color:var(--muted);border:1px solid var(--border);border-radius:4px;font-weight:400;font-size:.75rem;line-height:1.2;padding:.15rem .45rem;margin:0;cursor:pointer;flex-shrink:0}
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20}
 .sheet{position:fixed;left:0;right:0;margin:0 auto;max-width:52rem;box-sizing:border-box;bottom:0;z-index:21;max-height:82vh;overflow:auto;background:var(--code-bg);border-radius:var(--radius) var(--radius) 0 0;padding:.6rem 1.2rem 1.5rem;animation:rise .2s ease-out}
 @keyframes rise{from{transform:translateY(30%);opacity:.4}to{transform:none;opacity:1}}
@@ -160,6 +161,7 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 			<button type="button" id="auto" class="auto-line hidden"></button>
 			<form id="composer" class="composer">
 				<textarea id="message-input" rows="1" placeholder="Message this chat"></textarea>
+				<button type="button" id="suggestion-tab" class="suggestion-tab hidden" aria-label="Use the suggested reply" title="Press Tab to put the suggested reply in the box">Tab</button>
 				<button type="submit" class="icon-button" aria-label="Send">&uarr;</button>
 			</form>
 		</div></div>
@@ -172,7 +174,7 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 (function () {
 	var base = location.pathname.replace(/[^/]*$/, "");
 	var views = { pair: el("pair-view"), list: el("list-view"), chat: el("chat-view") };
-	var state = { chatId: "", cursor: 0, messages: [], working: false, autoApprove: null, meta: null, timer: null, listTimer: null, epoch: 0 };
+	var state = { chatId: "", cursor: 0, messages: [], working: false, autoApprove: null, meta: null, timer: null, listTimer: null, epoch: 0, sending: 0 };
 	var RING_CIRCUMFERENCE = 2 * Math.PI * 15.5;
 	var AUTO_ACTIONS = [
 		{ id: "readFiles", label: "Read" },
@@ -735,10 +737,38 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 			}
 		});
 		el("working").classList.toggle("hidden", !state.working);
+		renderSuggestion();
 		renderContext();
 		renderAuto();
 		if (sheet.open) { renderSheet(items); }
 		if (nearBottom) { window.scrollTo(0, document.body.scrollHeight); }
+	}
+
+	/**
+	 * The suggested reply the extension sent for this chat, shown as VS Code's chat box shows it: in
+	 * an empty box, not while the model is working or a message is on its way.
+	 */
+	function shownSuggestion() {
+		var suggestion = state.meta && state.meta.suggestion;
+		return suggestion && !el("message-input").value && !state.working && !state.sending ? suggestion : "";
+	}
+
+	function renderSuggestion() {
+		var suggestion = shownSuggestion();
+		el("message-input").placeholder = suggestion || "Message this chat";
+		el("suggestion-tab").classList.toggle("hidden", !suggestion);
+	}
+
+	/** Puts the suggested reply in the box, as text to edit or send; nothing is sent. */
+	function useSuggestion() {
+		var suggestion = shownSuggestion();
+		if (!suggestion) { return false; }
+		var input = el("message-input");
+		input.value = suggestion;
+		input.focus();
+		input.setSelectionRange(suggestion.length, suggestion.length);
+		renderSuggestion();
+		return true;
 	}
 
 	/** One quiet line above the message box, as VS Code places it; tapping it opens the switches. */
@@ -1100,18 +1130,32 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 		// Cleared at once, so the next message can be typed while this one is on its way; clearing on
 		// the answer instead wiped whatever had been typed by then.
 		input.value = "";
+		state.sending++;
+		renderSuggestion();
 		send({ kind: "message", payload: { text: text } }).then(function () {
+			state.sending--;
 			state.working = true;
 			render();
 			hurry();
 		}).catch(function (error) {
+			state.sending--;
 			// A message that did not go out comes back, ahead of anything typed since.
 			input.value = input.value ? text + "\n" + input.value : text;
+			renderSuggestion();
 			handleFailure(error);
 		});
 	};
 
+	el("suggestion-tab").onclick = function () { useSuggestion(); };
+	el("message-input").addEventListener("input", renderSuggestion);
+
 	el("message-input").onkeydown = function (event) {
+		// Tab puts the suggested reply in the box, under VS Code's rule: no modifier key, the box
+		// empty, and no input-method composition under way.
+		var composing = event.isComposing || event.keyCode === 229;
+		if (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !composing) {
+			if (useSuggestion()) { event.preventDefault(); return; }
+		}
 		if (event.key === "Enter" && !event.shiftKey) {
 			event.preventDefault();
 			el("composer").requestSubmit();

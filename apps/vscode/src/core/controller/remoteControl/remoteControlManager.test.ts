@@ -6,7 +6,7 @@ import { ExtensionRegistryInfo } from "@/registry"
 
 const { store, hub, relay } = vi.hoisted(() => ({
 	store: { enabled: false, shared: [] as string[] },
-	hub: { mode: "ok" as "ok" | "throw" | "empty", starts: 0, closes: 0 },
+	hub: { mode: "ok" as "ok" | "throw" | "empty", starts: 0, closes: 0, lockedFor: 0 },
 	relay: { url: "", key: "", pollIntervalMs: 1500 },
 }))
 
@@ -29,6 +29,15 @@ vi.mock("@cline/core", () => ({
 	createLocalHubScheduleRuntimeHandlers: () => ({}),
 	ensureHubServer: async () => {
 		hub.starts++
+		// Another Hub still holds the lock for this many more starts, as the SDK refuses it.
+		if (hub.lockedFor > 0) {
+			hub.lockedFor--
+			const error = new Error(
+				"Hub instance lock is held by a live Hub: /tmp/production.json.instance.lock. Connect to the running Hub or diagnose it; never replace it.",
+			)
+			error.name = "HubLockHeldError"
+			throw error
+		}
 		if (hub.mode === "throw") {
 			throw new Error("EADDRINUSE: address already in use 127.0.0.1:25443")
 		}
@@ -64,6 +73,7 @@ const freshManager = () => {
 	hub.mode = "ok"
 	hub.starts = 0
 	hub.closes = 0
+	hub.lockedFor = 0
 	relay.url = ""
 	relay.key = ""
 	relay.pollIntervalMs = 1500
@@ -169,6 +179,76 @@ describe("RemoteControlManager", () => {
 		assert.equal(hub.closes, 1)
 		assert.equal(store.enabled, true)
 		assert.equal(manager.status().state, "disconnected")
+	})
+})
+
+describe("RemoteControlManager starting while another Hub still holds its lock", () => {
+	const lockManager = (lockWaitMs: number) => {
+		freshManager()
+		return new RemoteControlManager({ lockWaitMs, lockRetryMs: 20 })
+	}
+
+	it("waits for the lock, showing Connecting, then connects without a toggle", async () => {
+		const manager = lockManager(2_000)
+		store.enabled = true
+		hub.lockedFor = 2
+		const restoring = manager.ensureRestored()
+		await new Promise((resolve) => setTimeout(resolve, 5))
+		const waiting = manager.status()
+		const done = await restoring
+		assert.deepEqual(
+			{ waiting: [waiting.state, waiting.error], done: [done.state, done.error, done.enabled], starts: hub.starts },
+			{
+				waiting: ["connecting", "Waiting for the previous session to close"],
+				done: ["connected", "", true],
+				starts: 3,
+			},
+		)
+		await manager.dispose()
+	})
+
+	it("names another window once the wait runs out", async () => {
+		const manager = lockManager(100)
+		store.enabled = true
+		hub.lockedFor = 1_000
+		const done = await manager.ensureRestored()
+		assert.deepEqual(
+			[done.state, done.error, done.enabled],
+			[
+				"failed",
+				"Remote control is already running in another VS Code window. Turn it off there, then turn it on here.",
+				true,
+			],
+		)
+		await manager.dispose()
+	})
+
+	it("Off during the wait ends it, and no start runs after", async () => {
+		const manager = lockManager(2_000)
+		store.enabled = true
+		hub.lockedFor = 1_000
+		const restoring = manager.ensureRestored()
+		await new Promise((resolve) => setTimeout(resolve, 50))
+		const off = await manager.setEnabled(false)
+		await restoring
+		const startsAfterOff = hub.starts
+		await new Promise((resolve) => setTimeout(resolve, 100))
+		assert.deepEqual(
+			{ state: off.state, enabled: off.enabled, stored: store.enabled, moreStarts: hub.starts - startsAfterOff },
+			{ state: "disconnected", enabled: false, stored: false, moreStarts: 0 },
+		)
+		await manager.dispose()
+	})
+
+	it("fails at once on any other error, without waiting", async () => {
+		const manager = lockManager(2_000)
+		store.enabled = true
+		hub.mode = "throw"
+		const started = Date.now()
+		const done = await manager.ensureRestored()
+		assert.deepEqual([done.state, hub.starts, Date.now() - started < 500], ["failed", 1, true])
+		assert.match(done.error, /EADDRINUSE/)
+		await manager.dispose()
 	})
 })
 
@@ -402,6 +482,7 @@ function fakeChat(messages: Array<{ ts: number; type: string; ask?: string; say?
 		contextLimits: async () => ({ window: 1000, compactAt: 810 }),
 		allChatsCost: async () => 0,
 		compact: async () => "",
+		consentSuggestionEnabled: async () => true,
 	}
 	return { access, calls }
 }
@@ -512,6 +593,99 @@ describe("RemoteControlManager shared chats", () => {
 					messages: ["first", "second"],
 				},
 			)
+		} finally {
+			await manager.dispose()
+			await stub.close()
+		}
+	})
+
+	it("sends the suggested reply that counts, never the hidden message, and none once answered", async () => {
+		const stub = await startChatRelayStub()
+		const manager = freshManager()
+		relay.url = stub.url
+		relay.key = "test-key"
+		relay.pollIntervalMs = 40
+		store.shared = ["chat-0001"]
+		const messages: Array<{ ts: number; type: string; say?: string; text?: string; createdAt?: number }> = [
+			{ ts: 1, type: "say", say: "text", text: "Should I write the plan?", createdAt: 1 },
+			{ ts: 2, type: "say", say: "consent_suggestion", text: "yes, write the plan", createdAt: 2 },
+		]
+		const { access } = fakeChat(messages)
+		manager.setChatAccess(access)
+		const sentHidden = () =>
+			stub.outbound.some((event) =>
+				(event.payload.messages ?? []).some((message: any) => message.say === "consent_suggestion"),
+			)
+		try {
+			await manager.toggle()
+			stub.deviceSends("chat-0001", "sync", {})
+			assert.ok(await waitUntil(() => stub.outbound.some((event) => event.kind === "snapshot")), "no snapshot was posted")
+			const snapshot = stub.outbound.find((event) => event.kind === "snapshot")
+			assert.equal(snapshot?.payload.meta.suggestion, "yes, write the plan")
+			assert.deepEqual(
+				snapshot?.payload.messages.map((message: any) => message.ts),
+				[1],
+			)
+
+			// The person answers: the suggestion no longer counts.
+			messages.push({ ts: 3, type: "say", say: "user_feedback", text: "no, wait", createdAt: 3 })
+			const cleared = await waitUntil(() =>
+				stub.outbound.some((event) => event.kind === "update" && event.payload.meta?.suggestion === ""),
+			)
+			assert.ok(cleared, "the answered suggestion was still sent")
+			assert.equal(sentHidden(), false, "the hidden message went to the page")
+		} finally {
+			await manager.dispose()
+			await stub.close()
+		}
+	})
+
+	it("sends no suggested reply while Settings has it off", async () => {
+		const stub = await startChatRelayStub()
+		const manager = freshManager()
+		relay.url = stub.url
+		relay.key = "test-key"
+		relay.pollIntervalMs = 40
+		store.shared = ["chat-0001"]
+		const { access } = fakeChat([
+			{ ts: 1, type: "say", say: "text", text: "Should I go?" },
+			{ ts: 2, type: "say", say: "consent_suggestion", text: "yes, go" },
+		])
+		access.consentSuggestionEnabled = async () => false
+		manager.setChatAccess(access)
+		try {
+			await manager.toggle()
+			stub.deviceSends("chat-0001", "sync", {})
+			assert.ok(await waitUntil(() => stub.outbound.some((event) => event.kind === "snapshot")), "no snapshot was posted")
+			const snapshot = stub.outbound.find((event) => event.kind === "snapshot")
+			assert.equal(snapshot?.payload.meta.suggestion, "")
+			assert.deepEqual(
+				snapshot?.payload.messages.map((message: any) => message.ts),
+				[1],
+			)
+		} finally {
+			await manager.dispose()
+			await stub.close()
+		}
+	})
+
+	it("applies Approve to the request waiting behind a suggested reply", async () => {
+		const stub = await startChatRelayStub()
+		const manager = freshManager()
+		relay.url = stub.url
+		relay.key = "test-key"
+		relay.pollIntervalMs = 40
+		store.shared = ["chat-0001"]
+		const { access, calls } = fakeChat([
+			{ ts: 5, type: "ask", ask: "command", text: "pwd", partial: false },
+			{ ts: 6, type: "say", say: "consent_suggestion", text: "yes, run it" },
+		])
+		manager.setChatAccess(access)
+		try {
+			await manager.toggle()
+			stub.deviceSends("chat-0001", "decision", { ts: 5, approve: true })
+			assert.ok(await waitUntil(() => calls.decide.length > 0), "the decision was refused")
+			assert.deepEqual(calls.decide, [{ ts: 5, approve: true }])
 		} finally {
 			await manager.dispose()
 			await stub.close()

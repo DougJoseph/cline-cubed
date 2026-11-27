@@ -262,7 +262,9 @@ stays paired for 30 days from its last use, and **Remove** in the popover ends i
 **On your phone**, the relay's own page lists your shared chats and opens each one with its messages
 in order. From there you can send a message, approve or deny a command that is waiting, switch
 Auto-approve choices, rename the chat, watch its context fill up, and compact it when it is the chat
-open in VS Code. The page comes in light and dark, dark by default.
+open in VS Code. When the model asks for your go, the page's empty message box offers the suggested
+reply too: tap **Tab**, or press the Tab key on a desktop browser, to put it in the box. The page
+comes in light and dark, dark by default.
 
 ## Chats that keep their context
 

@@ -1629,6 +1629,14 @@ class DebugHarness {
 			}
 			return await this.findChatFrame(index)
 		}
+		// Cline Cubed: any other frame, by a piece of its address — a webview that is not a chat,
+		// such as a page shown in VS Code's Simple Browser.
+		if (frame?.startsWith("url-contains:")) {
+			const piece = frame.slice("url-contains:".length)
+			const found = this.page.frames().find((f) => !f.isDetached() && piece !== "" && f.url().includes(piece))
+			if (!found) throw new Error(`No frame whose address contains ${piece}`)
+			return found
+		}
 		return this.page
 	}
 

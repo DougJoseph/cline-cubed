@@ -1,6 +1,6 @@
-import type { ClineMessage } from "@shared/ExtensionMessage"
 import { describe, expect, it } from "vitest"
 import { shouldFillConsentSuggestion, shownConsentSuggestion, splitConsentSuggestion } from "./consentSuggestion"
+import type { ClineMessage } from "./ExtensionMessage"
 
 const text = (ts: number, value: string): ClineMessage => ({ ts, type: "say", say: "text", text: value })
 const suggestion = (ts: number, value: string): ClineMessage => ({ ts, type: "say", say: "consent_suggestion", text: value })

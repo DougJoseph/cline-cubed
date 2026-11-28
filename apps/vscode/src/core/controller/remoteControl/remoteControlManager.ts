@@ -11,7 +11,21 @@ import type { ClineMessage } from "@shared/ExtensionMessage"
 import type { RemoteControlStatus } from "@shared/proto/cline/remote_control"
 import { ExtensionRegistryInfo } from "@/registry"
 import { Logger } from "@/shared/services/Logger"
-import { type RelayDevice, type RelayEvent, RelayLink, type RelayLinkStatus, validateRelayUrl } from "../../relay/relayClient"
+import {
+	type RelayDevice,
+	type RelayEvent,
+	RelayLink,
+	type RelayLinkStatus,
+	type RelayNoticeKind,
+	validateRelayUrl,
+} from "../../relay/relayClient"
+
+/** What each relay notice is about, as its popup names it (after "Cline Cubed - Remote Control Relay - "). */
+const RELAY_NOTICE_TITLES: Record<Exclude<RelayNoticeKind, "">, string> = {
+	"update-needed": "One update needed",
+	behind: "Behind, automatic updates off",
+	"update-failed": "Automatic update failed",
+}
 
 export type RemoteControlState = "disconnected" | "connecting" | "connected" | "failed"
 
@@ -132,6 +146,10 @@ export class RemoteControlManager {
 	private chatAccess?: RemoteChatAccess
 	/** Where the relay keeps its data on the server, read once the link connects. */
 	private relayDataDir = ""
+	/** The relay notice already raised as a popup on this connection, so it is raised once. */
+	private shownRelayNotice = ""
+	/** The popup's title while a relay notice waits to be seen; "" once closed or acted on. */
+	private relayNoticePopupTitle = ""
 	private pumpTimer?: NodeJS.Timeout
 	/** Per shared chat: what was last sent, so only changes go out. */
 	private sent = new Map<
@@ -204,6 +222,12 @@ export class RemoteControlManager {
 			sharedChats: readRemoteSharedChatsGlobally(),
 			relayPageUrl: this.relay?.pageUrl() ?? "",
 			relayDataDir: this.relayStatus?.state === "connected" ? this.relayDataDir : "",
+			relayNotice: this.relayStatus?.notice ?? "",
+			relayNoticePopupTitle: this.relayNoticePopupTitle,
+			relayNoticeKind: this.relayStatus?.noticeKind ?? "",
+			relayInstalledVersion: this.relayStatus?.installedVersion ?? "",
+			relayDisplayVersion: this.relayStatus?.displayVersion ?? "",
+			relayDisplaySource: this.relayStatus?.displaySource ?? "",
 		}
 	}
 
@@ -386,6 +410,11 @@ export class RemoteControlManager {
 				lastAttemptAt: Date.now(),
 				consecutiveFailures: 0,
 				nextPollInMs: settings.pollIntervalMs,
+				notice: "",
+				noticeKind: "",
+				installedVersion: "",
+				displayVersion: "",
+				displaySource: "",
 			}
 			this.emit()
 			return
@@ -394,14 +423,17 @@ export class RemoteControlManager {
 			url: settings.url,
 			key: settings.key,
 			extensionVersion: ExtensionRegistryInfo.version,
+			autoUpdate: settings.autoUpdate,
 			pollIntervalMs: settings.pollIntervalMs,
 			onChatEvent: (chatId, event) => this.queueInbound(chatId, event),
 			onChatGap: (chatId) => this.sent.delete(chatId),
 			onStatus: (status) => {
 				this.relayStatus = status
 				this.emit()
+				this.notifyRelayNotice(status)
 			},
 		})
+		this.shownRelayNotice = ""
 		this.relay = link
 		await link.setSharedChats(await this.sharedChatList())
 		await link.start()
@@ -410,11 +442,37 @@ export class RemoteControlManager {
 		this.emit()
 	}
 
+	/**
+	 * A relay notice that needs the person's action opens as a popup in Cline Cubed's window the moment
+	 * it is found, once per connection, titled "Cline Cubed - Remote Control Relay - …". It stays until
+	 * closed or acted on (`dismissRelayNotice`). The popover keeps its line.
+	 */
+	private notifyRelayNotice(status: RelayLinkStatus): void {
+		if (!status.notice || !status.noticeKind) {
+			return
+		}
+		const key = `${status.noticeKind}:${status.notice}`
+		if (key === this.shownRelayNotice) {
+			return
+		}
+		this.shownRelayNotice = key
+		this.relayNoticePopupTitle = `Cline Cubed - Remote Control Relay - ${RELAY_NOTICE_TITLES[status.noticeKind]}`
+		this.emit()
+	}
+
+	/** The popup was closed or acted on: it does not open again on this connection. */
+	dismissRelayNotice(): RemoteControlStatus {
+		this.relayNoticePopupTitle = ""
+		this.emit()
+		return this.status()
+	}
+
 	private stopRelay(): void {
 		this.stopPump()
 		this.relay?.stop()
 		this.relay = undefined
 		this.relayStatus = undefined
+		this.relayNoticePopupTitle = ""
 	}
 
 	/** The shared chats with their current names, for the relay's list. */

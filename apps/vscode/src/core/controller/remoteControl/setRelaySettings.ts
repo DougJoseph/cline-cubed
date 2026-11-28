@@ -37,6 +37,9 @@ export async function setRelaySettings(_controller: Controller, request: RelaySe
 	if (request.pollIntervalMs !== undefined) {
 		patch.pollIntervalMs = request.pollIntervalMs
 	}
+	if (request.autoUpdate !== undefined) {
+		patch.autoUpdate = request.autoUpdate
+	}
 
 	const saved = setRelaySettingsGlobally(patch)
 	// The link is re-opened from the new values, and the fresh state is pushed so the badge and every

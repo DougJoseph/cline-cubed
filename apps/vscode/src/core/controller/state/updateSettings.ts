@@ -56,6 +56,9 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 				convertedApiConfigurationFromProto,
 			)
 
+			Logger.debug(
+				`[Settings write] updateSettings (a settings save carrying the whole configuration): plan provider ${normalizedApiConfiguration.planModeApiProvider}, act provider ${normalizedApiConfiguration.actModeApiProvider}`,
+			)
 			controller.stateManager.setApiConfiguration(normalizedApiConfiguration)
 
 			// Cline Cubed: the new model shim reaches EVERY live chat immediately — a settings

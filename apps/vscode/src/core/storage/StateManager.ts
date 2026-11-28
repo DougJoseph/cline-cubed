@@ -150,8 +150,10 @@ export class StateManager {
 			throw new Error(STATE_MANAGER_NOT_INITIALIZED)
 		}
 
+		this.logModeProviderChange({ [key]: value } as Partial<GlobalStateAndSettings>)
 		// Update cache immediately for instant access
 		this.globalStateCache[key] = value
+		this.syncModeProvidersIntoRemoteConfigLayer({ [key]: value } as Partial<GlobalStateAndSettings>)
 
 		// Add to pending persistence set and schedule debounced write
 		this.pendingGlobalState.add(key)
@@ -166,9 +168,11 @@ export class StateManager {
 			throw new Error(STATE_MANAGER_NOT_INITIALIZED)
 		}
 
+		this.logModeProviderChange(updates)
 		// Update cache in one go
 		// Using object.assign to because typescript is not able to infer the type of the updates object when using Object.entries
 		Object.assign(this.globalStateCache, updates)
+		this.syncModeProvidersIntoRemoteConfigLayer(updates)
 
 		// Then track the keys for persistence
 		Object.keys(updates).forEach((key) => {
@@ -177,6 +181,53 @@ export class StateManager {
 
 		// Schedule debounced persistence
 		this.scheduleDebouncedPersistence()
+	}
+
+	/**
+	 * Cline Cubed: a Plan or Act provider stored by any route also replaces the remote-config layer's
+	 * copy of it, through the same filter `setApiConfiguration` uses. Every read takes that layer first,
+	 * and `setApiConfiguration` (a change made in Settings) parks the provider there; a provider stored
+	 * any other way (a model profile switch, a model selection commit) was then never read, because the
+	 * parked copy won until a window reload. Under an organization's remote config the filter still
+	 * refuses a provider it does not allow, so that policy keeps winning.
+	 */
+	private syncModeProvidersIntoRemoteConfigLayer(updates: Partial<GlobalStateAndSettings>): void {
+		const providers: Partial<GlobalStateAndSettings> = {}
+		if (updates.planModeApiProvider !== undefined) {
+			providers.planModeApiProvider = updates.planModeApiProvider
+		}
+		if (updates.actModeApiProvider !== undefined) {
+			providers.actModeApiProvider = updates.actModeApiProvider
+		}
+		if (Object.keys(providers).length > 0) {
+			this.setRemoteConfigState(providers)
+		}
+	}
+
+	/**
+	 * Cline Cubed: with debug logging on, every change to a mode's provider or model id is logged with
+	 * its old and new value and the calls that made it, so a change made by something unexpected (a
+	 * switch undone right after it was made) can be traced in the Output channel.
+	 */
+	private logModeProviderChange(updates: Partial<GlobalStateAndSettings>): void {
+		if (!Logger.isDebugEnabled()) {
+			return
+		}
+		for (const [key, value] of Object.entries(updates)) {
+			if (!/^(plan|act)Mode(ApiProvider|[A-Za-z]*ModelId)$/.test(key)) {
+				continue
+			}
+			const before = this.globalStateCache[key as GlobalStateAndSettingsKey]
+			if (before === value) {
+				continue
+			}
+			const calls = (new Error().stack ?? "")
+				.split("\n")
+				.slice(3, 9)
+				.map((line) => line.trim().replace(/^at /, ""))
+				.join(" <- ")
+			Logger.debug(`[Settings write] ${key}: ${String(before)} -> ${String(value)} (from ${calls})`)
+		}
 	}
 
 	private setRemoteConfigState(updates: Partial<GlobalStateAndSettings>): void {

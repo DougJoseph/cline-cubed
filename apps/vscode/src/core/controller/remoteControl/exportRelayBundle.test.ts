@@ -44,6 +44,13 @@ vi.mock("@/shared/services/Logger", () => ({
 	Logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
 }))
 
+// No saved Relay URL, so the export asks no relay whether it is installed: a test never reaches a live
+// server through this machine's own settings.
+vi.mock("@cline/core", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@cline/core")>()),
+	readRelaySettingsGlobally: () => ({ url: "", key: "", pollIntervalMs: 1500 }),
+}))
+
 import { exportRelayBundle } from "./exportRelayBundle"
 
 let folder: string

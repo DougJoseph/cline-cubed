@@ -34,6 +34,8 @@ service RemoteControlService {
   rpc listPairedDevices(EmptyRequest) returns (PairedDevices);
   // Unpair one device by its id; answers with the devices still paired.
   rpc removePairedDevice(StringRequest) returns (PairedDevices);
+  // Cline Cubed: the relay notice popup was closed or acted on; it does not open again on this connection
+  rpc dismissRelayNotice(EmptyRequest) returns (RemoteControlStatus);
 }
 
 message ChatShareRequest {
@@ -53,6 +55,7 @@ message PairedDevice {
   string name = 2; // From the device's browser
   int64 created_at = 3; // Seconds since the epoch
   int64 last_used_at = 4; // Seconds since the epoch
+  int64 last_seen_at = 5; // Seconds since the epoch, kept to the minute: when the device last made a request
 }
 
 message PairedDevices {
@@ -68,12 +71,14 @@ message RelaySettings {
   string key_masked = 3;
   int32 poll_interval_ms = 4;
   string error = 5; // Named validation failure; empty when the settings are usable
+  bool auto_update = 6; // "Keep the relay up to date automatically": send the relay newer chat display code
 }
 
 message RelaySettingsRequest {
   optional string url = 1;
   optional string key = 2;
   optional int32 poll_interval_ms = 3;
+  optional bool auto_update = 4;
 }
 
 // The result of an export. The relay key is deliberately absent: it is written to the bundle's own
@@ -86,6 +91,7 @@ message RelayBundleExportResult {
   string error = 3; // "cancelled", or a named failure; empty when the file was saved
   string install_token = 4; // Typed into the relay's install page; works once, then it is burned
   repeated string files = 5; // The files written into the chosen folder: index.php and INSTALL.txt
+  string installed_relay_host = 6; // The host of a relay already installed at the Relay URL; empty when none answers as installed
 }
 
 // The state the composer affordance renders. `state` is never ahead of the truth:
@@ -101,4 +107,10 @@ message RemoteControlStatus {
   repeated string shared_chats = 8; // Session ids of the chats shared with paired devices
   string relay_page_url = 9; // The relay's own address, where a paired device uses its chats
   string relay_data_dir = 10; // Where the relay keeps its data on the server; empty when not connected
+  string relay_notice = 11; // Something about the relay worth saying while it works, such as being out of date; empty for nothing
+  string relay_notice_popup_title = 12; // A relay notice waiting to be shown as a popup, titled "Cline Cubed - Remote Control Relay - …"; empty when none is waiting
+  string relay_notice_kind = 13; // update-needed | behind | update-failed; empty with no notice
+  string relay_installed_version = 14; // The Cline Cubed version that wrote the relay's index.php; empty until known
+  string relay_display_version = 15; // The version of the chat display code the relay serves; empty until known
+  string relay_display_source = 16; // sent (auto-updated by Cline Cubed) | built-in (from the installed base); empty until known
 }

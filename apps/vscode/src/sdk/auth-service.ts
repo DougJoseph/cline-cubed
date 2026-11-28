@@ -1138,6 +1138,7 @@ export class AuthService {
 			actModeApiProvider: provider,
 			[apiKeyField]: apiKey,
 		}
+		Logger.debug(`[Settings write] auth-service setProviderApiKey: plan and act provider ${provider}`)
 		stateManager.setApiConfiguration(updatedConfig)
 	}
 

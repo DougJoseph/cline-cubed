@@ -823,6 +823,17 @@ export class Controller {
 	}
 
 	/**
+	 * Cline Cubed: rebuilds the focused chat's session from the stored setup, as a provider change
+	 * does, keeping its conversation and waiting until it is idle. A model change on the same
+	 * provider only swaps the open chat's model in place; its temperature, reasoning, max output and
+	 * context window are set when its session is built. A model profile switch calls this so all of
+	 * them follow the profile (src/core/profiles/modelProfiles.ts).
+	 */
+	rebuildActiveSessionFromSettings(): void {
+		this.sessionRebuilds.request("provider", () => this.providerChanges.restartActiveSessionForProviderChange())
+	}
+
+	/**
 	 * Cline Cubed: a saved Base URL, key, or headers reaches every chat already open on that
 	 * provider, in place, so the next message uses it without a window reload.
 	 */

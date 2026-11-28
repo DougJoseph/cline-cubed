@@ -138,6 +138,9 @@ export async function updateApiConfiguration(controller: Controller, request: Up
 			controller.stateManager.setSecretsBatch(secrets)
 		}
 		if (Object.keys(options).length > 0) {
+			Logger.debug(
+				`[Settings write] updateApiConfiguration: plan provider ${String(options.planModeApiProvider ?? "(unchanged)")}, act provider ${String(options.actModeApiProvider ?? "(unchanged)")}`,
+			)
 			controller.stateManager.setGlobalStateBatch(
 				normalizeProviderSwitchModel(
 					controller.getProviderConfigStore(),

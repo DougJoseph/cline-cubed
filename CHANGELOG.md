@@ -1,5 +1,40 @@
 # Changelog
 
+## [4.1.32]
+
+### Added
+
+- **New feature: My Profiles.** Name and save a complete model setup (provider, base URL, model,
+  context window, max output, temperature, reasoning and image settings) and switch to it in one step,
+  from the top of the API Configuration settings or from the composer, beside the model name. Before
+  this new feature, two models served from the same provider would overwrite each other's settings.
+  Even an already-opened chat can be switched to a whole new setup before its next message. A pencil
+  renames a profile and an × deletes it.
+- **About on the Remote Control page's "⋯" menu.** Tap **About** to see the version of the relay's
+  installed base (`index.php`) and of the chat display code it is serving, and whether that code came
+  built into the installed base or was auto-updated by Cline Cubed.
+
+### Changed
+
+- **The Remote Control UX is redesigned, streamlined, enhanced.** Realtime connection feedback.
+  Everything optimized for ease and clarity. Relay settings and Get installer's steps stay folded until
+  you need them.
+- **Updating Cline Cubed no longer needs you to manually update your Remote Control relay.** The relay
+  is now a thin client: Cline Cubed keeps its chat display code up to date each time it connects, so
+  most updates need no new `index.php`. **Keep the relay up to date automatically**, in the Remote
+  Control UX, is on by default; with it off, Cline Cubed never sends code to your server. A relay
+  installed before this version keeps working, and a popup asks once for a new `index.php` to be
+  uploaded, after which updates reach it on their own.
+- **Get installer covers updating.** When a relay is already installed at your Relay URL, the steps
+  after **Get installer** start with how to update it: upload the new `index.php` over the old one, and
+  your relay key and paired devices stay. The install steps follow, for a new server.
+
+### Fixed
+
+- **No stale "not connected" error in the Remote Control UX.** After Remote Control was turned off
+  and on, Remote Control could keep showing "The relay is not connected…" below "Relay connected"; it now
+  clears once the relay reconnects.
+
 ## [4.1.31]
 
 ### Added

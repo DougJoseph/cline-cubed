@@ -2,6 +2,7 @@ import type { Boolean, EmptyRequest } from "@shared/proto/cline/common"
 import { useCallback, useEffect } from "react"
 import AccountView from "./components/account/AccountView"
 import ChatView from "./components/chat/ChatView"
+import RelayNoticeModal from "./components/common/RelayNoticeModal"
 import WhatsNewModal from "./components/common/WhatsNewModal"
 import HistoryView from "./components/history/HistoryView"
 import MarketplaceView from "./components/marketplace/MarketplaceView"
@@ -127,6 +128,7 @@ const AppContent = () => {
 				open={showAnnouncement && !!whatsNewNotes}
 				version={version}
 			/>
+			<RelayNoticeModal held={showAnnouncement && !!whatsNewNotes} />
 			{/* Do not conditionally load ChatView, it's expensive and there's state we don't want to lose (user input, disableInput, askResponse promise, etc.) */}
 			<ChatView
 				isHidden={showSettings || showHistory || showMarketplace || showMcp || showAccount || showWorktrees}

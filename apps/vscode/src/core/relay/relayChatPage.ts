@@ -9,6 +9,19 @@
  * template literal that builds `index.php`. All chat text is inserted with `textContent`, never as
  * HTML, so a message cannot run code on the page.
  */
+/**
+ * Written into the page by the extension, when `index.php` is exported or when the extension sends the
+ * relay newer chat display code: that code's version, and the extension's icon.
+ */
+export const PAGE_VERSION_TOKEN = "__CC_RELAY_VERSION__"
+export const PAGE_ICON_TOKEN = "__CC_BRAND_ICON__"
+/**
+ * Written in by the relay itself each time it serves the page: the version of its `index.php`, and
+ * whether the chat display code came built into it ("built-in") or was sent by Cline Cubed ("sent").
+ */
+export const INSTALLED_BASE_TOKEN = "__CC_INSTALLED_BASE__"
+export const DISPLAY_SOURCE_TOKEN = "__CC_DISPLAY_SOURCE__"
+
 export const RELAY_CHAT_PAGE = String.raw`<style>
 html,body{overflow-x:clip}
 :root{--radius:16px;--fs-body:1rem;--fs-small:.85rem}
@@ -99,6 +112,11 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 .sheet .grip{width:2.6rem;height:.3rem;border-radius:2px;background:var(--border);margin:0 auto .6rem}
 .sheet-head{display:flex;align-items:center;gap:.75rem;margin-bottom:.8rem}
 .sheet-head h2{flex:1;text-align:center;margin:0;font-size:1.05rem;padding-right:2.3rem}
+.about{text-align:center;padding:.4rem 0 1rem}
+.about img{width:72px;height:72px;border-radius:14px;margin-bottom:.6rem}
+.about .name{font-size:1.25rem;font-weight:600}
+.about .line{color:var(--muted);margin-top:.15rem}
+.about .version{font-family:ui-monospace,monospace;margin-top:.15rem}
 .step-row{display:flex;align-items:center;gap:.75rem;width:100%;background:none;border:0;padding:.7rem 0;margin:0;text-align:left;font-size:var(--fs-body);color:var(--fg);cursor:pointer}
 .step-row .text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .step-row .chev{color:var(--muted)}
@@ -144,6 +162,7 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 				<button type="button" id="copy-link-button"><span class="ico">&#10697;</span><span id="copy-link-label">Copy link</span></button>
 				<button type="button" id="tasks-button"><span class="ico">&#9656;</span>Background tasks</button>
 				<button type="button" id="theme-menu-button"><span class="ico">&#9680;</span><span id="theme-menu-label"></span></button>
+				<button type="button" id="about-button"><span class="ico">&#9432;</span>About</button>
 				<hr>
 				<button type="button" id="stop-sharing-button"><span class="ico">&#8856;</span>Stop sharing</button>
 				<a id="feedback-link" href="https://marketplace.visualstudio.com/items?itemName=DougJoseph.cline-cubed" target="_blank" rel="noopener noreferrer"><span class="ico">&#9993;</span>Send feedback</a>
@@ -185,6 +204,12 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 	];
 	var TICK = "\u0060";
 	var sheet = { open: false, mode: "steps", groupKey: 0, stepKey: 0, note: "", noteWait: false };
+	// This chat display code's version and the extension's icon, written in by the extension; the
+	// index.php version and where this code came from, written in by the relay as it serves the page.
+	var DISPLAY_CODE_VERSION = "__CC_RELAY_VERSION__";
+	var BRAND_ICON = "__CC_BRAND_ICON__";
+	var INSTALLED_BASE_VERSION = "__CC_INSTALLED_BASE__";
+	var DISPLAY_SOURCE = "__CC_DISPLAY_SOURCE__";
 	// What a tap asked for that the chat has not confirmed yet; each entry gives up after ten seconds.
 	// After ten seconds the tap says it is still waiting; only after thirty does it give up.
 	var PENDING_WAIT_MS = 10000;
@@ -977,6 +1002,29 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 		if (lastCommand) { box.appendChild(copySection("Command", lastCommand.command)); }
 	}
 
+	function renderAboutSheet(box) {
+		box.appendChild(sheetHead("✕", "Close", closeSheet, ""));
+		var about = document.createElement("div");
+		about.className = "about";
+		var logo = document.createElement("img");
+		logo.src = BRAND_ICON;
+		logo.alt = "Cline Cubed logo";
+		about.appendChild(logo);
+		var source = DISPLAY_SOURCE === "sent" ? "auto-updated by Cline Cubed" : "from the installed base";
+		[
+			["name", "Cline Cubed"],
+			["line", "Remote Control Relay"],
+			["version", "Installed base (index.php): v" + INSTALLED_BASE_VERSION],
+			["version", "Chat display code: v" + DISPLAY_CODE_VERSION + " (" + source + ")"]
+		].forEach(function (entry) {
+			var line = document.createElement("div");
+			line.className = entry[0];
+			line.textContent = entry[1];
+			about.appendChild(line);
+		});
+		box.appendChild(about);
+	}
+
 	function decisionButton(text, approve, ts) {
 		var button = document.createElement("button");
 		button.type = "button";
@@ -1069,6 +1117,7 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 		if (sheet.mode === "auto") { renderAutoSheet(box); return; }
 		if (sheet.mode === "context") { renderContextSheet(box); return; }
 		if (sheet.mode === "tasks") { renderTasksSheet(box); return; }
+		if (sheet.mode === "about") { renderAboutSheet(box); return; }
 		if (!group) { closeSheet(); return; }
 		var step = null;
 		group.steps.forEach(function (candidate) { if (candidate.key === sheet.stepKey) { step = candidate; } });
@@ -1171,6 +1220,7 @@ pre.box{background:var(--code-bg);border:1px solid var(--border);border-radius:v
 	el("ring").onclick = function () { openModeSheet("context"); };
 	el("context-bar").onclick = function () { openModeSheet("context"); };
 	el("tasks-button").onclick = function () { openModeSheet("tasks"); };
+	el("about-button").onclick = function () { openModeSheet("about"); };
 
 	// The chat's own address, for another paired device.
 	el("copy-link-button").onclick = function () {

@@ -1,7 +1,27 @@
 import { randomBytes } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import path from "node:path"
-import { RELAY_CHAT_PAGE } from "./relayChatPage"
+import { DISPLAY_SOURCE_TOKEN, INSTALLED_BASE_TOKEN, PAGE_ICON_TOKEN, PAGE_VERSION_TOKEN, RELAY_CHAT_PAGE } from "./relayChatPage"
+
+// The extension's icon, as the Marketplace shows it, so every page the relay draws names what it belongs to.
+const BRAND_ICON_URL = "https://raw.githubusercontent.com/DougJoseph/cline-cubed/main/assets/icons/icon.png"
+
+/**
+ * The relay's protocol: its routes and what they answer. It changes only when a change to them would
+ * leave an older or newer side unable to talk to the other, and only then does an installed relay need
+ * a new `index.php`. A relay from before this number existed reports none, and speaks protocol 1.
+ */
+export const RELAY_PROTOCOL = 1
+
+/**
+ * The chat display code: the page a paired device uses (the chat, its menu, the About), with this
+ * version and the icon written in. Built into `index.php` at export, and sent to an installed relay by
+ * the extension when the relay's copy is older. The relay writes in its own version and where the code
+ * came from as it serves it.
+ */
+export function chatDisplayCodeFor(version: string): string {
+	return RELAY_CHAT_PAGE.split(PAGE_VERSION_TOKEN).join(version).split(PAGE_ICON_TOKEN).join(BRAND_ICON_URL)
+}
 
 /** Minted per export, required by `POST /install`, and burned by the first successful install. */
 export function createInstallToken(): string {
@@ -72,9 +92,16 @@ const INDEX_PHP = (version: string, installToken: string) => `<?php
  * directory, mints the credential on this server, and records the install. After that it is only the
  * relay, and the install route answers 410 Gone. It never writes a PHP file, and it never connects to
  * the machine that dials out to it.
+ *
+ * The chat page a paired device uses can be newer than this file: Cline Cubed sends its current chat
+ * display code over the relay key, and the relay keeps it as data in its data folder and serves it in
+ * place of the copy built in below. It is never written as PHP and never run on this server.
  */
 
 const RELAY_VERSION = '${version}';
+// The routes and what they answer; see RELAY_PROTOCOL in the extension.
+const RELAY_PROTOCOL = ${RELAY_PROTOCOL};
+const DISPLAY_MAX_BYTES = 4_000_000;
 // Minted by the extension at export time and consumed by the first successful install. Without it a
 // stranger who finds this URL could install the relay; after the burn, nobody can re-install it.
 const INSTALL_TOKEN = '${installToken}';
@@ -269,7 +296,7 @@ function isInstalled() {
 }
 
 // The extension's icon, as the Marketplace shows it, so every page the relay draws names what it belongs to.
-const BRAND_ICON = 'https://raw.githubusercontent.com/DougJoseph/cline-cubed/main/assets/icons/icon.png';
+const BRAND_ICON = '${BRAND_ICON_URL}';
 
 function html($title, $body, $status = 200, $showTitle = true) {
 	http_response_code($status);
@@ -314,10 +341,35 @@ function html($title, $body, $status = 200, $showTitle = true) {
  * is not paired, and the shared chats on one that is. The page decides which by asking the relay.
  */
 function chatPage() {
-	$body = <<<'CCPAGE'
-${RELAY_CHAT_PAGE}
+	$stored = storedDisplay();
+	if ($stored !== null) {
+		$body = $stored['html'];
+		$source = 'sent';
+	} else {
+		$body = <<<'CCPAGE'
+${chatDisplayCodeFor(version)}
 CCPAGE;
+		$source = 'built-in';
+	}
+	$body = str_replace(['${INSTALLED_BASE_TOKEN}', '${DISPLAY_SOURCE_TOKEN}'], [RELAY_VERSION, $source], $body);
 	html('Cline Cubed', $body, 200, false);
+}
+
+function displayFile() {
+	return dataDir() . '/display.json';
+}
+
+/** The chat display code Cline Cubed sent, as ['version' => …, 'html' => …], or null when none was sent. */
+function storedDisplay() {
+	$file = displayFile();
+	if (!is_file($file)) {
+		return null;
+	}
+	$stored = json_decode((string) file_get_contents($file), true);
+	if (!is_array($stored) || !isset($stored['version'], $stored['html']) || !is_string($stored['html'])) {
+		return null;
+	}
+	return $stored;
 }
 
 /**
@@ -488,6 +540,7 @@ if ($path === '/' && !isInstalled()) {
 
 const DEVICE_COOKIE = 'cline_cubed_device';
 const DEVICE_TTL_SECONDS = 2592000; // 30 days from last use, renewed on each visit
+const DEVICE_SEEN_STEP_SECONDS = 60; // a device's last-seen time is kept to the minute
 const PAIR_CODE_TTL_SECONDS = 600;
 const PAIR_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const SESSION_ID_PATTERN = '#^[A-Za-z0-9_-]{8,64}$#';
@@ -546,6 +599,7 @@ function currentDevice() {
 	$now = time();
 	$found = null;
 	$kept = [];
+	$touched = false;
 	foreach ($devices as $device) {
 		if (!isset($device['lastUsedAt']) || $device['lastUsedAt'] + DEVICE_TTL_SECONDS < $now) {
 			continue;
@@ -555,12 +609,19 @@ function currentDevice() {
 			if ($device['lastUsedAt'] < $now - 3600) {
 				$device['lastUsedAt'] = $now;
 				setDeviceCookie($presented);
+				$touched = true;
+			}
+			// When the device was last heard from, kept to the minute, so Cline Cubed can show whether it is
+			// connected now without the file being rewritten on every poll.
+			if (!isset($device['lastSeenAt']) || $device['lastSeenAt'] < $now - DEVICE_SEEN_STEP_SECONDS) {
+				$device['lastSeenAt'] = $now;
+				$touched = true;
 			}
 			$found = $device;
 		}
 		$kept[] = $device;
 	}
-	if (count($kept) !== count($devices) || ($found !== null && $found['lastUsedAt'] === $now)) {
+	if (count($kept) !== count($devices) || $touched) {
 		$kept = array_map(function ($device) use ($found) {
 			return $found !== null && $device['id'] === $found['id'] ? $found : $device;
 		}, $kept);
@@ -668,7 +729,15 @@ if ($path === '/' && $method === 'GET') {
 if (substr($path, -7) === '/health') {
 	// Reachable-but-uninstalled and unreachable have to be tellable apart, or the extension can only
 	// report one failure for two different situations.
-	send(200, ['ok' => true, 'version' => RELAY_VERSION, 'installed' => isInstalled()]);
+	$stored = storedDisplay();
+	send(200, [
+		'ok' => true,
+		'version' => RELAY_VERSION,
+		'installed' => isInstalled(),
+		'protocol' => RELAY_PROTOCOL,
+		'displayVersion' => $stored !== null ? (string) $stored['version'] : RELAY_VERSION,
+		'displaySource' => $stored !== null ? 'sent' : 'built-in',
+	]);
 }
 
 if (substr($path, -8) === '/install') {
@@ -689,6 +758,27 @@ if (substr($path, -7) === '/status') {
 	requireRelayKey();
 	// The data's location goes only to the extension, which holds the key, never to the public page.
 	send(200, ['version' => RELAY_VERSION, 'sessions' => array_map('sessionSummary', allSessions()), 'dataDir' => dataDir()]);
+}
+
+// Cline Cubed sends its current chat display code, over the relay key only. It is kept as data and
+// served in place of the copy built into this file; it is never written as PHP.
+if ($method === 'POST' && $path === '/display') {
+	requireRelayKey();
+	$body = readBody();
+	$version = isset($body['version']) ? (string) $body['version'] : '';
+	$code = isset($body['html']) && is_string($body['html']) ? $body['html'] : '';
+	if (!preg_match('#^[0-9A-Za-z.+-]{1,40}$#', $version)) {
+		send(400, ['error' => 'invalid_display_version']);
+	}
+	if ($code === '' || strlen($code) > DISPLAY_MAX_BYTES) {
+		send(400, ['error' => 'invalid_display_code', 'hint' => 'The chat display code is missing or larger than ' . DISPLAY_MAX_BYTES . ' bytes.']);
+	}
+	$lock = lockData(displayFile(), true);
+	if (!writeWhole(displayFile(), json_encode(['version' => $version, 'html' => $code, 'receivedAt' => time()]))) {
+		saveFailed();
+	}
+	unlockData($lock);
+	send(200, ['ok' => true, 'displayVersion' => $version]);
 }
 
 // The extension asks for a single-use pairing code to show in its popover.
@@ -743,7 +833,7 @@ if ($method === 'POST' && $path === '/pair') {
 	$devices[] = [
 		'id' => bin2hex(random_bytes(8)),
 		'hash' => hash('sha256', $credential),
-		'name' => substr($name, 0, 120),
+		'name' => substr($name, 0, 512), // a browser's full identity, which can pass 120 characters
 		'createdAt' => time(),
 		'lastUsedAt' => time(),
 	];
@@ -763,7 +853,13 @@ if ($path === '/devices') {
 	unlockData($lock);
 	foreach ($stored as $device) {
 		if (isset($device['lastUsedAt']) && $device['lastUsedAt'] + DEVICE_TTL_SECONDS >= time()) {
-			$list[] = ['id' => $device['id'], 'name' => $device['name'], 'createdAt' => $device['createdAt'], 'lastUsedAt' => $device['lastUsedAt']];
+			$list[] = [
+				'id' => $device['id'],
+				'name' => $device['name'],
+				'createdAt' => $device['createdAt'],
+				'lastUsedAt' => $device['lastUsedAt'],
+				'lastSeenAt' => isset($device['lastSeenAt']) ? $device['lastSeenAt'] : $device['lastUsedAt'],
+			];
 		}
 	}
 	send(200, ['devices' => $list]);

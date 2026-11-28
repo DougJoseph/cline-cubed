@@ -20,6 +20,7 @@ export function describeRelaySettings(settings: RelaySettings): ProtoRelaySettin
 		hasKey: settings.key.length > 0,
 		keyMasked: maskRelayKey(settings.key),
 		pollIntervalMs: settings.pollIntervalMs,
+		autoUpdate: settings.autoUpdate,
 		error: "",
 	}
 }

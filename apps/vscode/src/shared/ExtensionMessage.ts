@@ -54,6 +54,9 @@ export type Platform = "aix" | "darwin" | "freebsd" | "linux" | "openbsd" | "sun
 export const DEFAULT_PLATFORM = "unknown"
 
 export const COMMAND_CANCEL_TOKEN = "__cline_command_cancel__"
+/** Cline Cubed: starts a relay error when the relay gave no answer at all (refused, no route, name not
+ *  found); the system's own text follows it. The popover shows its own sentence for this case. */
+export const RELAY_UNREACHABLE_PREFIX = "relay_unreachable: "
 /** Cline Cubed: the remote-control mode as the host last confirmed it. Pushed with every state
  *  snapshot so a surface's badge is the host's truth rather than whatever that surface last asked
  *  for. `state` and `enabled` can legitimately differ: the mode can be on with the transport failed. */
@@ -71,6 +74,18 @@ export interface RemoteControlSnapshot {
 	relayPageUrl: string
 	/** Where the relay keeps its data on the server; empty when the relay is not connected. */
 	relayDataDir: string
+	/** Something about the relay worth saying while it works, such as being out of date; empty for nothing. */
+	relayNotice: string
+	/** A relay notice waiting to be shown as a popup, titled "Cline Cubed - Remote Control Relay - …"; empty when none waits. */
+	relayNoticePopupTitle: string
+	/** update-needed | behind | update-failed; empty with no notice. */
+	relayNoticeKind: string
+	/** The Cline Cubed version that wrote the relay's index.php; empty until known. */
+	relayInstalledVersion: string
+	/** The version of the chat display code the relay serves; empty until known. */
+	relayDisplayVersion: string
+	/** sent (auto-updated by Cline Cubed) | built-in (from the installed base); empty until known. */
+	relayDisplaySource: string
 }
 
 /** Cline Cubed: where the user installed their relay. The credential itself is never included — the
@@ -80,6 +95,8 @@ export interface RelaySettingsSnapshot {
 	hasKey: boolean
 	keyMasked: string
 	pollIntervalMs: number
+	/** "Keep the relay up to date automatically". */
+	autoUpdate: boolean
 	error: string
 }
 

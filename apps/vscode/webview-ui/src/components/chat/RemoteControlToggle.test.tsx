@@ -14,8 +14,16 @@ const extensionState = {
 		sharedChats: [] as string[],
 		relayPageUrl: "https://relay.example/cline-cubed/",
 		relayDataDir: "/home/relay/.cline-cubed-relay/abc",
+		relayNotice: "",
 	},
-	relaySettings: { url: "https://relay.example/cline-cubed/", pollIntervalMs: 1500, hasKey: true, keyTail: "wxyz", error: "" },
+	relaySettings: {
+		url: "https://relay.example/cline-cubed/",
+		pollIntervalMs: 1500,
+		hasKey: true,
+		keyTail: "wxyz",
+		autoUpdate: true,
+		error: "",
+	},
 	currentTaskItem: { id: "chat-0001" },
 }
 
@@ -30,6 +38,8 @@ vi.mock("qrcode", () => ({
 /** The paired devices the relay answers with; a test adds one to stand for a phone that just paired. */
 let pairedDevices: Array<{ id: string; name: string; createdAt: number; lastUsedAt: number }> = []
 let pairingLifetimeSeconds = 600
+/** The host of a relay already installed at the Relay URL, as the export reports it; "" for none. */
+let installedRelayHost = ""
 
 vi.mock("@/services/grpc-client", () => ({
 	RemoteControlServiceClient: {
@@ -45,6 +55,7 @@ vi.mock("@/services/grpc-client", () => ({
 			path: "/Users/someone/relay",
 			files: ["index.php", "INSTALL.txt"],
 			installToken: "test-install-token",
+			installedRelayHost,
 			error: "",
 		}),
 		setChatShared: async () => ({}),
@@ -64,6 +75,14 @@ async function openPopover() {
 	await waitFor(() => expect(byTestId("remote-control-close")).not.toBeNull())
 }
 
+/** The Get installer button, which lives inside Relay settings; opens that section first when it is closed. */
+function getInstallerButton(): HTMLElement {
+	if (!byTestId("relay-export")) {
+		fireEvent.click(screen.getByTestId("remote-control-relay-settings-toggle"))
+	}
+	return screen.getByTestId("relay-export")
+}
+
 /** Presses Pair a device and waits for the pairing popover. */
 async function pair() {
 	fireEvent.click(screen.getByTestId("remote-control-pair"))
@@ -72,7 +91,7 @@ async function pair() {
 
 describe("Remote Control popover — pairing a device", () => {
 	beforeEach(() => {
-		pairedDevices = [{ id: "a1b2c3d4e5f60708", name: "iPhone", createdAt: 1, lastUsedAt: 1 }]
+		pairedDevices = [{ id: "a1b2c3d4e5f60708", name: "iPhone", createdAt: 1, lastUsedAt: 1, lastSeenAt: 1 }]
 		pairingLifetimeSeconds = 600
 		extensionState.remoteControl.relayState = "connected"
 	})
@@ -104,8 +123,8 @@ describe("Remote Control popover — pairing a device", () => {
 		await openPopover()
 		await pair()
 		// A click inside the Remote Control popover is outside the pairing popover.
-		fireEvent.mouseDown(screen.getByText("Paired devices"))
-		fireEvent.click(screen.getByText("Paired devices"))
+		fireEvent.mouseDown(screen.getByText(/^Paired devices/))
+		fireEvent.click(screen.getByText(/^Paired devices/))
 		await waitFor(() => expect(byTestId("remote-control-pairing-popover")).toBeNull())
 		expect(byTestId("remote-control-close")).not.toBeNull()
 	})
@@ -141,13 +160,45 @@ describe("Remote Control popover — pairing a device", () => {
 describe("Remote Control popover — the saved installer's steps", () => {
 	beforeEach(() => {
 		pairedDevices = []
+		installedRelayHost = ""
+	})
+
+	it("with no relay installed at the Relay URL, shows the install steps only", async () => {
+		render(<RemoteControlToggle />)
+		await openPopover()
+		fireEvent.click(getInstallerButton())
+		await waitFor(() => expect(byTestId("relay-installer")).not.toBeNull())
+		const steps = byTestId("relay-installer")?.textContent ?? ""
+		expect(byTestId("relay-installer-update")).toBeNull()
+		expect(steps).not.toContain("Installing on a new server:")
+		expect(steps).toContain("1. Upload index.php to a folder on your web server.")
+		expect((byTestId("relay-install-token") as HTMLInputElement).value).toBe("test-install-token")
+	})
+
+	it("with a relay installed at the Relay URL, shows how to update it, with the install steps closed until opened", async () => {
+		installedRelayHost = "ivotelife.com"
+		render(<RemoteControlToggle />)
+		await openPopover()
+		fireEvent.click(getInstallerButton())
+		await waitFor(() => expect(byTestId("relay-installer")).not.toBeNull())
+		expect(byTestId("relay-installer-update")?.textContent).toBe(
+			"Updating the relay at ivotelife.com: upload index.php over the old one; nothing else; your relay key and paired devices stay",
+		)
+		const steps = byTestId("relay-installer")?.textContent ?? ""
+		const update = steps.indexOf("Updating this relay")
+		const newServer = steps.indexOf("Installing on a new server")
+		expect(update >= 0 && update < newServer).toBe(true)
+		expect(byTestId("relay-installer-install")).toBeNull()
+		fireEvent.click(screen.getByTestId("relay-installer-install-toggle"))
+		expect(byTestId("relay-installer-install")?.textContent).toContain("1. Upload index.php to a folder on your web server.")
+		expect((byTestId("relay-install-token") as HTMLInputElement).value).toBe("test-install-token")
 	})
 
 	it("hides the installer steps once the relay is connected, and shows them after Get installer", async () => {
 		extensionState.remoteControl.relayState = "failed"
 		const view = render(<RemoteControlToggle />)
 		await openPopover()
-		fireEvent.click(screen.getByText("Get installer"))
+		fireEvent.click(getInstallerButton())
 		await waitFor(() => expect(byTestId("relay-installer")).not.toBeNull())
 		const shownWhileNotConnected = byTestId("relay-installer") !== null
 
@@ -157,7 +208,7 @@ describe("Remote Control popover — the saved installer's steps", () => {
 		})
 		const shownOnceConnected = byTestId("relay-installer") !== null
 
-		fireEvent.click(screen.getByText("Get installer"))
+		fireEvent.click(getInstallerButton())
 		await waitFor(() => expect(byTestId("relay-installer")).not.toBeNull())
 		const shownAfterGetInstaller = byTestId("relay-installer") !== null
 

@@ -65,6 +65,47 @@ service ModelsService {
   rpc writeProviderConfig(WriteProviderConfigRequest) returns (ProviderConfigResponse);
   // Commits a mode-specific model ID with optional user-authored metadata overrides
   rpc commitModelSelection(CommitModelSelectionRequest) returns (Empty);
+  // Cline Cubed: model profiles (src/core/profiles/modelProfiles.ts)
+  rpc listModelProfiles(ModelProfilesRequest) returns (ModelProfilesResponse);
+  rpc saveModelProfile(SaveModelProfileRequest) returns (ModelProfilesResponse);
+  rpc applyModelProfile(ModelProfileNameRequest) returns (ModelProfilesResponse);
+  rpc renameModelProfile(RenameModelProfileRequest) returns (ModelProfilesResponse);
+  rpc deleteModelProfile(ModelProfileNameRequest) returns (ModelProfilesResponse);
+}
+
+// Cline Cubed: model profiles. `mode` is "plan" or "act".
+message ModelProfilesRequest {
+  string mode = 1;
+}
+message SaveModelProfileRequest {
+  string name = 1;
+  string mode = 2;
+  // Replace a profile already saved under this name; without it, nothing is written and
+  // the response carries name_exists.
+  bool replace = 3;
+}
+message ModelProfileNameRequest {
+  string name = 1;
+  string mode = 2;
+}
+message RenameModelProfileRequest {
+  string old_name = 1;
+  string new_name = 2;
+  string mode = 3;
+}
+message ModelProfileSummary {
+  string name = 1;
+  string provider_id = 2;
+  string model_id = 3;
+}
+message ModelProfilesResponse {
+  repeated ModelProfileSummary profiles = 1;
+  // The profile last chosen or saved for the mode; "" for none.
+  string active_name = 2;
+  // The mode's setup has been changed by hand since that profile was chosen or saved.
+  bool active_edited = 3;
+  bool name_exists = 4;
+  string error = 5;
 }
 
 // List of VS Code LM models

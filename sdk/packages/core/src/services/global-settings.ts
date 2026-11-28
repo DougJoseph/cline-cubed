@@ -74,6 +74,7 @@ export const GlobalSettingsSchema = z
 		remoteControlEnabled: z.boolean().optional().catch(undefined),
 		relayUrl: z.string().optional().catch(undefined),
 		relayKey: z.string().optional().catch(undefined),
+		relayAutoUpdate: z.boolean().optional().catch(undefined),
 		remoteSharedChats: GlobalSettingsStringListSchema.optional(),
 		relayPollIntervalMs: z
 			.number()
@@ -100,6 +101,7 @@ export const GlobalSettingsSchema = z
 			remoteControlEnabled?: boolean;
 			relayUrl?: string;
 			relayKey?: string;
+			relayAutoUpdate?: boolean;
 			remoteSharedChats?: string[];
 			relayPollIntervalMs?: number;
 		} = {
@@ -144,6 +146,9 @@ export const GlobalSettingsSchema = z
 		}
 		if (settings.relayPollIntervalMs !== undefined) {
 			normalized.relayPollIntervalMs = settings.relayPollIntervalMs;
+		}
+		if (settings.relayAutoUpdate !== undefined) {
+			normalized.relayAutoUpdate = settings.relayAutoUpdate;
 		}
 		if (settings.remoteSharedChats?.length) {
 			normalized.remoteSharedChats = settings.remoteSharedChats;
@@ -326,9 +331,14 @@ export function setRemoteChatSharedGlobally(
 	shared: boolean,
 	options: WriteGlobalSettingsOptions = {},
 ): string[] {
-	const current = readRemoteSharedChatsGlobally().filter((id) => id !== sessionId);
+	const current = readRemoteSharedChatsGlobally().filter(
+		(id) => id !== sessionId,
+	);
 	const next = shared ? [...current, sessionId] : current;
-	writeGlobalSettings({ ...readGlobalSettings(), remoteSharedChats: next }, options);
+	writeGlobalSettings(
+		{ ...readGlobalSettings(), remoteSharedChats: next },
+		options,
+	);
 	return next;
 }
 
@@ -337,9 +347,14 @@ export function setRemoteChatSharedGlobally(
  * same reason the enabled choice is: a window reload must not lose it.
  */
 export interface RelaySettings {
-	url: string
-	key: string
-	pollIntervalMs: number
+	url: string;
+	key: string;
+	pollIntervalMs: number;
+	/**
+	 * LOCAL PATCH (2026-11-27): "Keep the relay up to date automatically", stored as `relayAutoUpdate`:
+	 * send the relay newer chat display code. On unless turned off.
+	 */
+	autoUpdate: boolean;
 }
 
 export const DEFAULT_RELAY_POLL_INTERVAL_MS = 1500;
@@ -349,7 +364,9 @@ export function readRelaySettingsGlobally(): RelaySettings {
 	return {
 		url: settings.relayUrl ?? "",
 		key: settings.relayKey ?? "",
-		pollIntervalMs: settings.relayPollIntervalMs ?? DEFAULT_RELAY_POLL_INTERVAL_MS,
+		pollIntervalMs:
+			settings.relayPollIntervalMs ?? DEFAULT_RELAY_POLL_INTERVAL_MS,
+		autoUpdate: settings.relayAutoUpdate !== false,
 	};
 }
 
@@ -359,12 +376,22 @@ export function setRelaySettingsGlobally(
 ): RelaySettings {
 	const current = readGlobalSettings();
 	const next: RelaySettings = {
-		url: settings.url !== undefined ? settings.url.trim() : (current.relayUrl ?? ""),
-		key: settings.key !== undefined ? settings.key.trim() : (current.relayKey ?? ""),
+		url:
+			settings.url !== undefined
+				? settings.url.trim()
+				: (current.relayUrl ?? ""),
+		key:
+			settings.key !== undefined
+				? settings.key.trim()
+				: (current.relayKey ?? ""),
 		pollIntervalMs:
 			settings.pollIntervalMs !== undefined
 				? settings.pollIntervalMs
 				: (current.relayPollIntervalMs ?? DEFAULT_RELAY_POLL_INTERVAL_MS),
+		autoUpdate:
+			settings.autoUpdate !== undefined
+				? settings.autoUpdate
+				: current.relayAutoUpdate !== false,
 	};
 	writeGlobalSettings(
 		{
@@ -372,6 +399,8 @@ export function setRelaySettingsGlobally(
 			relayUrl: next.url || undefined,
 			relayKey: next.key || undefined,
 			relayPollIntervalMs: next.pollIntervalMs,
+			// Stored only when turned off, so the default stays on for everyone who never touched it.
+			relayAutoUpdate: next.autoUpdate ? undefined : false,
 		},
 		options,
 	);

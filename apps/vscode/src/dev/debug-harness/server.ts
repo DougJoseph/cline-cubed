@@ -1528,7 +1528,7 @@ class DebugHarness {
 		text?: string
 		selector?: string
 		frame?: string
-		action?: "click" | "fill" | "text" | "value" | "visible" | "count" | "box"
+		action?: "click" | "hover" | "fill" | "text" | "value" | "visible" | "count" | "box"
 		value?: string
 	}): Promise<any> {
 		// Retry with frame re-discovery on failure for sidebar targets
@@ -1558,6 +1558,10 @@ class DebugHarness {
 				switch (params.action) {
 					case "click":
 						await locator.click()
+						return { done: true }
+					case "hover":
+						// Rests the pointer on the element, for what only shows on hover, such as a tooltip.
+						await locator.first().hover()
 						return { done: true }
 					case "fill":
 						await locator.fill(params.value || "")

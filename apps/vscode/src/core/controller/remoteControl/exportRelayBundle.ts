@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs"
 import * as path from "node:path"
+import { readRelaySettingsGlobally } from "@cline/core"
 import { EmptyRequest } from "@shared/proto/cline/common"
 import type { RelayBundleExportResult } from "@shared/proto/cline/remote_control"
 import { getDocumentsPath } from "@/core/storage/documents-path"
@@ -8,6 +9,7 @@ import { ExtensionRegistryInfo } from "@/registry"
 import { ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
 import { createInstallToken, RELAY_INSTALLER_FILES, writeRelayInstallerFiles } from "../../relay/relayBundle"
+import { installedRelayHost } from "../../relay/relayClient"
 import type { Controller } from ".."
 
 /** The reveal button, named the way the platform names it. */
@@ -24,8 +26,20 @@ function revealLabel(): string {
  * and offers to show them in the file manager.
  */
 export async function exportRelayBundle(_controller: Controller, _request: EmptyRequest): Promise<RelayBundleExportResult> {
+	return saveRelayInstaller()
+}
+
+/** The export itself, with no caller of its own: the popover's Get installer and the relay notices' button. */
+export async function saveRelayInstaller(): Promise<RelayBundleExportResult> {
 	const version = ExtensionRegistryInfo.version
-	const cancelled: RelayBundleExportResult = { path: "", files: [], version, error: "cancelled", installToken: "" }
+	const cancelled: RelayBundleExportResult = {
+		path: "",
+		files: [],
+		version,
+		error: "cancelled",
+		installToken: "",
+		installedRelayHost: "",
+	}
 	const { paths } = await HostProvider.window.showOpenDialogue({
 		canSelectFolders: true,
 		canSelectFiles: false,
@@ -69,10 +83,13 @@ export async function exportRelayBundle(_controller: Controller, _request: Empty
 					void HostProvider.window.revealFileInOs({ filePath: files[0] })
 				}
 			})
-		return { path: folder, files, version, error: "", installToken }
+		// A relay already installed at the Relay URL is updated by uploading the new index.php over it, so
+		// the popover shows those steps beside the ones for a new install.
+		const installedHost = await installedRelayHost(readRelaySettingsGlobally().url ?? "")
+		return { path: folder, files, version, error: "", installToken, installedRelayHost: installedHost }
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
 		Logger.error(`Failed to save the relay installer: ${message}`)
-		return { path: "", files: [], version, error: message, installToken: "" }
+		return { path: "", files: [], version, error: message, installToken: "", installedRelayHost: "" }
 	}
 }

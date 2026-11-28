@@ -153,6 +153,9 @@ export async function updateApiConfigurationProto(
 		)
 
 		// Update the API configuration in storage
+		Logger.debug(
+			`[Settings write] updateApiConfigurationProto (the webview sent its whole configuration): plan provider ${normalizedApiConfiguration.planModeApiProvider}, act provider ${normalizedApiConfiguration.actModeApiProvider}`,
+		)
 		controller.stateManager.setApiConfiguration(normalizedApiConfiguration)
 		clearOrganizationForClinePassProviderSelection(controller, normalizedApiConfiguration)
 

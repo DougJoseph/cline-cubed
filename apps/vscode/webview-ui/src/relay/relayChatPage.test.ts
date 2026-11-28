@@ -7,10 +7,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
  * text of RELAY_CHAT_PAGE in the extension's source, read as text so this test needs nothing from
  * the extension's build.
  */
+/** Where the relay says the served chat display code came from: "sent" by Cline Cubed, or "built-in". */
+let displaySource = "sent"
+
 function pageSource(): { markup: string; script: string } {
 	const file = readFileSync(path.resolve(__dirname, "../../../src/core/relay/relayChatPage.ts"), "utf8")
 	const start = file.indexOf("String.raw`") + "String.raw`".length
-	const page = file.slice(start, file.lastIndexOf("`"))
+	// The extension writes in the version and the icon, and the relay writes in its own version and
+	// where the code came from; the test writes in stand-ins the same way.
+	const page = file
+		.slice(start, file.lastIndexOf("`"))
+		.split("__CC_RELAY_VERSION__")
+		.join("4.1.32")
+		.split("__CC_BRAND_ICON__")
+		.join("https://example.test/icon.png")
+		.split("__CC_INSTALLED_BASE__")
+		.join(displaySource === "sent" ? "4.1.31" : "4.1.32")
+		.split("__CC_DISPLAY_SOURCE__")
+		.join(displaySource)
 	const scriptStart = page.indexOf("<script>")
 	return { markup: page.slice(0, scriptStart), script: page.slice(scriptStart + 8, page.lastIndexOf("</script>")) }
 }
@@ -334,5 +348,48 @@ describe("relay chat page — the suggested reply", () => {
 		page.tab().click()
 		page.press({ key: "Enter" })
 		await vi.waitFor(() => expect(page.posted).toEqual(["yes, write the plan"]))
+	})
+})
+
+describe("relay chat page — About", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals()
+		document.body.innerHTML = ""
+	})
+
+	afterEach(() => {
+		displaySource = "sent"
+	})
+
+	it("About in the menu opens a sheet with the logo, the installed base's version, and the chat display code's", async () => {
+		openPage(100)
+		await vi.waitFor(() => expect(document.getElementById("ring-text")?.textContent).toBe("10%"), { timeout: 4000 })
+		document.getElementById("menu-button")?.click()
+		document.getElementById("about-button")?.click()
+		const sheet = document.getElementById("sheet") as HTMLElement
+		expect(sheet.classList.contains("hidden")).toBe(false)
+		expect(document.getElementById("menu")?.classList.contains("hidden")).toBe(true)
+		const about = sheet.querySelector(".about") as HTMLElement
+		expect(about.querySelector("img")?.getAttribute("src")).toBe("https://example.test/icon.png")
+		expect(Array.from(about.querySelectorAll("div")).map((line) => line.textContent)).toEqual([
+			"Cline Cubed",
+			"Remote Control Relay",
+			"Installed base (index.php): v4.1.31",
+			"Chat display code: v4.1.32 (auto-updated by Cline Cubed)",
+		])
+	})
+
+	it("About says the chat display code came from the installed base when none was sent", async () => {
+		displaySource = "built-in"
+		openPage(100)
+		await vi.waitFor(() => expect(document.getElementById("ring-text")?.textContent).toBe("10%"), { timeout: 4000 })
+		document.getElementById("menu-button")?.click()
+		document.getElementById("about-button")?.click()
+		const about = document.getElementById("sheet")?.querySelector(".about") as HTMLElement
+		expect(
+			Array.from(about.querySelectorAll("div"))
+				.map((line) => line.textContent)
+				.slice(2),
+		).toEqual(["Installed base (index.php): v4.1.32", "Chat display code: v4.1.32 (from the installed base)"])
 	})
 })

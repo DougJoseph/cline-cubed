@@ -13,7 +13,7 @@ import {
 } from "@shared/proto-conversions/models/modelOverrides"
 import type { Mode } from "@shared/storage/types"
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { ProviderId } from "@/context/ExtensionStateContext"
+import { type ProviderId, useExtensionState } from "@/context/ExtensionStateContext"
 import { ModelsServiceClient } from "@/services/grpc-client"
 import {
 	beginSettingsLoad,
@@ -105,6 +105,25 @@ export function useProviderConfig(providerId: ProviderId) {
 			})
 			.finally(endSettingsLoad)
 	}, [providerId, read])
+
+	// Cline Cubed: a change made outside these fields, such as choosing a model profile, rewrites this
+	// provider's settings while the view is open. Each mode's provider and model ids change when that
+	// happens, so they are the signal to read again; anything else the extension pushes is not.
+	const { apiConfiguration } = useExtensionState()
+	const selectionSignature = Object.entries(apiConfiguration ?? {})
+		.filter(([key]) => /Mode(ApiProvider|[A-Za-z]*ModelId)$/.test(key))
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([key, value]) => `${key}=${String(value ?? "")}`)
+		.join("|")
+	const firstSignatureRef = useRef(true)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the signature is what triggers the read
+	useEffect(() => {
+		if (firstSignatureRef.current) {
+			firstSignatureRef.current = false
+			return
+		}
+		read().catch((error) => console.error(`Failed to re-read ${providerId} settings:`, error))
+	}, [selectionSignature])
 
 	const write = useCallback(
 		async (patch: ProviderConfigWritePatch) => {

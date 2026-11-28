@@ -20,7 +20,12 @@ describe("maskRelayKey", () => {
 
 describe("describeRelaySettings", () => {
 	it("reports presence and a masked tail, and carries no field holding the key", () => {
-		const described = describeRelaySettings({ url: "https://example.com/relay", key: "x".repeat(64), pollIntervalMs: 1500 })
+		const described = describeRelaySettings({
+			url: "https://example.com/relay",
+			key: "x".repeat(64),
+			pollIntervalMs: 1500,
+			autoUpdate: true,
+		})
 		expect(described.url).toBe("https://example.com/relay")
 		expect(described.hasKey).toBe(true)
 		expect(described.keyMasked).toBe("••••xxxx")
@@ -30,7 +35,7 @@ describe("describeRelaySettings", () => {
 	})
 
 	it("says plainly when no relay has been configured yet", () => {
-		const described = describeRelaySettings({ url: "", key: "", pollIntervalMs: 1500 })
+		const described = describeRelaySettings({ url: "", key: "", pollIntervalMs: 1500, autoUpdate: true })
 		expect(described.hasKey).toBe(false)
 		expect(described.keyMasked).toBe("")
 		expect(described.url).toBe("")

@@ -13,6 +13,7 @@ import { DEFAULT_FOCUS_CHAIN_SETTINGS, FocusChainSettings } from "@shared/FocusC
 import { HistoryItem } from "@shared/HistoryItem"
 import { DEFAULT_MCP_DISPLAY_MODE, McpDisplayMode } from "@shared/McpDisplayMode"
 import { toLegacyApiProvider } from "@shared/model-catalog/provider-helpers"
+import type { ModelProfile, ModelProfileActive } from "@shared/model-profiles"
 import { GlobalInstructionsFile } from "@shared/remote-config/schema"
 import { Mode, NewChatLocation } from "@shared/storage/types"
 import { TelemetrySetting } from "@shared/TelemetrySetting"
@@ -99,6 +100,10 @@ const GLOBAL_STATE_FIELDS = {
 	dismissedBanners: { default: [] as Array<{ bannerId: string; dismissedAt: number }> },
 	// Path to worktree that should auto-open Cline sidebar when launched
 	worktreeAutoOpenPath: { default: undefined as string | undefined },
+	// Cline Cubed: saved model profiles (src/core/profiles/modelProfiles.ts), and the one last
+	// chosen or saved for each mode.
+	modelProfiles: { default: [] as ModelProfile[] },
+	modelProfileActive: { default: {} as ModelProfileActive },
 } satisfies FieldDefinitions
 
 // Fields that map directly to ApiHandlerOptions in @shared/api.ts

@@ -38,6 +38,7 @@ export async function commitModelSelection(
 	}
 
 	if (hasProviderCatalogStateController(controller)) {
+		Logger.debug(`[Settings write] commitModelSelection: ${mode} provider ${providerId.toString()}, model ${modelId}`)
 		controller.stateManager.setGlobalStateBatch({
 			[`${mode}ModeApiProvider`]: toLegacyApiProvider(providerId.toString()),
 			[getProviderModelIdKey(toLegacyApiProvider(providerId.toString()), mode)]: modelId,

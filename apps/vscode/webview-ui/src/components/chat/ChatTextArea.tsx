@@ -48,6 +48,7 @@ import {
 import ClineRulesToggleModal from "../cline-rules/ClineRulesToggleModal"
 import { getModeToggleDraftAction } from "./chat-textarea-mode-toggle"
 import { ImageIntakeNotices } from "./ImageIntakeNotices"
+import ModelProfileSwitcher from "./ModelProfileSwitcher"
 import RemoteControlToggle from "./RemoteControlToggle"
 import ServersToggleModal from "./ServersToggleModal"
 
@@ -1686,6 +1687,8 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 									</VSCodeButton>
 								</TooltipTrigger>
 							</Tooltip>
+
+							<ModelProfileSwitcher />
 
 							<ModelContainer>
 								<ModelButtonWrapper>

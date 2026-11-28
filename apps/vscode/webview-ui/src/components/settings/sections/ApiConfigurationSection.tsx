@@ -7,6 +7,7 @@ import { TabButton } from "../../mcp/configuration/McpConfigurationView"
 import ApiOptions from "../ApiOptions"
 import { ImageModeMaxOutputField } from "../common/ImageModeMaxOutputField"
 import { SettingsCheckbox } from "../common/SettingsCheckbox"
+import ModelProfilesBar from "../profiles/ModelProfilesBar"
 import Section from "../Section"
 import { syncModeConfigurations } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
@@ -30,6 +31,14 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 		<div>
 			{renderSectionHeader?.("api-config")}
 			<Section>
+				{/* Cline Cubed: My Profiles, above the tabs. Image Mode stays outside profiles. */}
+				{!(planActSeparateModelsSetting && currentTab === "image") && (
+					<ModelProfilesBar
+						mode={
+							planActSeparateModelsSetting && currentTab !== "image" ? currentTab : mode === "plan" ? "plan" : "act"
+						}
+					/>
+				)}
 				{/* Tabs container */}
 				{planActSeparateModelsSetting ? (
 					<div className="rounded-md mb-5">

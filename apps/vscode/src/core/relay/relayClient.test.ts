@@ -35,7 +35,11 @@ describe("validateRelayUrl", () => {
  * A stand-in for the generated PHP bundle, so the handshake, the per-chat queues and the retry rules
  * can be tested. Routes arrive as `index.php?route=…`, as the real relay receives them.
  */
-const startStubRelay = (overrides: { version?: string; failPoll?: boolean; exposeData?: boolean } = {}) => {
+const startStubRelay = (
+	overrides: { version?: string; failPoll?: boolean; exposeData?: boolean; protocol?: number; displayVersion?: string } = {},
+) => {
+	// The chat display code the extension sent, as the relay keeps it.
+	const displays: Array<{ version: string; html: string }> = []
 	const chats = new Map<string, { name: string; outbound: RelayEvent[]; inbound: RelayEvent[]; inboundCursor: number }>()
 	const paths: string[] = []
 	// A chat whose save the relay cannot make: its poll entry hands out nothing and carries the error.
@@ -66,7 +70,16 @@ const startStubRelay = (overrides: { version?: string; failPoll?: boolean; expos
 			return
 		}
 		if (route === "health") {
-			json(response, 200, { ok: true, version: overrides.version ?? VERSION, installed: true })
+			// With no protocol given, this is a relay from before protocol numbers, which reports none.
+			const current = displays.at(-1)?.version ?? overrides.displayVersion
+			json(response, 200, {
+				ok: true,
+				version: overrides.version ?? VERSION,
+				installed: true,
+				...(overrides.protocol !== undefined
+					? { protocol: overrides.protocol, displayVersion: current ?? overrides.version ?? VERSION }
+					: {}),
+			})
 			return
 		}
 		if (!authorized) {
@@ -81,6 +94,11 @@ const startStubRelay = (overrides: { version?: string; failPoll?: boolean; expos
 				existing ? { ...existing, name: body.name } : { name: body.name, outbound: [], inbound: [], inboundCursor: 0 },
 			)
 			json(response, 200, { sessionId: body.id })
+			return
+		}
+		if (request.method === "POST" && route === "display") {
+			displays.push((await readJson(request)) as { version: string; html: string })
+			json(response, 200, { ok: true })
 			return
 		}
 		if (request.method === "POST" && route === "poll") {
@@ -122,6 +140,7 @@ const startStubRelay = (overrides: { version?: string; failPoll?: boolean; expos
 	return new Promise<{
 		url: string
 		chats: typeof chats
+		displays: typeof displays
 		paths: string[]
 		cannotSave: Set<string>
 		deviceSends: (chatId: string, event: RelayEvent) => void
@@ -132,6 +151,7 @@ const startStubRelay = (overrides: { version?: string; failPoll?: boolean; expos
 			resolve({
 				url: `http://127.0.0.1:${port}/relay`,
 				chats,
+				displays,
 				paths,
 				cannotSave,
 				deviceSends: (chatId, event) => {
@@ -182,14 +202,56 @@ describe("RelayLink", () => {
 		link.stop()
 	})
 
-	it("refuses a relay that is not the version that exported it, naming both versions", async () => {
-		relay = await startStubRelay({ version: "4.1.20" })
+	it("refuses a relay only when it speaks a different relay protocol, and names the one-time upload", async () => {
+		relay = await startStubRelay({ version: "4.1.40", protocol: 2 })
 		const link = new RelayLink({ url: relay.url, key: KEY, extensionVersion: VERSION, pollIntervalMs: 50 })
 		const status = await link.start()
 		expect(status.state).toBe("failed")
-		expect(status.error).toContain("relay_version_mismatch")
-		expect(status.error).toContain("relay is 4.1.20")
-		expect(status.error).toContain(`this extension is ${VERSION}`)
+		expect(status.error).toContain("relay_protocol_mismatch")
+		expect(status.error).toContain("index.php v4.1.40")
+		expect(status.error).toContain("Get installer")
+		link.stop()
+	})
+
+	it("connects to a relay from before protocol numbers, sends it nothing, and says to upload index.php once", async () => {
+		relay = await startStubRelay({ version: "4.1.20" })
+		const link = new RelayLink({ url: relay.url, key: KEY, extensionVersion: VERSION, pollIntervalMs: 50 })
+		const status = await link.start()
+		expect(status.state).toBe("connected")
+		expect(relay.displays).toHaveLength(0)
+		expect(status.notice).toContain("index.php (v4.1.20) predates automatic updates")
+		link.stop()
+	})
+
+	it("sends a current relay this version's chat display code when its copy is older", async () => {
+		relay = await startStubRelay({ version: "4.1.20", protocol: 1, displayVersion: "4.1.20" })
+		const link = new RelayLink({ url: relay.url, key: KEY, extensionVersion: VERSION, pollIntervalMs: 50 })
+		const status = await link.start()
+		expect(status.state).toBe("connected")
+		expect(relay.displays.map((display) => display.version)).toEqual([VERSION])
+		expect(relay.displays[0].html).toContain(`"${VERSION}"`)
+		expect(status.notice).toBe("")
+		link.stop()
+	})
+
+	it("with automatic updates off, sends nothing, stays connected, and says the relay is behind", async () => {
+		relay = await startStubRelay({ version: "4.1.20", protocol: 1, displayVersion: "4.1.20" })
+		const link = new RelayLink({ url: relay.url, key: KEY, extensionVersion: VERSION, autoUpdate: false, pollIntervalMs: 50 })
+		const status = await link.start()
+		expect(status.state).toBe("connected")
+		expect(relay.displays).toHaveLength(0)
+		expect(status.notice).toContain("chat display code is v4.1.20")
+		expect(status.notice).toContain("Automatic relay updates are off")
+		link.stop()
+	})
+
+	it("sends nothing to a relay whose chat display code is already this version", async () => {
+		relay = await startStubRelay({ protocol: 1 })
+		const link = new RelayLink({ url: relay.url, key: KEY, extensionVersion: VERSION, pollIntervalMs: 50 })
+		const status = await link.start()
+		expect(status.state).toBe("connected")
+		expect(relay.displays).toHaveLength(0)
+		expect(status.notice).toBe("")
 		link.stop()
 	})
 

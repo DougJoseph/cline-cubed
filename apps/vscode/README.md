@@ -68,6 +68,12 @@ receives raw image bytes.
   show them.
 - **Three model channels — Plan, Act, and Image Mode.** Each tab in API Configuration
   keeps its own provider, model, API key, and reasoning effort.
+- **New feature: My Profiles.** Name and save a complete model setup (provider, base URL, model,
+  context window, max output, temperature, reasoning and image settings) and switch to it in one step,
+  from the top of the API Configuration settings or from the composer, beside the model name. Before
+  this new feature, two models served from the same provider would overwrite each other's settings.
+  Even an already-opened chat can be switched to a whole new setup before its next message. A pencil
+  renames a profile and an × deletes it.
 - **Capability-aware image bridge** — it runs only when the active Plan/Act model is
   non-vision (or unknown); vision-capable models receive the raw image as usual.
 - **One master debug-logging switch** — Settings → General → **Debug logging**, off by
@@ -237,12 +243,12 @@ phone, or any browser you pair, follows it and answers it through a small relay 
 web space.
 
 **Turn it on** with the smartphone icon in the composer's icon row, or type `/remote-control`. The
-icon shows where things stand — Off, Connecting, Active, Failed — and opens a popover holding the
+icon shows where things stand — Off, Connecting, Active, Failed — and opens the Remote Control UX, holding the
 relay's settings, your paired devices, and the switch.
 
 **Set up the relay once.** The relay is a single PHP file. **Get installer** writes `index.php` and
 `INSTALL.txt` into a folder you choose. Upload `index.php` to a folder on any web host that runs PHP,
-open its address in a browser, paste the install token the popover shows, and press Install. The
+open its address in a browser, paste the install token the Remote Control UX shows, and press Install. The
 page gives you a credential: paste it into **Relay key** and press **Save relay**. Your machine
 reaches the relay over HTTPS; nothing on your machine accepts an incoming connection. The relay keeps
 its data outside the web folder when the host allows it, and if not, protection is by a rule it adds
@@ -252,12 +258,31 @@ over the web. It holds a chat's recent messages for up to an hour, so a device c
 nothing older. It's free. It's your relay. It's hosted on your server, and if you don't have one,
 Oracle Cloud's Always Free tier offers a free server you could use for this purpose.
 
+**The Remote Control UX is redesigned, streamlined, enhanced.** Realtime connection feedback.
+Everything optimized for ease and clarity. Relay settings and Get installer's steps stay folded until
+you need them.
+
+**Updating Cline Cubed no longer needs you to manually update your Remote Control relay.** The relay
+is now a thin client: Cline Cubed keeps its chat display code up to date each time it connects, so
+most updates need no new `index.php`. **Keep the relay up to date automatically**, in the Remote
+Control UX, is on by default; with it off, Cline Cubed never sends code to your server. A relay
+installed before this version keeps working, and a popup asks once for a new `index.php` to be
+uploaded, after which updates reach it on their own.
+
+**Get installer covers updating.** When a relay is already installed at your Relay URL, the steps
+after **Get installer** start with how to update it: upload the new `index.php` over the old one, and
+your relay key and paired devices stay. The install steps follow, for a new server.
+
+**About on the Remote Control page's "⋯" menu.** Tap **About** to see the version of the relay's
+installed base (`index.php`) and of the chat display code it is serving, and whether that code came
+built into the installed base or was auto-updated by Cline Cubed.
+
 **Choose which chats to share.** Only a chat with **Share this chat with my devices** checked is
 visible to your devices.
 
 **Pair a device.** **Pair a device** shows a QR code and a code. Scan the code with your phone, or
 open the relay's address and type it in. Each code works once, for ten minutes. A paired device
-stays paired for 30 days from its last use, and **Remove** in the popover ends it at once.
+stays paired for 30 days from its last use, and **Remove** in the Remote Control UX ends it at once.
 
 **On your phone**, the relay's own page lists your shared chats and opens each one with its messages
 in order. From there you can send a message, approve or deny a command that is waiting, switch
@@ -340,6 +365,15 @@ likely next word, so answers are focused and repeatable, which suits coding. Hig
 replies more varied and less predictable. Most providers accept values from 0 to 2, and around 1 is
 a common default. Leave the box blank and no temperature is sent, so your server's default applies;
 a value you type is stored and sent.
+
+## My Profiles
+
+**New feature: My Profiles.** Name and save a complete model setup (provider, base URL, model,
+context window, max output, temperature, reasoning and image settings) and switch to it in one step,
+from the top of the API Configuration settings or from the composer, beside the model name. Before
+this new feature, two models served from the same provider would overwrite each other's settings.
+Even an already-opened chat can be switched to a whole new setup before its next message. A pencil
+renames a profile and an × deletes it.
 
 ## It knows what it is
 

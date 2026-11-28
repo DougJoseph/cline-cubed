@@ -8,6 +8,8 @@ interface PopupModalContainerProps {
 	$maxHeight?: string
 	/** Cline Cubed: an outline color for a popover that must stand apart from the chat behind it. */
 	$borderColor?: string
+	/** Cline Cubed: how far in from the panel's left and right edges the popover sits, in px (10 unless set). */
+	$sideInset?: number
 }
 
 /**
@@ -16,8 +18,8 @@ interface PopupModalContainerProps {
  */
 const PopupModalContainer = styled.div<PopupModalContainerProps>`
 	position: fixed;
-	left: 10px;
-	right: 10px;
+	left: ${(props) => props.$sideInset ?? 10}px;
+	right: ${(props) => props.$sideInset ?? 10}px;
 	bottom: ${(props) => `calc(100vh - ${props.$menuPosition}px + ${props.$bottomOffset ?? 6}px)`};
 	display: flex;
 	flex-direction: column;
@@ -44,7 +46,7 @@ const PopupModalContainer = styled.div<PopupModalContainerProps>`
 		content: "";
 		position: absolute;
 		bottom: -5px;
-		right: ${(props) => props.$arrowPosition - 10}px;
+		right: ${(props) => props.$arrowPosition - (props.$sideInset ?? 10)}px;
 		height: 10px;
 		width: 10px;
 		transform: rotate(45deg);
